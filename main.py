@@ -163,7 +163,8 @@ def authorize(client_id):
 
     print("\nOpening Kick authorization in your browser...")
     print("Sign in on kick.com and approve the requested access.")
-    webbrowser.open(auth_url, new=1)
+    if not webbrowser.open(auth_url, new=1):
+        print(f"Open this URL manually:\n{auth_url}")
 
     try:
         server.handle_request()
