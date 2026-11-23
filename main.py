@@ -286,6 +286,7 @@ def watch_stream():
         return
 
     subscriber = input("Are you subscribed to this channel? [y/N]: ").strip().lower() in {"y", "yes"}
+    start_time = time.monotonic()
     stream_url = f"https://kick.com/{slug}"
 
     if not webbrowser.open(stream_url, new=1):
