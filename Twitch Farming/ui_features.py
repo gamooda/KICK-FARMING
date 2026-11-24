@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 import customtkinter as ctk
+from PIL import Image, ImageDraw
 
 from TwitchChannelPointsMiner.classes.entities.Bet import BetSettings, FilterCondition, Condition, OutcomeKeys, DelayMode, Strategy
 
@@ -36,67 +37,130 @@ class TwitchFarmingFeatures:
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def _input_dialog(self, title, placeholder, initial=""):
-        dialog = ctk.CTkToplevel(self)
-        dialog.title(title)
-        dialog.geometry("410x184")
-        dialog.resizable(False, False)
-        dialog.configure(fg_color="#0B0F19")
-        dialog.transient(self)
-        try:
-            dialog.iconbitmap(str(ICON_FILE))
-        except Exception:
-            pass
-        dialog.grab_set()
-        panel = ctk.CTkFrame(dialog, fg_color="#141C2B", corner_radius=13)
-        panel.pack(fill="both", expand=True, padx=12, pady=12)
-        ctk.CTkLabel(panel, text=title, font=("Segoe UI", 15, "bold"), text_color="#F4F3FA").pack(anchor="w", padx=16, pady=(13, 7))
-        entry = ctk.CTkEntry(panel, height=36, placeholder_text=placeholder, fg_color="#0D1421", border_color="#35425B")
-        entry.pack(fill="x", padx=16)
-        if initial:
-            entry.insert(0, initial)
-            entry.select_range(0, "end")
-        result = {"value": None}
-        buttons = ctk.CTkFrame(panel, fg_color="transparent")
-        buttons.pack(fill="x", padx=16, pady=(12, 11))
-        def accept():
-            result["value"] = entry.get().strip()
-            dialog.destroy()
-        ctk.CTkButton(buttons, text="Отмена", width=90, height=31, fg_color="#293448", hover_color="#394861", command=dialog.destroy).pack(side="right", padx=(7, 0))
-        ctk.CTkButton(buttons, text="Готово", width=100, height=31, fg_color="#9146FF", hover_color="#7B32E8", command=accept).pack(side="right")
-        dialog.bind("<Return>", lambda event: accept())
-        dialog.wait_window()
-        return result["value"]
+    def _make_icon(self, kind, color="#E8EAF2", size=24):
+        cache = getattr(self, "ui_icon_cache", None)
+        if cache is None:
+            self.ui_icon_cache = {}
+            cache = self.ui_icon_cache
+        key = (kind, color, size)
+        if key in cache:
+            return cache[key]
+        scale = 2
+        canvas_size = size * scale
+        image = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        c = color
+        w = max(2, size // 9) * scale
+        if kind == "play":
+            draw.polygon([(6 * scale, 3 * scale), (19 * scale, 12 * scale), (6 * scale, 21 * scale)], fill=c)
+        elif kind == "stop":
+            draw.rounded_rectangle((5 * scale, 5 * scale, 19 * scale, 19 * scale), radius=3 * scale, fill=c)
+        elif kind == "edit":
+            draw.line((5 * scale, 18 * scale, 17 * scale, 6 * scale), fill=c, width=w)
+            draw.polygon([(4 * scale, 20 * scale), (5 * scale, 15 * scale), (9 * scale, 19 * scale)], fill=c)
+            draw.line((14 * scale, 5 * scale, 18 * scale, 9 * scale), fill=c, width=w)
+        elif kind in ("delete", "trash"):
+            draw.rounded_rectangle((6 * scale, 7 * scale, 18 * scale, 21 * scale), radius=2 * scale, outline=c, width=w)
+            draw.line((4 * scale, 5 * scale, 20 * scale, 5 * scale), fill=c, width=w)
+            draw.line((9 * scale, 3 * scale, 15 * scale, 3 * scale), fill=c, width=w)
+            draw.line((10 * scale, 10 * scale, 10 * scale, 18 * scale), fill=c, width=max(1, w - 1))
+            draw.line((14 * scale, 10 * scale, 14 * scale, 18 * scale), fill=c, width=max(1, w - 1))
+        elif kind == "plus":
+            draw.line((12 * scale, 4 * scale, 12 * scale, 20 * scale), fill=c, width=w)
+            draw.line((4 * scale, 12 * scale, 20 * scale, 12 * scale), fill=c, width=w)
+        elif kind == "back":
+            draw.line((19 * scale, 12 * scale, 5 * scale, 12 * scale), fill=c, width=w)
+            draw.line((5 * scale, 12 * scale, 11 * scale, 6 * scale), fill=c, width=w)
+            draw.line((5 * scale, 12 * scale, 11 * scale, 18 * scale), fill=c, width=w)
+        elif kind == "logs":
+            draw.rounded_rectangle((4 * scale, 3 * scale, 20 * scale, 21 * scale), radius=2 * scale, outline=c, width=w)
+            for y in (8, 12, 16):
+                draw.line((8 * scale, y * scale, 16 * scale, y * scale), fill=c, width=max(1, w - 1))
+        elif kind == "folder":
+            draw.polygon([(3 * scale, 6 * scale), (9 * scale, 6 * scale), (11 * scale, 9 * scale), (21 * scale, 9 * scale), (19 * scale, 19 * scale), (3 * scale, 19 * scale)], fill=c)
+        icon = ctk.CTkImage(light_image=image, dark_image=image, size=(size, size))
+        cache[key] = icon
+        return icon
 
-    def _set_channels_locked(self, locked):
-        self.session_running = bool(locked)
-        if getattr(self, "channel_add_button", None) is not None:
-            self.channel_add_button.configure(state="disabled" if locked else "normal")
-        self._render_channels()
+    def _create_internal_page(self, title):
+        self._close_internal_page()
+        page = ctk.CTkFrame(self.main_area, fg_color="#0B0F19", corner_radius=0)
+        page.place(relx=0, rely=0, relwidth=1, relheight=1)
+        header = ctk.CTkFrame(page, fg_color="#141C2B", corner_radius=12)
+        header.pack(fill="x", padx=2, pady=(2, 10))
+        back = ctk.CTkButton(header, text="Назад", image=self._make_icon("back", "#D8C7FF", 16), compound="left", width=96, height=32, corner_radius=8, fg_color="#202A3D", hover_color="#303E58", command=self._close_internal_page)
+        back.pack(side="left", padx=10, pady=9)
+        ctk.CTkLabel(header, text=title, font=("Segoe UI", 15, "bold"), text_color="#F4F3FA").pack(side="left", padx=(8, 12))
+        body = ctk.CTkFrame(page, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=2, pady=(0, 2))
+        self.internal_page = page
+        self.internal_page_body = body
+        self.log_page = None
+        self.log_textbox = None
+        return body
+
+    def _close_internal_page(self):
+        page = getattr(self, "internal_page", None)
+        if page is not None:
+            try:
+                if page.winfo_exists():
+                    page.destroy()
+            except Exception:
+                pass
+        self.internal_page = None
+        self.internal_page_body = None
+        self.log_page = None
+        self.log_window = None
+        self.log_textbox = None
+
+    def _redact_log_text(self, value):
+        text = str(value).replace("\\r", " ").replace("\\n", " ")
+        patterns = [
+            r'(?i)(["\\']?(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|auth-token|client[_-]?secret|device[_-]?code|user[_-]?code|authorization)["\\']?\\s*[:=]\\s*["\\'])(.*?)(["\\'])',
+            r'(?i)([?&](?:token|sig|auth_token|access_token|refresh_token)=)[^&\\s]+',
+            r'(?i)(["\\']user_ip["\\']\\s*:\\s*["\\'])[^"\\']+(["\\'])',
+            r'(?i)(\\bBearer\\s+)[A-Za-z0-9._~+/-]+=*',
+            r'(?i)(\\bOAuth\\s+)[A-Za-z0-9._~+/-]+=*',
+        ]
+        replacements = [
+            r'\\1[REDACTED]\\3',
+            r'\\1[REDACTED]',
+            r'\\1[REDACTED]\\2',
+            r'\\1[REDACTED]',
+            r'\\1[REDACTED]',
+        ]
+        for pattern, replacement in zip(patterns, replacements):
+            text = re.sub(pattern, replacement, text)
+        text = re.sub(r"(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}(?![\\w.])", "[IP REDACTED]", text)
+        text = re.sub(r"(?i)(device-code=)[A-Z0-9-]+", r"\\1[REDACTED]", text)
+        return text[:1200]
+
+    def _sanitize_existing_log(self):
+        try:
+            if not LOG_FILE.is_file():
+                return
+            original = LOG_FILE.read_text(encoding="utf-8", errors="replace")
+            cleaned = "\\n".join(self._redact_log_text(line) for line in original.splitlines())
+            if cleaned != original:
+                LOG_FILE.write_text(cleaned + ("\\n" if original.endswith("\\n") else ""), encoding="utf-8")
+        except OSError:
+            pass
 
     def _update_bet_button(self):
         if hasattr(self, "bet_settings_button"):
             self.bet_settings_button.configure(text=f"⚙  Прогнозы · {self.selected_preset}")
 
     def _open_bet_settings(self):
-        window = ctk.CTkToplevel(self)
-        window.title("Автоматизация прогнозов")
-        window.geometry("650x640")
-        window.minsize(600, 580)
-        window.configure(fg_color="#0B0F19")
-        window.transient(self)
-        try:
-            window.iconbitmap(str(ICON_FILE))
-        except Exception:
-            pass
+        window = self._create_internal_page("Настройки прогнозов")
         window.grid_columnconfigure(0, weight=1)
         window.grid_rowconfigure(1, weight=1)
         header = ctk.CTkFrame(window, fg_color="#141C2B", corner_radius=12)
-        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 8))
-        ctk.CTkLabel(header, text="НАСТРОЙКИ ПРОГНОЗОВ", font=("Segoe UI", 12, "bold"), text_color="#F0EAFB").pack(anchor="w", padx=14, pady=(11, 2))
-        ctk.CTkLabel(header, text="Параметры применяются только к автоматическим прогнозам Twitch.", font=("Segoe UI", 9), text_color="#929DB2").pack(anchor="w", padx=14, pady=(0, 10))
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ctk.CTkLabel(header, text="СТРАТЕГИЯ АВТОМАТИЧЕСКИХ ПРОГНОЗОВ", font=("Segoe UI", 11, "bold"), text_color="#F0EAFB").pack(anchor="w", padx=14, pady=(10, 2))
+        feedback = ctk.CTkLabel(header, text="Настройки применяются при следующем запуске сбора.", font=("Segoe UI", 9), text_color="#929DB2")
+        feedback.pack(anchor="w", padx=14, pady=(0, 9))
         body = ctk.CTkScrollableFrame(window, fg_color="#141C2B", corner_radius=12)
-        body.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 8))
+        body.grid(row=1, column=0, sticky="nsew", pady=(0, 8))
         body.grid_columnconfigure(1, weight=1)
         preset_values = ["Оптимальный"] + sorted(self.custom_presets.keys())
         preset_var = tk.StringVar(value=self.selected_preset if self.selected_preset in preset_values else "Оптимальный")
@@ -160,7 +224,9 @@ class TwitchFarmingFeatures:
         ctk.CTkEntry(value_cell, textvariable=variables["filter_value"], height=29, fg_color="#0D1421", border_color="#35425B").pack(fill="x", pady=(3, 0))
         ctk.CTkCheckBox(body, text="Скрытная ставка", variable=stealth_mode, font=("Segoe UI", 9), checkbox_width=16, checkbox_height=16, fg_color="#9146FF", hover_color="#A970FF").grid(row=9, column=0, columnspan=2, sticky="w", padx=13, pady=(9, 9))
         foot = ctk.CTkFrame(window, fg_color="transparent")
-        foot.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 12))
+        foot.grid(row=2, column=0, sticky="ew", pady=(0, 2))
+        preset_name_entry = ctk.CTkEntry(foot, placeholder_text="Название пресета", width=128, height=32, fg_color="#0D1421", border_color="#35425B")
+        preset_name_entry.pack(side="left", padx=(0, 5))
         def fill_from_preset():
             name = preset_var.get()
             preset = DEFAULT_BET_SETTINGS if name == "Оптимальный" else self.custom_presets.get(name)
@@ -188,19 +254,20 @@ class TwitchFarmingFeatures:
                     "stealth_mode": stealth_mode.get(),
                 }
             except (TypeError, ValueError):
-                messagebox.showerror("Прогнозы", "Проверь числовые поля: нужны корректные числа.", parent=window)
+                feedback.configure(text="Проверь числовые поля.", text_color="#FF7B89")
                 return None
             strategies = ["SMART", "MOST_VOTED", "HIGH_ODDS", "PERCENTAGE", "SMART_MONEY", "NUMBER_1", "NUMBER_2", "NUMBER_3", "NUMBER_4", "NUMBER_5", "NUMBER_6", "NUMBER_7", "NUMBER_8"]
             filter_keys = ["TOTAL_USERS", "DECISION_USERS", "TOTAL_POINTS", "DECISION_POINTS", "ODDS", "ODDS_PERCENTAGE", "PERCENTAGE_USERS", "TOP_POINTS"]
             if result["strategy"] not in strategies or result["delay_mode"] not in ["FROM_START", "FROM_END", "PERCENTAGE"] or result["filter_by"] not in filter_keys or result["filter_condition"] not in ["GT", "GTE", "LT", "LTE"]:
-                messagebox.showerror("Прогнозы", "Выбрана неизвестная стратегия, фильтр или режим задержки.", parent=window)
+                feedback.configure(text="Проверь стратегию и фильтр.", text_color="#FF7B89")
                 return None
             if not 0 <= result["percentage"] <= 100 or not 0 <= result["percentage_gap"] <= 100 or result["max_points"] < 0 or result["minimum_points"] < 0 or result["delay"] < 0:
-                messagebox.showerror("Прогнозы", "Проценты должны быть от 0 до 100, очки и задержка не могут быть отрицательными.", parent=window)
+                feedback.configure(text="Проценты: 0–100. Очки и задержка не могут быть отрицательными.", text_color="#FF7B89")
                 return None
             if result["delay_mode"] == "PERCENTAGE" and result["delay"] > 1:
-                messagebox.showerror("Прогнозы", "Для PERCENTAGE задержка должна быть от 0 до 1.", parent=window)
+                feedback.configure(text="Для PERCENTAGE введи значение от 0 до 1.", text_color="#FF7B89")
                 return None
+            feedback.configure(text="Параметры корректны.", text_color="#42D6A4")
             return result
         def apply_values():
             values = read_values()
@@ -212,16 +279,17 @@ class TwitchFarmingFeatures:
                 self.custom_presets[self.selected_preset] = dict(values)
             self._update_bet_button()
             self._save_config()
-            window.destroy()
+            self._close_internal_page()
         def save_preset():
             values = read_values()
             if values is None:
                 return
-            name = self._input_dialog("Сохранить пресет", "Название пресета")
+            name = preset_name_entry.get().strip()
             if not name:
+                feedback.configure(text="Введи название пресета в поле слева.", text_color="#FFB45C")
                 return
             if name == "Оптимальный":
-                messagebox.showwarning("Пресеты", "Это имя зарезервировано для стандартного пресета.", parent=window)
+                feedback.configure(text="Название «Оптимальный» зарезервировано.", text_color="#FF7B89")
                 return
             self.custom_presets[name] = dict(values)
             self.bet_settings = dict(values)
@@ -230,9 +298,11 @@ class TwitchFarmingFeatures:
             preset_var.set(name)
             self._update_bet_button()
             self._save_config()
+            feedback.configure(text=f"Пресет «{name}» сохранён.", text_color="#42D6A4")
         def delete_preset():
             name = preset_var.get()
             if name == "Оптимальный" or name not in self.custom_presets:
+                feedback.configure(text="Выбери пользовательский пресет.", text_color="#FFB45C")
                 return
             self.custom_presets.pop(name, None)
             preset_combo.configure(values=["Оптимальный"] + sorted(self.custom_presets.keys()))
@@ -242,47 +312,31 @@ class TwitchFarmingFeatures:
             fill_from_preset()
             self._update_bet_button()
             self._save_config()
-        ctk.CTkButton(foot, text="Загрузить", width=86, height=33, fg_color="#26334A", hover_color="#394861", command=fill_from_preset).pack(side="left")
-        ctk.CTkButton(foot, text="Сохранить как…", width=112, height=33, fg_color="#26334A", hover_color="#394861", command=save_preset).pack(side="left", padx=6)
-        ctk.CTkButton(foot, text="Удалить", width=72, height=33, fg_color="#3A2636", hover_color="#633247", command=delete_preset).pack(side="left")
-        ctk.CTkButton(foot, text="Применить", width=104, height=33, fg_color="#9146FF", hover_color="#7B32E8", command=apply_values).pack(side="right")
-        window.grab_set()
+            feedback.configure(text="Пресет удалён.", text_color="#42D6A4")
+        ctk.CTkButton(foot, text="Загрузить", width=76, height=32, fg_color="#26334A", hover_color="#394861", command=fill_from_preset).pack(side="left", padx=3)
+        ctk.CTkButton(foot, text="Сохранить", width=88, height=32, fg_color="#26334A", hover_color="#394861", command=save_preset).pack(side="left", padx=3)
+        ctk.CTkButton(foot, text="Удалить", width=72, height=32, fg_color="#3A2636", hover_color="#633247", command=delete_preset).pack(side="left", padx=3)
+        ctk.CTkButton(foot, text="Применить", width=94, height=32, fg_color="#9146FF", hover_color="#7B32E8", command=apply_values).pack(side="right", padx=3)
 
     def _open_logs(self):
-        if self.log_window is not None and self.log_window.winfo_exists():
-            self.log_window.focus_force()
-            return
-        window = ctk.CTkToplevel(self)
-        self.log_window = window
-        window.title("Журнал Twitch Farming")
-        window.geometry("820x540")
-        window.minsize(650, 420)
-        window.configure(fg_color="#0B0F19")
-        window.transient(self)
-        try:
-            window.iconbitmap(str(ICON_FILE))
-        except Exception:
-            pass
-        window.grid_columnconfigure(0, weight=1)
-        window.grid_rowconfigure(1, weight=1)
-        header = ctk.CTkFrame(window, fg_color="#141C2B", corner_radius=11)
-        header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 8))
-        ctk.CTkLabel(header, text="ПОЛНЫЙ ЖУРНАЛ СОБЫТИЙ", font=("Segoe UI", 11, "bold"), text_color="#F4F3FA").pack(side="left", padx=13, pady=10)
-        ctk.CTkButton(header, text="Открыть файл", width=100, height=28, fg_color="#26334A", hover_color="#394861", command=self._open_log_file).pack(side="right", padx=10)
-        textbox = ctk.CTkTextbox(window, corner_radius=9, fg_color="#0D1421", border_width=1, border_color="#26324A", font=("Consolas", 10), text_color="#DDE4F1", wrap="none")
-        textbox.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 12))
+        body = self._create_internal_page("Журнал событий")
+        body.grid_columnconfigure(0, weight=1)
+        body.grid_rowconfigure(1, weight=1)
+        header = ctk.CTkFrame(body, fg_color="#141C2B", corner_radius=11)
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ctk.CTkLabel(header, text="ПОЛНЫЙ ЖУРНАЛ · СЕКРЕТЫ И IP СКРЫВАЮТСЯ", font=("Segoe UI", 10, "bold"), text_color="#F4F3FA").pack(side="left", padx=13, pady=10)
+        ctk.CTkButton(header, text="Открыть файл", width=100, height=28, image=self._make_icon("logs", "#D8C7FF", 15), compound="left", fg_color="#26334A", hover_color="#394861", command=self._open_log_file).pack(side="right", padx=10)
+        textbox = ctk.CTkTextbox(body, corner_radius=9, fg_color="#0D1421", border_width=1, border_color="#26324A", font=("Consolas", 9), text_color="#DDE4F1", wrap="none")
+        textbox.grid(row=1, column=0, sticky="nsew")
         self.log_textbox = textbox
+        self.log_page = self.internal_page
         try:
+            self._sanitize_existing_log()
             stored = LOG_FILE.read_text(encoding="utf-8", errors="replace") if LOG_FILE.is_file() else ""
         except OSError:
             stored = ""
-        textbox.insert("1.0", stored[-250000:] or "\n".join(self.log_records))
+        textbox.insert("1.0", stored[-250000:] or "\\n".join(self.log_records))
         textbox.configure(state="disabled")
-        def close_logs():
-            self.log_textbox = None
-            self.log_window = None
-            window.destroy()
-        window.protocol("WM_DELETE_WINDOW", close_logs)
 
     def _open_log_file(self):
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -302,7 +356,8 @@ class TwitchFarmingFeatures:
 
     def _append_log_record(self, message, level, created):
         stamp = datetime.fromtimestamp(created).strftime("%d.%m.%Y %H:%M:%S")
-        line = f"{stamp}  [{level}]  {str(message).replace(chr(10), ' ')[:1200]}"
+        safe_message = self._redact_log_text(message)
+        line = f"{stamp}  [{level}]  {safe_message}"
         self.log_records.append(line)
         if len(self.log_records) > 5000:
             self.log_records = self.log_records[-5000:]
