@@ -92,10 +92,20 @@ class AuthWorker(threading.Thread):
     def run(self):
         try:
             self.client = Twitch(self.username, get_user_agent("CHROME"))
-            success = self.client.login()
-            self.app.auth_result(self.username, self.client if success else None, success, self.restoring, "" if success else "Twitch не подтвердил авторизацию.")
-        except Exception as error:
-            self.app.auth_result(self.username, None, False, self.restoring, str(error))
+            success = bool(self.client.login())
+            self.app.auth_result(
+                self.username,
+                self.client if success else None,
+                success,
+                self.restoring,
+                "" if success else "Twitch не подтвердил авторизацию.",
+            )
+        except BaseException as error:
+            logging.getLogger("twitch_farming.auth").exception("Authentication worker failed")
+            try:
+                self.app.auth_result(self.username, None, False, self.restoring, str(error))
+            except BaseException:
+                logging.getLogger("twitch_farming.auth").exception("Authentication failure callback failed")
             if self.client is not None:
                 try:
                     self.client.twitch_login.session.close()
@@ -246,6 +256,9 @@ class TwitchFarmingApi:
         self.authenticated = False
         self.authenticated_username = ""
         self.auth_code = ""
+        self.auth_error = ""
+        self.auth_worker_state = "idle"
+        self.auth_started_at = 0.0
         self.auth_url = ACTIVATION_URL
         self.auth_opened = False
         self.auth_status = "АККАУНТ НЕ ПОДКЛЮЧЁН"
@@ -451,6 +464,9 @@ class TwitchFarmingApi:
             self.authenticated = False
             self.authenticated_username = ""
             self.auth_code = ""
+            self.auth_error = ""
+            self.auth_worker_state = "running"
+            self.auth_started_at = time.time()
             self.auth_opened = False
             self.auth_url = ACTIVATION_URL
             self.auth_status = "ПОДКЛЮЧЕНИЕ К TWITCH…"
@@ -467,6 +483,9 @@ class TwitchFarmingApi:
             if not username or (self.auth_worker is not None and self.auth_worker.is_alive()):
                 return
             self.auth_status = "ПРОВЕРКА СОХРАНЁННОЙ СЕССИИ…"
+            self.auth_error = ""
+            self.auth_worker_state = "restoring"
+            self.auth_started_at = time.time()
             self._set_status_locked("●  АВТОРИЗАЦИЯ", "#F0B65A")
             self.auth_worker = AuthWorker(self, username, True)
             worker = self.auth_worker
@@ -474,13 +493,15 @@ class TwitchFarmingApi:
 
     def auth_result(self, username, client, success, restored, error):
         with self.lock:
-            if success:
+            if success and client is not None:
                 self.api_client = client
                 self.authenticated = True
                 self.authenticated_username = username
                 self.username = username
                 self.auth_status = "АККАУНТ ПОДКЛЮЧЁН · " + username
                 self.auth_code = "Сессия восстановлена" if restored else "подтверждён"
+                self.auth_error = ""
+                self.auth_worker_state = "completed"
                 self._set_status_locked("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
                 self._append_event_locked(("Сессия Twitch восстановлена · " if restored else "Аккаунт Twitch подключён · ") + username)
             else:
@@ -488,11 +509,45 @@ class TwitchFarmingApi:
                 self.authenticated = False
                 self.authenticated_username = ""
                 self.auth_status = "АВТОРИЗАЦИЯ НЕ УДАЛАСЬ"
-                self._append_event_locked("Вход не выполнен · " + str(error)[:220])
+                self.auth_error = str(error)[:500]
+                self.auth_worker_state = "failed"
+                self._append_event_locked("Вход не выполнен · " + self.auth_error[:220])
                 self._set_status_locked("●  ОШИБКА АВТОРИЗАЦИИ", "#FF6B78")
-        self._save_config()
-        if success:
-            self.refresh_channel_profiles()
+        try:
+            self._save_config()
+        except BaseException:
+            logging.getLogger("twitch_farming.auth").exception("Could not persist authentication state")
+        if success and client is not None:
+            try:
+                self.refresh_channel_profiles()
+            except BaseException:
+                logging.getLogger("twitch_farming.auth").exception("Could not start channel profile loader")
+
+    def get_auth_state(self):
+        with self.lock:
+            worker_alive = bool(self.auth_worker is not None and self.auth_worker.is_alive())
+            elapsed = max(0, int(time.time() - self.auth_started_at)) if self.auth_started_at else 0
+            if (
+                not self.authenticated
+                and not worker_alive
+                and self.auth_worker_state in ("running", "restoring")
+                and elapsed > 8
+            ):
+                self.auth_worker_state = "failed"
+                self.auth_status = "АВТОРИЗАЦИЯ НЕ УДАЛАСЬ"
+                self.auth_error = "Поток авторизации завершился без результата. Повтори вход."
+                self._set_status_locked("●  ОШИБКА АВТОРИЗАЦИИ", "#FF6B78")
+                self._append_event_locked(self.auth_error)
+            return {
+                "authenticated": bool(self.authenticated and self.api_client is not None),
+                "username": self.authenticated_username or self.username,
+                "auth_status": self.auth_status,
+                "auth_code": self.auth_code,
+                "auth_error": self.auth_error,
+                "worker_alive": worker_alive,
+                "worker_state": self.auth_worker_state,
+                "elapsed": elapsed if worker_alive else 0,
+            }
 
     def refresh_channel_profiles(self, logins=None):
         with self.lock:
@@ -810,6 +865,8 @@ class TwitchFarmingApi:
                 "authenticated_username": self.authenticated_username,
                 "auth_status": self.auth_status,
                 "auth_code": self.auth_code,
+                "auth_error": self.auth_error,
+                "auth_worker_state": self.auth_worker_state,
                 "session_running": self.session_running,
                 "status_text": self.status_text,
                 "status_color": self.status_color,

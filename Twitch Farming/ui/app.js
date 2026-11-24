@@ -11,7 +11,9 @@ let toastTimer=null;
 let logsLoaded=false;
 let logsLoading=false;
 let pendingLogRows=[];
+let pollErrorShown=false;
 let tutorialShown=false;
+let appInitialized=false;
 let tutorialStep=0;
 const tutorialSteps=[
   {title:"Добавление каналов",text:"Нажми + и добавь Twitch-каналы по логину или ссылке. Аватары, имена и статус трансляции загрузятся автоматически.",target:".channels-panel"},
@@ -117,11 +119,29 @@ function appendLogRows(rows){
   if(currentPage==="logs") box.scrollTop=box.scrollHeight;
 }
 
-function applyState(state,initial){
-  appState=state;
+function applyAuthState(state){
   const authenticated=Boolean(state.authenticated);
   $("login-gate").classList.toggle("visible",!authenticated);
   $("app-shell").classList.toggle("auth-hidden",!authenticated);
+  $("gate-login-button").disabled=Boolean(state.worker_alive);
+  $("gate-status").textContent=authenticated
+    ?"Аккаунт подключён. Загружаю рабочую панель…"
+    :state.auth_error
+      ?"Ошибка авторизации: "+state.auth_error
+      :state.auth_status&&state.auth_status.includes("ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ")
+        ?"Код отправлен. Подтверди вход в открытом браузере Twitch."
+        :state.worker_alive
+          ?"Подключение к Twitch… ("+Number(state.elapsed||0)+" сек.)"
+          :state.auth_status&&state.auth_status.includes("НЕ УДАЛАСЬ")
+            ?"Не удалось подключиться. "+(state.auth_error||"Повтори вход.")
+            :"Введи логин Twitch.";
+  if(state.username&&document.activeElement!==$("gate-username")) $("gate-username").value=state.username;
+}
+
+function applyState(state,initial){
+  appState=state;
+  applyAuthState(state);
+  const authenticated=Boolean(state.authenticated);
   $("sidebar-status").textContent=state.status_text.replace(/^●\s*/,"");
   $("sidebar-status").style.color=state.status_color;
   document.querySelector(".status-dot").style.background=state.status_color;
@@ -163,10 +183,33 @@ async function poll(){
   if(polling||!window.pywebview||!window.pywebview.api) return;
   polling=true;
   try{
-    const state=await api().get_state(lastLogId);
-    applyState(state,false);
-  }catch(error){}
-  polling=false;
+    const authState=await api().get_auth_state();
+    applyAuthState(authState);
+    if(authState.authenticated){
+      const firstLoad=!appInitialized;
+      const state=await api().get_state(lastLogId);
+      state.authenticated=true;
+      state.authenticated_username=authState.username;
+      state.auth_status=authState.auth_status;
+      state.auth_error="";
+      applyState(state,firstLoad);
+      if(firstLoad){
+        appInitialized=true;
+        setPage("dashboard");
+      }
+    }
+    pollErrorShown=false;
+  }catch(error){
+    console.error("Twitch Farming API polling failed:",error);
+    const message=error&&error.message?error.message:String(error);
+    $("gate-status").textContent="Ошибка связи с приложением: "+message;
+    if(!pollErrorShown){
+      notify("Не удалось обновить состояние приложения: "+message);
+      pollErrorShown=true;
+    }
+  }finally{
+    polling=false;
+  }
 }
 
 async function loadLogs(){
@@ -270,9 +313,7 @@ async function loginUser(username){
   try{
     $("gate-status").textContent="Подключение к Twitch…";
     $("gate-login-button").disabled=true;
-    const payload=collectPayload();
-    payload.username=username;
-    await api().save_settings(payload);
+    await api().save_settings({username:username});
     const result=await api().login(username);
     $("gate-status").textContent=result.message||"Ожидается авторизация Twitch.";
     await poll();
@@ -491,11 +532,16 @@ function nextTutorial(){
 async function initialize(){
   await waitForBridge();
   setupBetControls();
-  const state=await api().get_state(0);
+  const authState=await api().get_auth_state();
+  applyAuthState(authState);
   lastLogId=0;
-  applyState(state,true);
-  setPage("dashboard");
-  setInterval(poll,900);
+  if(authState.authenticated){
+    const state=await api().get_state(0);
+    applyState(state,true);
+    appInitialized=true;
+    setPage("dashboard");
+  }
+  setInterval(poll,500);
 }
 
 document.addEventListener("DOMContentLoaded",()=>{
