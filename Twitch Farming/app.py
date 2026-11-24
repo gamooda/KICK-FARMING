@@ -1,5 +1,6 @@
 import json
 import logging
+import io
 import os
 import queue
 import re
@@ -9,6 +10,9 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
+
+import requests
+from PIL import Image
 
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parent / "engine"))
@@ -69,6 +73,11 @@ class FarmingApp(ctk.CTk):
         self.authenticated_username = ""
         self.auth_thread = None
         self.auth_client = None
+        self.restore_thread = None
+        self.api_client = None
+        self.channel_list = []
+        self.channel_profiles = {}
+        self.channel_images = {}
         self.gained_total = 0
         self.event_total = 0
         self.online_channels = set()
@@ -127,9 +136,12 @@ class FarmingApp(ctk.CTk):
 
         channels_card = ctk.CTkFrame(content_row, fg_color="#141C2B", corner_radius=15)
         channels_card.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
-        ctk.CTkLabel(channels_card, text="КАНАЛЫ ДЛЯ ПРОСМОТРА", font=("Segoe UI", 10, "bold"), text_color="#A9B4C9").pack(anchor="w", padx=16, pady=(13, 7))
-        self.channels_box = ctk.CTkTextbox(channels_card, height=112, corner_radius=9, fg_color="#0D1421", border_width=1, border_color="#26324A", text_color="#E5E9F2", font=("Consolas", 12))
-        self.channels_box.pack(fill="both", expand=True, padx=13, pady=(0, 13))
+        channel_header = ctk.CTkFrame(channels_card, fg_color="transparent")
+        channel_header.pack(fill="x", padx=15, pady=(11, 6))
+        ctk.CTkLabel(channel_header, text="КАНАЛЫ ДЛЯ ПРОСМОТРА", font=("Segoe UI", 10, "bold"), text_color="#A9B4C9").pack(side="left")
+        ctk.CTkButton(channel_header, text="+", width=31, height=28, corner_radius=8, fg_color="#9146FF", hover_color="#7B32E8", font=("Segoe UI", 18, "bold"), command=self._add_channel).pack(side="right")
+        self.channel_list_frame = ctk.CTkScrollableFrame(channels_card, height=112, corner_radius=9, fg_color="#0D1421", scrollbar_button_color="#37425A", scrollbar_button_hover_color="#9146FF")
+        self.channel_list_frame.pack(fill="both", expand=True, padx=13, pady=(0, 12))
 
         options = ctk.CTkFrame(content_row, fg_color="#141C2B", corner_radius=15)
         options.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
@@ -197,15 +209,157 @@ class FarmingApp(ctk.CTk):
         except (OSError, json.JSONDecodeError):
             data = {}
         self.username_entry.insert(0, data.get("username", ""))
-        self.channels_box.insert("1.0", "\n".join(data.get("channels", [])))
+        saved_channels = data.get("channels", [])
+        if isinstance(saved_channels, str):
+            saved_channels = re.split(r"[\n,;]+", saved_channels)
+        self.channel_list = list(dict.fromkeys(self._normalize_channel(x) for x in saved_channels if self._normalize_channel(x)))
         for key, variable in self.option_vars.items():
             if key in data.get("settings", {}):
                 variable.set(bool(data["settings"][key]))
+        self._render_channels()
+        if self.username_entry.get().strip():
+            self.after(350, self._restore_session)
+
+    def _normalize_channel(self, value):
+        value = str(value or "").strip()
+        value = re.sub(r"^https?://(www\.)?twitch\.tv/", "", value, flags=re.IGNORECASE)
+        value = value.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        value = value.lstrip("@").strip().lower()
+        return value if re.fullmatch(r"[a-z0-9_]{1,25}", value) else ""
 
     def _get_channels(self):
-        text = self.channels_box.get("1.0", "end").strip()
-        values = re.split(r"[\n,;]+", text)
-        return list(dict.fromkeys(x.strip().lstrip("@").lower() for x in values if x.strip()))
+        return list(self.channel_list)
+
+    def _render_channels(self):
+        for child in self.channel_list_frame.winfo_children():
+            child.destroy()
+        if not self.channel_list:
+            ctk.CTkLabel(self.channel_list_frame, text="Нажми + и добавь канал по логину или ссылке Twitch", font=("Segoe UI", 10), text_color="#758198").pack(anchor="w", padx=10, pady=12)
+            return
+        for login in self.channel_list:
+            profile = self.channel_profiles.get(login, {})
+            stream = profile.get("stream")
+            display_name = profile.get("display_name") or login
+            title = (stream or {}).get("title", "")
+            if stream:
+                status = "В ЭФИРЕ"
+                status_color = "#42D6A4"
+            elif profile.get("loaded"):
+                status = "НЕ В ЭФИРЕ"
+                status_color = "#8792A8"
+            else:
+                status = "ПРОВЕРКА…"
+                status_color = "#F0B65A"
+            card = ctk.CTkFrame(self.channel_list_frame, fg_color="#151E2E", corner_radius=9, height=50)
+            card.pack(fill="x", padx=3, pady=3)
+            card.pack_propagate(False)
+            card.grid_columnconfigure(1, weight=1)
+            card.grid_rowconfigure(0, weight=1)
+            avatar = self.channel_images.get(login)
+            avatar_label = ctk.CTkLabel(card, text="" if avatar else login[:1].upper(), image=avatar, width=36, height=36, corner_radius=18, fg_color="#2D2445", text_color="#EDE9F7", font=("Segoe UI", 13, "bold"))
+            avatar_label.grid(row=0, column=0, padx=(8, 7), pady=6)
+            text_box = ctk.CTkFrame(card, fg_color="transparent")
+            text_box.grid(row=0, column=1, sticky="nsew", pady=4)
+            text_box.grid_columnconfigure(0, weight=1)
+            ctk.CTkLabel(text_box, text=f"{display_name}  ·  @{login}", font=("Segoe UI", 10, "bold"), text_color="#E8EAF2", anchor="w").grid(row=0, column=0, sticky="ew")
+            details = title[:48] if title else status
+            ctk.CTkLabel(text_box, text=details, font=("Segoe UI", 9), text_color=status_color if not title else "#8995AA", anchor="w").grid(row=1, column=0, sticky="ew")
+            ctk.CTkButton(card, text="✎", width=27, height=27, corner_radius=7, fg_color="#26334A", hover_color="#3A4964", command=lambda name=login: self._edit_channel(name)).grid(row=0, column=2, padx=(3, 2))
+            ctk.CTkButton(card, text="×", width=27, height=27, corner_radius=7, fg_color="#3A2636", hover_color="#633247", text_color="#FF9AA8", command=lambda name=login: self._remove_channel(name)).grid(row=0, column=3, padx=(2, 7))
+
+    def _add_channel(self):
+        dialog = ctk.CTkInputDialog(text="Введи логин канала или ссылку twitch.tv/канал", title="Добавить канал")
+        value = dialog.get_input()
+        login = self._normalize_channel(value)
+        if not login:
+            if value:
+                messagebox.showwarning("Twitch Farming", "Нужен логин канала или ссылка Twitch, а не название трансляции.")
+            return
+        if login in self.channel_list:
+            messagebox.showinfo("Twitch Farming", "Этот канал уже добавлен.")
+            return
+        self.channel_list.append(login)
+        self._render_channels()
+        self._save_config()
+        self._refresh_channel_profiles([login])
+
+    def _edit_channel(self, old_login):
+        dialog = ctk.CTkInputDialog(text="Укажи новый логин или ссылку Twitch", title=f"Изменить @{old_login}")
+        value = dialog.get_input()
+        new_login = self._normalize_channel(value)
+        if not new_login:
+            return
+        if new_login != old_login and new_login in self.channel_list:
+            messagebox.showinfo("Twitch Farming", "Этот канал уже есть в списке.")
+            return
+        index = self.channel_list.index(old_login)
+        self.channel_list[index] = new_login
+        self.channel_profiles.pop(old_login, None)
+        self.channel_images.pop(old_login, None)
+        self._render_channels()
+        self._save_config()
+        self._refresh_channel_profiles([new_login])
+
+    def _remove_channel(self, login):
+        if login in self.channel_list:
+            self.channel_list.remove(login)
+            self.channel_profiles.pop(login, None)
+            self.channel_images.pop(login, None)
+            self._render_channels()
+            self._save_config()
+
+    def _refresh_channel_profiles(self, logins=None):
+        if not self.authenticated or self.api_client is None:
+            return
+        targets = list(logins if logins is not None else self.channel_list)
+        if not targets:
+            return
+        threading.Thread(target=self._channel_profiles_worker, args=(self.api_client, targets), daemon=True).start()
+
+    def _channel_profiles_worker(self, client, logins):
+        for login in logins:
+            try:
+                user = client.get_user_info(login)
+                if not user:
+                    self.events.put(("channel_profile", login, None, None, None))
+                    continue
+                stream = client.get_stream_by_login(login)
+                image_data = None
+                avatar_url = user.get("profile_image_url")
+                if avatar_url:
+                    response = requests.get(avatar_url, timeout=8)
+                    if response.status_code == 200:
+                        image_data = response.content
+                self.events.put(("channel_profile", login, user, stream, image_data))
+            except Exception as error:
+                self.events.put(("channel_profile_error", login, str(error)))
+
+    def _restore_session(self):
+        username = self.username_entry.get().strip().lower()
+        if not username or (self.restore_thread is not None and self.restore_thread.is_alive()):
+            return
+        self.auth_status_label.configure(text="ПРОВЕРКА СОХРАНЁННОЙ СЕССИИ…", text_color="#F0B65A")
+        self.auth_button.configure(state="disabled", text="Проверка…")
+        self.start_button.configure(state="disabled")
+        self.restore_thread = threading.Thread(target=self._restore_session_worker, args=(username,), daemon=True)
+        self.restore_thread.start()
+
+    def _restore_session_worker(self, username):
+        client = Twitch(username, get_user_agent("CHROME"))
+        try:
+            if client.restore_session():
+                self.events.put(("auth_success", username, client, True))
+            else:
+                client.twitch_login.session.close()
+                self.events.put(("session_missing", None))
+        except Exception as error:
+            try:
+                client.twitch_login.session.close()
+            except Exception:
+                pass
+            self.events.put(("session_missing", str(error)))
+        finally:
+            self.events.put(("auth_finished", None))
 
     def _config_data(self):
         return {
@@ -226,6 +380,9 @@ class FarmingApp(ctk.CTk):
         username = self.username_entry.get().strip().lower()
         if not username:
             messagebox.showwarning("Twitch Farming", "Укажи логин Twitch.")
+            return
+        if self.restore_thread is not None and self.restore_thread.is_alive():
+            messagebox.showinfo("Twitch Farming", "Проверяется сохранённая сессия Twitch.")
             return
         if not self.authenticated or self.authenticated_username != username:
             self._login()
@@ -280,11 +437,13 @@ class FarmingApp(ctk.CTk):
         root_logger.setLevel(logging.INFO)
         root_logger.addHandler(handler)
         client = None
+        success = False
         try:
             client = Twitch(username, get_user_agent("CHROME"))
             self.auth_client = client
-            if client.login():
-                self.events.put(("auth_success", username))
+            success = client.login()
+            if success:
+                self.events.put(("auth_success", username, client, False))
             else:
                 self.events.put(("auth_failure", "Twitch не подтвердил авторизацию. Запроси новый код и повтори вход."))
         except Exception as error:
@@ -292,7 +451,7 @@ class FarmingApp(ctk.CTk):
         finally:
             root_logger.removeHandler(handler)
             root_logger.setLevel(previous_level)
-            if client is not None:
+            if client is not None and not success:
                 try:
                     client.twitch_login.session.close()
                 except Exception:
@@ -367,10 +526,46 @@ class FarmingApp(ctk.CTk):
                 elif item[0] == "auth_success":
                     self.authenticated = True
                     self.authenticated_username = item[1]
+                    self.api_client = item[2]
+                    restored = bool(item[3])
                     self.auth_status_label.configure(text=f"АККАУНТ ПОДКЛЮЧЁН · {item[1]}", text_color="#42D6A4")
-                    self.auth_code_label.configure(text="Код авторизации: подтверждён")
-                    self._append_event(f"Аккаунт Twitch подключён · {item[1]}")
+                    self.auth_button.configure(text="Подключено")
+                    self.auth_code_label.configure(text="Сессия восстановлена" if restored else "Код авторизации: подтверждён")
+                    self._append_event(f"Сессия Twitch восстановлена · {item[1]}" if restored else f"Аккаунт Twitch подключён · {item[1]}")
                     self._set_status("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
+                    self._refresh_channel_profiles()
+                elif item[0] == "session_missing":
+                    self.authenticated = False
+                    self.authenticated_username = ""
+                    self.auth_status_label.configure(text="АККАУНТ НЕ ПОДКЛЮЧЁН", text_color="#8792A8")
+                    self.auth_button.configure(state="normal", text="Войти через Twitch")
+                    self.start_button.configure(state="normal")
+                    self._set_status("●  НЕ ЗАПУЩЕН", "#A9B2C3")
+                    if item[1]:
+                        self._append_event("Сессию не удалось восстановить · " + str(item[1])[:180])
+                elif item[0] == "channel_profile":
+                    login, user, stream, image_data = item[1], item[2], item[3], item[4]
+                    if login in self.channel_list:
+                        profile = {"loaded": True, "stream": stream}
+                        if user:
+                            profile["display_name"] = user.get("display_name") or login
+                            profile["profile_image_url"] = user.get("profile_image_url")
+                        else:
+                            profile["error"] = "Канал не найден"
+                        self.channel_profiles[login] = profile
+                        if image_data:
+                            try:
+                                image = Image.open(io.BytesIO(image_data)).convert("RGBA")
+                                image.thumbnail((72, 72), Image.Resampling.LANCZOS)
+                                self.channel_images[login] = ctk.CTkImage(light_image=image, dark_image=image, size=(36, 36))
+                            except Exception:
+                                self.channel_images.pop(login, None)
+                        self._render_channels()
+                elif item[0] == "channel_profile_error":
+                    login, error = item[1], item[2]
+                    if login in self.channel_list:
+                        self.channel_profiles[login] = {"loaded": True, "error": error}
+                        self._render_channels()
                 elif item[0] == "auth_failure":
                     self.authenticated = False
                     self.authenticated_username = ""
@@ -492,6 +687,11 @@ class FarmingApp(ctk.CTk):
                 pass
         if self.miner is not None:
             self.miner.request_stop()
+        if self.api_client is not None:
+            try:
+                self.api_client.twitch_login.session.close()
+            except Exception:
+                pass
         self.destroy()
 
 

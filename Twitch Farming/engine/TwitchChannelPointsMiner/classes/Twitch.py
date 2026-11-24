@@ -86,70 +86,96 @@ class Twitch(object):
             r'window\.__twilightBuildID\s*=\s*"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"'
         )
 
-    def login(self):
-        if os.path.isfile(self.cookies_file):
-            try:
-                self.twitch_login.load_cookies(self.cookies_file)
-                token = self.twitch_login.get_auth_token()
-                if token:
-                    self.twitch_login.set_token(token)
-                    if self.twitch_login.check_login():
-                        logger.info("Restored the saved Twitch session.")
-                        return True
+    def restore_session(self):
+        if not os.path.isfile(self.cookies_file):
+            return False
+        try:
+            self.twitch_login.load_cookies(self.cookies_file)
+            token = self.twitch_login.get_auth_token()
+            if not token:
+                return False
+            self.twitch_login.set_token(token)
+            if self.twitch_login.check_login():
+                if self.twitch_login.expires_in <= 600 and self.twitch_login.refresh_token:
                     if self.twitch_login.refresh_access_token():
                         self.twitch_login.save_cookies(self.cookies_file)
-                        logger.info("Restored the saved Twitch session with a refreshed token.")
-                        return True
-            except Exception as error:
-                logger.warning(f"Saved Twitch session could not be restored: {error}")
-            try:
-                os.remove(self.cookies_file)
-            except OSError:
-                pass
+                return True
+            if self.twitch_login.refresh_token and self.twitch_login.refresh_access_token():
+                self.twitch_login.save_cookies(self.cookies_file)
+                return True
+        except Exception as error:
+            logger.warning(f"Saved Twitch session could not be restored: {error}")
+        return False
 
+    def login(self):
+        if self.restore_session():
+            logger.info("Restored the saved Twitch session.")
+            return True
+        try:
+            os.remove(self.cookies_file)
+        except OSError:
+            pass
         if self.twitch_login.login_flow():
             self.twitch_login.save_cookies(self.cookies_file)
             logger.info("Twitch session saved securely.")
             return True
         return False
 
+    def helix_get(self, endpoint, params=None):
+        token = self.twitch_login.token
+        if not token:
+            raise RuntimeError("Сначала подключи аккаунт Twitch.")
+        response = requests.get(
+            f"https://api.twitch.tv/helix/{endpoint}",
+            headers={
+                "Client-ID": self.twitch_login.client_id,
+                "Authorization": f"Bearer {token}",
+            },
+            params=params or {},
+            timeout=10,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload.get("data", [])
+
+    def get_user_info(self, login):
+        users = self.helix_get("users", {"login": login})
+        return users[0] if users else None
+
+    def get_stream_by_login(self, login):
+        streams = self.helix_get("streams", {"user_login": login})
+        return streams[0] if streams else None
+
     # === STREAMER / STREAM / INFO === #
-    def update_stream(self, streamer):
-        if streamer.stream.update_required() is True:
+    def update_stream(self, streamer, stream_info=None):
+        if stream_info is None:
             stream_info = self.get_stream_info(streamer)
-            if stream_info is not None:
-                streamer.stream.update(
-                    broadcast_id=stream_info["stream"]["id"],
-                    title=stream_info["broadcastSettings"]["title"],
-                    game=stream_info["broadcastSettings"]["game"],
-                    tags=stream_info["stream"]["tags"],
-                    viewers_count=stream_info["stream"]["viewersCount"],
-                )
-
-                event_properties = {
-                    "channel_id": streamer.channel_id,
-                    "broadcast_id": streamer.stream.broadcast_id,
-                    "player": "site",
-                    "user_id": self.twitch_login.get_user_id(),
-                    "live": True,
-                    "channel": streamer.username,
-                }
-
-                if (
-                    streamer.stream.game_name() is not None
-                    and streamer.stream.game_id() is not None
-                    and streamer.settings.claim_drops is True
-                ):
-                    event_properties["game"] = streamer.stream.game_name()
-                    event_properties["game_id"] = streamer.stream.game_id()
-                    # Update also the campaigns_ids so we are sure to tracking the correct campaign
-                    streamer.stream.campaigns_ids = (
-                        self.__get_campaign_ids_from_streamer(streamer)
-                    )
-
-                streamer.stream.payload = [
-                    {"event": "minute-watched", "properties": event_properties}
-                ]
+        if stream_info is None:
+            raise StreamerIsOfflineException
+        game_id = stream_info.get("game_id") or ""
+        game_name = stream_info.get("game_name") or ""
+        game = {"id": game_id, "name": game_name, "displayName": game_name} if game_id or game_name else {}
+        tags = [{"id": tag, "localizedName": tag} for tag in (stream_info.get("tags") or [])]
+        streamer.stream.update(
+            broadcast_id=stream_info.get("id"),
+            title=stream_info.get("title") or "",
+            game=game,
+            tags=tags,
+            viewers_count=int(stream_info.get("viewer_count") or 0),
+        )
+        event_properties = {
+            "channel_id": streamer.channel_id,
+            "broadcast_id": streamer.stream.broadcast_id,
+            "player": "site",
+            "user_id": self.twitch_login.get_user_id(),
+            "live": True,
+            "channel": streamer.username,
+        }
+        if streamer.stream.game_name() is not None and streamer.stream.game_id() is not None and streamer.settings.claim_drops is True:
+            event_properties["game"] = streamer.stream.game_name()
+            event_properties["game_id"] = streamer.stream.game_id()
+            streamer.stream.campaigns_ids = self.__get_campaign_ids_from_streamer(streamer)
+        streamer.stream.payload = [{"event": "minute-watched", "properties": event_properties}]
 
     def get_spade_url(self, streamer):
         try:
@@ -159,21 +185,21 @@ class Twitch(object):
 
             headers = {"User-Agent": USER_AGENTS["Linux"]["FIREFOX"]}
 
-            main_page_request = requests.get(
-                streamer.streamer_url, headers=headers)
-            response = main_page_request.text
-            # logger.info(response)
+            main_page_request = requests.get(streamer.streamer_url, headers=headers, timeout=7)
+            if main_page_request.status_code != 200:
+                return
             regex_settings = "(https://static.twitchcdn.net/config/settings.*?js|https://assets.twitch.tv/config/settings.*?.js)"
-            settings_url = re.search(regex_settings, response).group(1)
-
-            settings_request = requests.get(settings_url, headers=headers)
-            response = settings_request.text
-            regex_spade = '"spade_url":"(.*?)"'
-            streamer.stream.spade_url = re.search(
-                regex_spade, response).group(1)
-        except requests.exceptions.RequestException as e:
-            logger.error(
-                f"Something went wrong during extraction of 'spade_url': {e}")
+            settings_match = re.search(regex_settings, main_page_request.text)
+            if not settings_match:
+                return
+            settings_request = requests.get(settings_match.group(1), headers=headers, timeout=7)
+            if settings_request.status_code != 200:
+                return
+            spade_match = re.search('"spade_url":"(.*?)"', settings_request.text)
+            if spade_match:
+                streamer.stream.spade_url = spade_match.group(1)
+        except requests.exceptions.RequestException as error:
+            logger.warning(f"Не удалось получить адрес Twitch Spade для @{streamer.username}: {error}")
 
     def get_broadcast_id(self, streamer):
         json_data = copy.deepcopy(GQLOperations.WithIsStreamLiveQuery)
@@ -187,46 +213,36 @@ class Twitch(object):
                 raise StreamerIsOfflineException
 
     def get_stream_info(self, streamer):
-        json_data = copy.deepcopy(
-            GQLOperations.VideoPlayerStreamInfoOverlayChannel)
-        json_data["variables"] = {"channel": streamer.username}
-        response = self.post_gql_request(json_data)
-        if response != {}:
-            if response["data"]["user"]["stream"] is None:
-                raise StreamerIsOfflineException
-            else:
-                return response["data"]["user"]
+        return self.get_stream_by_login(streamer.username)
 
     def check_streamer_online(self, streamer):
-        if time.time() < streamer.offline_at + 60:
+        if not self.running:
             return
-
-        if streamer.is_online is False:
-            try:
+        if streamer.is_online is False and streamer.offline_at and time.time() < streamer.offline_at + 12:
+            return
+        try:
+            stream_info = self.get_stream_info(streamer)
+            if stream_info is None:
+                if streamer.is_online:
+                    streamer.set_offline()
+                return
+            self.update_stream(streamer, stream_info)
+            if streamer.is_online is False and not streamer.stream.spade_url:
                 self.get_spade_url(streamer)
-                self.update_stream(streamer)
-            except StreamerIsOfflineException:
+            streamer.set_online()
+        except StreamerIsOfflineException:
+            if streamer.is_online:
                 streamer.set_offline()
-            else:
-                streamer.set_online()
-        else:
-            try:
-                self.update_stream(streamer)
-            except StreamerIsOfflineException:
-                streamer.set_offline()
+        except requests.RequestException as error:
+            logger.warning(f"Не удалось проверить эфир @{streamer.username}: {error}")
+        except Exception as error:
+            logger.error(f"Ошибка проверки эфира @{streamer.username}: {error}")
 
     def get_channel_id(self, streamer_username):
-        json_data = copy.deepcopy(GQLOperations.GetIDFromLogin)
-        json_data["variables"]["login"] = streamer_username
-        json_response = self.post_gql_request(json_data)
-        if (
-            "data" not in json_response
-            or "user" not in json_response["data"]
-            or json_response["data"]["user"] is None
-        ):
+        user = self.get_user_info(streamer_username)
+        if not user or not user.get("id"):
             raise StreamerDoesNotExistException
-        else:
-            return json_response["data"]["user"]["id"]
+        return user["id"]
 
     def get_followers(
         self, limit: int = 100, order: FollowersOrder = FollowersOrder.ASC
@@ -306,6 +322,7 @@ class Twitch(object):
                     "User-Agent": self.user_agent,
                     "X-Device-Id": self.device_id,
                 },
+                timeout=10,
             )
             logger.debug(
                 f"Data: {json_data}, Status code: {response.status_code}, Content: {response.text}"
@@ -375,7 +392,7 @@ class Twitch(object):
 
     def update_client_version(self):
         try:
-            response = requests.get(URL)
+            response = requests.get(URL, timeout=6)
             if response.status_code != 200:
                 logger.debug(
                     f"Error with update_client_version: {response.status_code}"

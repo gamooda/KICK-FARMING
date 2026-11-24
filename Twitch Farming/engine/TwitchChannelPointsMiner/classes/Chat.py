@@ -47,8 +47,12 @@ class ClientIRC(SingleServerIRCBot):
                 )
 
     def die(self, msg="Bye, cruel world!"):
-        self.connection.disconnect(msg)
         self.__active = False
+        try:
+            if self.connection is not None:
+                self.connection.disconnect(msg)
+        except Exception:
+            pass
 
     """
     def on_join(self, connection, event):

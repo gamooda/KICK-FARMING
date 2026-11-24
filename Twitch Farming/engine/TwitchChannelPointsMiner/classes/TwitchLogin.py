@@ -44,6 +44,7 @@ class TwitchLogin(object):
         "device_id",
         "token",
         "refresh_token",
+        "expires_in",
         "login_check_result",
         "session",
         "username",
@@ -60,6 +61,7 @@ class TwitchLogin(object):
         self.device_id = device_id
         self.token = None
         self.refresh_token = None
+        self.expires_in = 0
         self.login_check_result = False
         self.session = requests.session()
         self.session.headers.update(
@@ -310,14 +312,42 @@ class TwitchLogin(object):
         self.shared_cookies = cookies_dict
         return cookies_dict.get("auth-token")
 
-    def check_login(self):
-        if self.login_check_result:
-            return self.login_check_result
-        if self.token is None:
+    def validate_token(self):
+        if not self.token:
             return False
+        try:
+            response = self.session.get(
+                "https://id.twitch.tv/oauth2/validate",
+                headers={"Authorization": f"OAuth {self.token}"},
+                timeout=10,
+            )
+        except requests.RequestException as error:
+            logger.warning(f"Twitch token validation failed: {error}")
+            return False
+        if response.status_code != 200:
+            return False
+        try:
+            payload = response.json()
+        except ValueError:
+            return False
+        if payload.get("client_id") != self.client_id:
+            return False
+        actual_login = str(payload.get("login") or "").lower()
+        if self.username and actual_login and actual_login != self.username.lower():
+            logger.error(f"The authorized Twitch account is {actual_login}, but the configured account is {self.username}.")
+            return False
+        if actual_login:
+            self.username = actual_login
+        user_id = payload.get("user_id")
+        if not user_id:
+            return False
+        self.user_id = str(user_id)
+        self.expires_in = int(payload.get("expires_in") or 0)
+        self.login_check_result = True
+        return True
 
-        self.login_check_result = self.__set_user_id()
-        return self.login_check_result
+    def check_login(self):
+        return self.validate_token()
 
     def save_cookies(self, cookies_file):
         cookies_dict = self.session.cookies.get_dict()
@@ -350,14 +380,12 @@ class TwitchLogin(object):
 
     def get_user_id(self):
         persistent = self.get_cookie_value("persistent")
-        user_id = (
-            int(persistent.split("%")[
-                0]) if persistent is not None else self.user_id
-        )
-        if user_id is None:
-            if self.__set_user_id() is True:
-                return self.user_id
-        return user_id
+        if persistent is not None:
+            try:
+                return int(str(persistent).split("%")[0])
+            except (TypeError, ValueError):
+                pass
+        return int(self.user_id) if self.user_id is not None else None
 
     def __set_user_id(self):
         json_data = copy.deepcopy(GQLOperations.GetIDFromLogin)

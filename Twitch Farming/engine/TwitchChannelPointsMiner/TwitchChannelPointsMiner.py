@@ -336,7 +336,9 @@ class TwitchChannelPointsMiner:
                 )
                 self.sync_campaigns_thread.name = "Sync campaigns/inventory"
                 self.sync_campaigns_thread.start()
-                time.sleep(30)
+                self._interruptible_sleep(30)
+                if not self.running:
+                    return
 
             self.minute_watcher_thread = threading.Thread(
                 target=self.twitch.send_minute_watched_events,
@@ -401,7 +403,9 @@ class TwitchChannelPointsMiner:
 
             refresh_context = time.time()
             while self.running:
-                time.sleep(random.uniform(20, 60))
+                self._interruptible_sleep(random.uniform(20, 60))
+                if not self.running:
+                    break
                 # Do an external control for WebSocket. Check if the thread is running
                 # Check if is not None because maybe we have already created a new connection on array+1 and now index is None
                 for index in range(0, len(self.ws_pool.ws)):
@@ -422,6 +426,14 @@ class TwitchChannelPointsMiner:
                             self.twitch.load_channel_points_context(
                                 self.streamers[index]
                             )
+
+    def _interruptible_sleep(self, seconds, step=0.25):
+        deadline = time.monotonic() + max(0, seconds)
+        while self.running:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(step, remaining))
 
     def request_stop(self):
         self.running = False
@@ -444,20 +456,26 @@ class TwitchChannelPointsMiner:
             self.twitch.twitch_login.cancel()
         except Exception:
             pass
+        deadline = time.monotonic() + 4
         for streamer in self.streamers:
             if streamer.irc_chat is not None and streamer.settings.chat != ChatPresence.NEVER:
-                streamer.leave_chat()
-                if streamer.irc_chat.is_alive() is True:
-                    streamer.irc_chat.join(timeout=15)
+                try:
+                    streamer.leave_chat()
+                    if streamer.irc_chat.is_alive() and time.monotonic() < deadline:
+                        streamer.irc_chat.join(timeout=min(0.5, max(0, deadline - time.monotonic())))
+                except Exception:
+                    pass
         if self.ws_pool is not None:
             self.ws_pool.end()
         for thread in [self.minute_watcher_thread, self.sync_campaigns_thread]:
-            if thread is not None and thread is not threading.current_thread() and thread.is_alive():
-                thread.join(timeout=75)
+            if thread is not None and thread is not threading.current_thread() and thread.is_alive() and time.monotonic() < deadline:
+                thread.join(timeout=min(1.0, max(0, deadline - time.monotonic())))
         for streamer in self.streamers:
-            if streamer.mutex.locked():
-                streamer.mutex.acquire()
-                streamer.mutex.release()
+            try:
+                if streamer.mutex.acquire(blocking=False):
+                    streamer.mutex.release()
+            except Exception:
+                pass
         if self.start_datetime is not None:
             self.__print_report()
         listener.stop()
