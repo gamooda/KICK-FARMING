@@ -41,7 +41,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --icon "Twitch Farming/assets/twitch.ico" --add-data "Twitch Farming/assets/twitch.ico;assets" --paths "Twitch Farming/engine" --collect-all PySide6 --collect-all shiboken6 --collect-submodules TwitchChannelPointsMiner "Twitch Farming/app.py"
+          pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --icon "Twitch Farming/assets/twitch.ico" --add-data "Twitch Farming/assets/twitch.ico;assets" --paths "Twitch Farming/engine" --collect-all PySide6 --collect-all shiboken6 --collect-all irc --collect-submodules TwitchChannelPointsMiner "Twitch Farming/app.py"
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
