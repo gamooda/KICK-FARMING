@@ -174,7 +174,10 @@ class Twitch(object):
         if streamer.stream.game_name() is not None and streamer.stream.game_id() is not None and streamer.settings.claim_drops is True:
             event_properties["game"] = streamer.stream.game_name()
             event_properties["game_id"] = streamer.stream.game_id()
-            streamer.stream.campaigns_ids = self.__get_campaign_ids_from_streamer(streamer)
+            try:
+                streamer.stream.campaigns_ids = self.__get_campaign_ids_from_streamer(streamer)
+            except Exception as error:
+                logger.warning(f"Не удалось обновить список Twitch Drops для @{streamer.username}: {error}")
         streamer.stream.payload = [{"event": "minute-watched", "properties": event_properties}]
 
     def get_spade_url(self, streamer):
