@@ -108,7 +108,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        sidebar = ctk.CTkFrame(self, width=208, corner_radius=0, fg_color="#101625")
+        sidebar = ctk.CTkFrame(self, width=172, corner_radius=0, fg_color="#101625")
         sidebar.grid(row=0, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
 
@@ -125,14 +125,14 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         ctk.CTkLabel(sidebar, text="v2  •  Windows", font=("Segoe UI", 10), text_color="#59647A").pack(side="bottom", anchor="w", padx=20, pady=20)
 
         main = ctk.CTkFrame(self, fg_color="transparent")
-        main.grid(row=0, column=1, sticky="nsew", padx=24, pady=20)
+        main.grid(row=0, column=1, sticky="nsew", padx=15, pady=12)
         main.grid_columnconfigure(0, weight=1)
         main.grid_rowconfigure(5, weight=1)
 
         header = ctk.CTkFrame(main, fg_color="transparent")
-        header.grid(row=0, column=0, sticky="ew", pady=(0, 16))
-        ctk.CTkLabel(header, text="Панель управления", font=("Segoe UI", 25, "bold"), text_color="#F4F3FA").pack(anchor="w")
-        ctk.CTkLabel(header, text="Управление просмотром и наградами Twitch", font=("Segoe UI", 11), text_color="#8792A8").pack(anchor="w", pady=(3, 0))
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        ctk.CTkLabel(header, text="Панель управления", font=("Segoe UI", 21, "bold"), text_color="#F4F3FA").pack(anchor="w")
+        ctk.CTkLabel(header, text="Просмотр трансляций и автоматический сбор наград", font=("Segoe UI", 10), text_color="#8792A8").pack(anchor="w", pady=(2, 0))
 
         account = ctk.CTkFrame(main, fg_color="#141C2B", corner_radius=15)
         account.grid(row=1, column=0, sticky="ew", pady=(0, 12))
@@ -157,8 +157,9 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         channel_header = ctk.CTkFrame(channels_card, fg_color="transparent")
         channel_header.pack(fill="x", padx=15, pady=(11, 6))
         ctk.CTkLabel(channel_header, text="КАНАЛЫ ДЛЯ ПРОСМОТРА", font=("Segoe UI", 10, "bold"), text_color="#A9B4C9").pack(side="left")
-        ctk.CTkButton(channel_header, text="+", width=31, height=28, corner_radius=8, fg_color="#9146FF", hover_color="#7B32E8", font=("Segoe UI", 18, "bold"), command=self._add_channel).pack(side="right")
-        self.channel_list_frame = ctk.CTkScrollableFrame(channels_card, height=112, corner_radius=9, fg_color="#0D1421", scrollbar_button_color="#37425A", scrollbar_button_hover_color="#9146FF")
+        self.channel_add_button = ctk.CTkButton(channel_header, text="+", width=31, height=28, corner_radius=8, fg_color="#9146FF", hover_color="#7B32E8", font=("Segoe UI", 18, "bold"), command=self._add_channel)
+        self.channel_add_button.pack(side="right")
+        self.channel_list_frame = ctk.CTkScrollableFrame(channels_card, height=126, corner_radius=9, fg_color="#0D1421", scrollbar_button_color="#37425A", scrollbar_button_hover_color="#9146FF")
         self.channel_list_frame.pack(fill="both", expand=True, padx=13, pady=(0, 12))
 
         options = ctk.CTkFrame(content_row, fg_color="#141C2B", corner_radius=15)
@@ -184,33 +185,43 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         grid.pack(fill="both", expand=True, padx=13, pady=(0, 10))
         for column in (0, 1):
             grid.grid_columnconfigure(column, weight=1)
+        self.option_widgets = []
         for index, (key, name) in enumerate(option_names):
-            ctk.CTkCheckBox(grid, text=name, variable=self.option_vars[key], font=("Segoe UI", 11), checkbox_width=17, checkbox_height=17, corner_radius=5, fg_color="#9146FF", hover_color="#A970FF").grid(row=index // 2, column=index % 2, sticky="w", padx=3, pady=7)
+            widget = ctk.CTkCheckBox(grid, text=name, variable=self.option_vars[key], font=("Segoe UI", 10), checkbox_width=16, checkbox_height=16, corner_radius=5, fg_color="#9146FF", hover_color="#A970FF")
+            widget.grid(row=index // 2, column=index % 2, sticky="w", padx=3, pady=5)
+            self.option_widgets.append(widget)
+        self.bet_settings_button = ctk.CTkButton(options, text="⚙  Прогнозы · Оптимальный", height=28, corner_radius=8, fg_color="#202A3D", hover_color="#303E58", font=("Segoe UI", 10), command=self._open_bet_settings)
+        self.bet_settings_button.pack(fill="x", padx=13, pady=(0, 11))
 
         actions = ctk.CTkFrame(main, fg_color="transparent")
-        actions.grid(row=3, column=0, sticky="ew", pady=(0, 12))
-        actions.grid_columnconfigure(3, weight=1)
-        self.start_button = ctk.CTkButton(actions, text="▶  Запустить", width=150, height=40, corner_radius=10, fg_color="#9146FF", hover_color="#7B32E8", font=("Segoe UI", 12, "bold"), command=self._start)
-        self.start_button.grid(row=0, column=0, padx=(0, 8))
-        self.stop_button = ctk.CTkButton(actions, text="■  Остановить", width=140, height=40, corner_radius=10, fg_color="#30384B", hover_color="#424E66", font=("Segoe UI", 12, "bold"), state="disabled", command=self._stop)
-        self.stop_button.grid(row=0, column=1, padx=8)
-        ctk.CTkButton(actions, text="Сохранить", width=110, height=40, corner_radius=10, fg_color="#1C2638", hover_color="#2A3850", command=self._save_config).grid(row=0, column=2, padx=8)
+        actions.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        actions.grid_columnconfigure(5, weight=1)
+        self.start_button = ctk.CTkButton(actions, text="▶  Запустить", width=126, height=36, corner_radius=9, fg_color="#9146FF", hover_color="#7B32E8", font=("Segoe UI", 11, "bold"), command=self._start)
+        self.start_button.grid(row=0, column=0, padx=(0, 5))
+        self.stop_button = ctk.CTkButton(actions, text="■  Стоп", width=92, height=36, corner_radius=9, fg_color="#30384B", hover_color="#424E66", font=("Segoe UI", 11, "bold"), state="disabled", command=self._stop)
+        self.stop_button.grid(row=0, column=1, padx=5)
+        ctk.CTkButton(actions, text="Сохранить", width=88, height=36, corner_radius=9, fg_color="#1C2638", hover_color="#2A3850", font=("Segoe UI", 10), command=self._save_config).grid(row=0, column=2, padx=5)
+        ctk.CTkButton(actions, text="Логи", width=68, height=36, corner_radius=9, fg_color="#1C2638", hover_color="#2A3850", font=("Segoe UI", 10), command=self._open_logs).grid(row=0, column=3, padx=5)
+        ctk.CTkButton(actions, text="Папка", width=72, height=36, corner_radius=9, fg_color="#1C2638", hover_color="#2A3850", font=("Segoe UI", 10), command=self._open_app_folder).grid(row=0, column=4, padx=5)
 
         stats = ctk.CTkFrame(main, fg_color="transparent")
-        stats.grid(row=4, column=0, sticky="ew", pady=(0, 12))
+        stats.grid(row=4, column=0, sticky="ew", pady=(0, 8))
         for column in (0, 1, 2):
             stats.grid_columnconfigure(column, weight=1)
         self.points_value = self._stat_card(stats, 0, "ПОЛУЧЕНО ЗА СЕССИЮ", "0", "#A970FF")
         self.online_value = self._stat_card(stats, 1, "КАНАЛЫ В ЭФИРЕ", "0", "#42D6A4")
         self.events_value = self._stat_card(stats, 2, "СОБЫТИЯ", "0", "#67B6FF")
 
-        events_card = ctk.CTkFrame(main, fg_color="#141C2B", corner_radius=15)
+        events_card = ctk.CTkFrame(main, fg_color="#141C2B", corner_radius=13)
         events_card.grid(row=5, column=0, sticky="nsew")
         events_card.grid_rowconfigure(1, weight=1)
         events_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(events_card, text="ПОСЛЕДНИЕ СОБЫТИЯ", font=("Segoe UI", 10, "bold"), text_color="#A9B4C9").grid(row=0, column=0, sticky="w", padx=16, pady=(13, 7))
-        self.event_box = ctk.CTkTextbox(events_card, corner_radius=9, fg_color="#0D1421", border_width=1, border_color="#26324A", text_color="#DDE4F1", font=("Consolas", 11), wrap="word")
-        self.event_box.grid(row=1, column=0, sticky="nsew", padx=13, pady=(0, 13))
+        event_header = ctk.CTkFrame(events_card, fg_color="transparent")
+        event_header.grid(row=0, column=0, sticky="ew", padx=13, pady=(9, 5))
+        ctk.CTkLabel(event_header, text="ПОСЛЕДНИЕ НАГРАДЫ И СОБЫТИЯ", font=("Segoe UI", 9, "bold"), text_color="#A9B4C9").pack(side="left")
+        ctk.CTkButton(event_header, text="Открыть журнал", width=112, height=25, corner_radius=7, fg_color="#202A3D", hover_color="#303E58", font=("Segoe UI", 9), command=self._open_logs).pack(side="right")
+        self.event_box = ctk.CTkTextbox(events_card, corner_radius=8, fg_color="#0D1421", border_width=1, border_color="#26324A", text_color="#DDE4F1", font=("Consolas", 10), wrap="word")
+        self.event_box.grid(row=1, column=0, sticky="nsew", padx=11, pady=(0, 10))
         self.event_box.configure(state="disabled")
 
     def _stat_card(self, parent, column, title, value, accent):
@@ -285,8 +296,8 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             ctk.CTkLabel(text_box, text=f"{display_name}  ·  @{login}", font=("Segoe UI", 10, "bold"), text_color="#E8EAF2", anchor="w").grid(row=0, column=0, sticky="ew")
             details = f"● В ЭФИРЕ · {title[:38]}" if stream and title else status
             ctk.CTkLabel(text_box, text=details, font=("Segoe UI", 9), text_color=status_color, anchor="w").grid(row=1, column=0, sticky="ew")
-            ctk.CTkButton(card, text="✎", width=27, height=27, corner_radius=7, fg_color="#26334A", hover_color="#3A4964", command=lambda name=login: self._edit_channel(name)).grid(row=0, column=2, padx=(3, 2))
-            ctk.CTkButton(card, text="×", width=27, height=27, corner_radius=7, fg_color="#3A2636", hover_color="#633247", text_color="#FF9AA8", command=lambda name=login: self._remove_channel(name)).grid(row=0, column=3, padx=(2, 7))
+            ctk.CTkButton(card, text="✎", width=27, height=27, corner_radius=7, fg_color="#26334A", hover_color="#3A4964", state="disabled" if self.session_running else "normal", command=lambda name=login: self._edit_channel(name)).grid(row=0, column=2, padx=(3, 2))
+            ctk.CTkButton(card, text="×", width=27, height=27, corner_radius=7, fg_color="#3A2636", hover_color="#633247", text_color="#FF9AA8", state="disabled" if self.session_running else "normal", command=lambda name=login: self._remove_channel(name)).grid(row=0, column=3, padx=(2, 7))
 
     def _add_channel(self):
         dialog = ctk.CTkInputDialog(text="Введи логин канала или ссылку twitch.tv/канал", title="Добавить канал")
