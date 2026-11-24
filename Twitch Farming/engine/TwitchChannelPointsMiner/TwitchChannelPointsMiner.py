@@ -333,6 +333,7 @@ class TwitchChannelPointsMiner:
                 self.sync_campaigns_thread = threading.Thread(
                     target=self.twitch.sync_campaigns,
                     args=(self.streamers,),
+                    daemon=True,
                 )
                 self.sync_campaigns_thread.name = "Sync campaigns/inventory"
                 self.sync_campaigns_thread.start()
@@ -343,6 +344,7 @@ class TwitchChannelPointsMiner:
             self.minute_watcher_thread = threading.Thread(
                 target=self.twitch.send_minute_watched_events,
                 args=(self.streamers, self.priority),
+                daemon=True,
             )
             self.minute_watcher_thread.name = "Minute watcher"
             self.minute_watcher_thread.start()

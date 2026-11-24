@@ -86,7 +86,7 @@ class ThreadChat(Thread):
         return None
 
     def __init__(self, username, token, channel):
-        super(ThreadChat, self).__init__()
+        super(ThreadChat, self).__init__(daemon=True)
 
         self.username = username
         self.token = token
