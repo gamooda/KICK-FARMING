@@ -114,25 +114,26 @@ class TwitchFarmingFeatures:
         self.log_textbox = None
 
     def _redact_log_text(self, value):
-        text = str(value).replace("\\r", " ").replace("\\n", " ")
+        text = str(value).replace("\r", " ").replace("\n", " ")
         patterns = [
-            r'(?i)(["\\']?(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|auth-token|client[_-]?secret|device[_-]?code|user[_-]?code|authorization)["\\']?\\s*[:=]\\s*["\\'])(.*?)(["\\'])',
-            r'(?i)([?&](?:token|sig|auth_token|access_token|refresh_token)=)[^&\\s]+',
-            r'(?i)(["\\']user_ip["\\']\\s*:\\s*["\\'])[^"\\']+(["\\'])',
-            r'(?i)(\\bBearer\\s+)[A-Za-z0-9._~+/-]+=*',
-            r'(?i)(\\bOAuth\\s+)[A-Za-z0-9._~+/-]+=*',
+            r"""(?i)(["']?(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|auth-token|client[_-]?secret|device[_-]?code|user[_-]?code|authorization|token)["']?\s*[:=]\s*["'])(.*?)(["'])""",
+            r'(?i)([?&](?:token|sig|auth_token|access_token|refresh_token)=)[^&\s]+',
+            r"""(?i)(["']user_ip["']\s*:\s*["'])[^"']+(["'])""",
+            r'(?i)(\bBearer\s+)[A-Za-z0-9._~+/-]+=*',
+            r'(?i)(\bOAuth\s+)[A-Za-z0-9._~+/-]+=*',
+            r'(?i)(device-code=)[A-Z0-9-]+',
         ]
         replacements = [
-            r'\\1[REDACTED]\\3',
-            r'\\1[REDACTED]',
-            r'\\1[REDACTED]\\2',
-            r'\\1[REDACTED]',
-            r'\\1[REDACTED]',
+            r'\1[REDACTED]\3',
+            r'\1[REDACTED]',
+            r'\1[REDACTED]\2',
+            r'\1[REDACTED]',
+            r'\1[REDACTED]',
+            r'\1[REDACTED]',
         ]
         for pattern, replacement in zip(patterns, replacements):
             text = re.sub(pattern, replacement, text)
-        text = re.sub(r"(?<![\\w.])(?:\\d{1,3}\\.){3}\\d{1,3}(?![\\w.])", "[IP REDACTED]", text)
-        text = re.sub(r"(?i)(device-code=)[A-Z0-9-]+", r"\\1[REDACTED]", text)
+        text = re.sub(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])", "[IP REDACTED]", text)
         return text[:1200]
 
     def _sanitize_existing_log(self):
@@ -325,7 +326,6 @@ class TwitchFarmingFeatures:
         header = ctk.CTkFrame(body, fg_color="#141C2B", corner_radius=11)
         header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         ctk.CTkLabel(header, text="ПОЛНЫЙ ЖУРНАЛ · СЕКРЕТЫ И IP СКРЫВАЮТСЯ", font=("Segoe UI", 10, "bold"), text_color="#F4F3FA").pack(side="left", padx=13, pady=10)
-        ctk.CTkButton(header, text="Открыть файл", width=100, height=28, image=self._make_icon("logs", "#D8C7FF", 15), compound="left", fg_color="#26334A", hover_color="#394861", command=self._open_log_file).pack(side="right", padx=10)
         textbox = ctk.CTkTextbox(body, corner_radius=9, fg_color="#0D1421", border_width=1, border_color="#26324A", font=("Consolas", 9), text_color="#DDE4F1", wrap="none")
         textbox.grid(row=1, column=0, sticky="nsew")
         self.log_textbox = textbox

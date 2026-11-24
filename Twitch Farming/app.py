@@ -419,20 +419,32 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self.restore_thread.start()
 
     def _restore_session_worker(self, username):
-        client = Twitch(username, get_user_agent("CHROME"))
+        handler = UIHandler(self.events)
+        root_logger = logging.getLogger()
+        previous_level = root_logger.level
+        root_logger.setLevel(logging.INFO)
+        root_logger.addHandler(handler)
+        client = None
+        success = False
         try:
-            if client.restore_session():
+            client = Twitch(username, get_user_agent("CHROME"))
+            self.auth_client = client
+            success = client.login()
+            if success:
                 self.events.put(("auth_success", username, client, True))
             else:
-                client.twitch_login.session.close()
-                self.events.put(("session_missing", None))
+                self.events.put(("session_missing", "Twitch не подтвердил сохранённую сессию."))
         except Exception as error:
-            try:
-                client.twitch_login.session.close()
-            except Exception:
-                pass
             self.events.put(("session_missing", str(error)))
         finally:
+            root_logger.removeHandler(handler)
+            root_logger.setLevel(previous_level)
+            if client is not None and not success:
+                try:
+                    client.twitch_login.session.close()
+                except Exception:
+                    pass
+            self.auth_client = None
             self.events.put(("auth_finished", None))
 
     def _config_data(self):

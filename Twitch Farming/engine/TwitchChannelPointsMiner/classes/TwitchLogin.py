@@ -193,7 +193,10 @@ class TwitchLogin(object):
                 detail = response.json().get("message", response.text[:200])
             except ValueError:
                 detail = response.text[:200]
-            logger.warning(f"Twitch session refresh rejected: HTTP {response.status_code} · {detail}")
+            if "missing client secret" in str(detail).lower():
+                logger.info("Twitch client requires device reauthorization; a new approval will be requested.")
+            else:
+                logger.warning(f"Twitch session refresh rejected: HTTP {response.status_code} · {detail}")
             return False
         try:
             payload = response.json()
