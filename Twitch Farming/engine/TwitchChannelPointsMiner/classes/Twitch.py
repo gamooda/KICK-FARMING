@@ -110,7 +110,6 @@ class Twitch(object):
 
     def login(self):
         if self.restore_session():
-            logger.info("Restored the saved Twitch session.")
             return True
         try:
             os.remove(self.cookies_file)

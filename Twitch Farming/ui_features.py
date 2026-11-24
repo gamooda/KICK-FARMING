@@ -103,6 +103,16 @@ class TwitchFarmingFeatures:
         return body
 
     def _close_internal_page(self):
+        job = getattr(self, "log_flush_job", None)
+        if job is not None:
+            try:
+                self.after_cancel(job)
+            except Exception:
+                pass
+        self.log_flush_job = None
+        pending = getattr(self, "log_pending_lines", None)
+        if pending is not None:
+            pending.clear()
         page = getattr(self, "internal_page", None)
         if page is not None:
             try:
@@ -330,18 +340,30 @@ class TwitchFarmingFeatures:
         body.grid_rowconfigure(1, weight=1)
         header = ctk.CTkFrame(body, fg_color="#141C2B", corner_radius=11)
         header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ctk.CTkLabel(header, text="ПОЛНЫЙ ЖУРНАЛ · СЕКРЕТЫ И IP СКРЫВАЮТСЯ", font=("Segoe UI", 10, "bold"), text_color="#F4F3FA").pack(side="left", padx=13, pady=10)
+        ctk.CTkLabel(header, text="ПОСЛЕДНИЕ СОБЫТИЯ · СЕКРЕТЫ И IP СКРЫВАЮТСЯ", font=("Segoe UI", 10, "bold"), text_color="#F4F3FA").pack(side="left", padx=13, pady=10)
         textbox = ctk.CTkTextbox(body, corner_radius=9, fg_color="#0D1421", border_width=1, border_color="#26324A", font=("Consolas", 9), text_color="#DDE4F1", wrap="none")
         textbox.grid(row=1, column=0, sticky="nsew")
         self.log_textbox = textbox
         self.log_page = self.internal_page
-        try:
-            self._sanitize_existing_log()
-            stored = LOG_FILE.read_text(encoding="utf-8", errors="replace") if LOG_FILE.is_file() else ""
-        except OSError:
-            stored = ""
-        textbox.insert("1.0", stored[-250000:] or "\n".join(self.log_records))
+        stored = self._read_log_tail()
+        textbox.insert("1.0", stored or "\n".join(self.log_records[-500:]))
         textbox.configure(state="disabled")
+
+    def _read_log_tail(self, max_bytes=40000):
+        try:
+            if not LOG_FILE.is_file():
+                return ""
+            with LOG_FILE.open("rb") as file:
+                file.seek(0, os.SEEK_END)
+                size = file.tell()
+                file.seek(max(0, size - max_bytes), os.SEEK_SET)
+                data = file.read(max_bytes)
+            text = data.decode("utf-8", errors="replace")
+            if size > max_bytes:
+                text = text.split("\n", 1)[-1]
+            return text
+        except OSError:
+            return ""
 
     def _open_log_file(self):
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -373,13 +395,35 @@ class TwitchFarmingFeatures:
         except OSError:
             pass
         if self.log_textbox is not None:
-            try:
-                self.log_textbox.configure(state="normal")
-                self.log_textbox.insert("end", line + "\n")
-                self.log_textbox.see("end")
-                self.log_textbox.configure(state="disabled")
-            except Exception:
-                self.log_textbox = None
+            pending = getattr(self, "log_pending_lines", None)
+            if pending is None:
+                self.log_pending_lines = []
+                pending = self.log_pending_lines
+            pending.append(line)
+            if len(pending) > 1500:
+                del pending[:-1500]
+            if getattr(self, "log_flush_job", None) is None:
+                self.log_flush_job = self.after(250, self._flush_log_view)
+
+    def _flush_log_view(self):
+        self.log_flush_job = None
+        textbox = self.log_textbox
+        pending = getattr(self, "log_pending_lines", [])
+        if textbox is None or not pending:
+            pending.clear()
+            return
+        lines = pending[:]
+        pending.clear()
+        try:
+            textbox.configure(state="normal")
+            textbox.insert("end", "\n".join(lines) + "\n")
+            line_count = int(textbox.index("end-1c").split(".")[0])
+            if line_count > 2500:
+                textbox.delete("1.0", f"{line_count - 2000}.0")
+            textbox.see("end")
+            textbox.configure(state="disabled")
+        except Exception:
+            self.log_textbox = None
 
     def _show_intro(self):
         if self.intro_frame is not None and self.intro_frame.winfo_exists():

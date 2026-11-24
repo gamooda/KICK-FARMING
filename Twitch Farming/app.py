@@ -40,7 +40,7 @@ ICON_FILE = RESOURCE_DIR / "assets" / "twitch.ico"
 
 class UIHandler(logging.Handler):
     def __init__(self, event_queue):
-        super().__init__(logging.DEBUG)
+        super().__init__(logging.INFO)
         self.event_queue = event_queue
 
     def emit(self, record):
@@ -99,6 +99,8 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self.log_records = []
         self.log_window = None
         self.log_textbox = None
+        self.log_pending_lines = []
+        self.log_flush_job = None
         self.toast_queue = []
         self.toast_active = None
         self.gained_total = 0
@@ -106,6 +108,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self.online_channels = set()
         self._build()
         self._load_config()
+        self.bind_all("<KeyPress>", self._handle_global_shortcuts, add="+")
         self.after(120, self._process_events)
         self.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -474,7 +477,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         if self.restore_thread is not None and self.restore_thread.is_alive():
             self._append_event("Проверяется сохранённая сессия Twitch.")
             return
-        if not self.authenticated or self.authenticated_username != username:
+        if not self.authenticated or self.authenticated_username != username or self.api_client is None:
             self._login()
             return
         channels = self._get_channels()
@@ -498,8 +501,50 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self._set_status("●  ЗАПУСК", "#F0B65A")
         settings = {key: variable.get() for key, variable in self.option_vars.items()}
         settings["bet_settings"] = dict(self.bet_settings)
-        self.worker = threading.Thread(target=self._run_engine, args=(username, channels, settings), daemon=True)
+        self.worker = threading.Thread(target=self._run_engine, args=(username, channels, settings, self.api_client), daemon=True)
         self.worker.start()
+
+    def _handle_global_shortcuts(self, event):
+        try:
+            control = bool(event.state & 0x4)
+            shift = bool(event.state & 0x1)
+            keycode = int(event.keycode)
+            keysym = str(event.keysym).lower()
+            focus = self.focus_get()
+            if focus is None or focus.winfo_class() not in ("Entry", "Text", "Spinbox"):
+                return
+            virtual_event = None
+            select_all = keycode == 65 or keysym in ("a", "ф", "cyrillic_ef")
+            if control and select_all:
+                if focus.winfo_class() == "Entry":
+                    focus.selection_range(0, "end")
+                else:
+                    focus.tag_add("sel", "1.0", "end-1c")
+                return "break"
+            if control and keycode == 45:
+                virtual_event = "<<Copy>>"
+            elif control:
+                virtual_event = {
+                    67: "<<Copy>>",
+                    88: "<<Cut>>",
+                    86: "<<Paste>>",
+                }.get(keycode)
+                if virtual_event is None:
+                    virtual_event = {
+                        "c": "<<Copy>>", "с": "<<Copy>>", "cyrillic_es": "<<Copy>>",
+                        "x": "<<Cut>>", "ч": "<<Cut>>", "cyrillic_che": "<<Cut>>",
+                        "v": "<<Paste>>", "м": "<<Paste>>", "cyrillic_em": "<<Paste>>",
+                    }.get(keysym)
+            elif keycode == 45 and shift:
+                virtual_event = "<<Paste>>"
+            elif keycode == 46 and shift:
+                virtual_event = "<<Cut>>"
+            if virtual_event:
+                focus.event_generate(virtual_event)
+                return "break"
+        except Exception:
+            return
+        return
 
     def _login(self, username_override=None):
         username = self.username_entry.get().strip().lower() if username_override is None else str(username_override).strip().lower()
@@ -555,7 +600,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             self.auth_client = None
             self.events.put(("auth_finished", None))
 
-    def _run_engine(self, username, channels, options):
+    def _run_engine(self, username, channels, options, authenticated_client=None):
         miner = None
         handler = None
         try:
@@ -596,17 +641,22 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                 logger_settings=LoggerSettings(save=False, less=True, console_level=logging.CRITICAL, file_level=logging.CRITICAL, emoji=False, colored=False),
                 streamer_settings=streamer_settings,
             )
+            if authenticated_client is None or not authenticated_client.twitch_login.get_auth_token():
+                raise RuntimeError("Сохранённая авторизация Twitch недоступна. Нажми «Войти через Twitch».")
+            authenticated_client.running = True
+            authenticated_client.twitch_login.cancelled = False
+            miner.twitch = authenticated_client
             self.miner = miner
             handler = UIHandler(self.events)
-            handler.setLevel(logging.DEBUG)
+            handler.setLevel(logging.INFO)
             logging.getLogger().addHandler(handler)
             if self.stop_requested:
                 miner.request_stop()
                 return
             self.events.put(("status", "●  ОЖИДАНИЕ АВТОРИЗАЦИИ", "#F0B65A"))
             miner.mine(streamers=channels, followers=False)
-        except SystemExit:
-            pass
+        except SystemExit as error:
+            self.events.put(("error", f"Движок завершил работу: {error}"))
         except Exception as error:
             self.events.put(("error", str(error)))
         finally:
@@ -633,9 +683,11 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             miner.request_stop()
 
     def _process_events(self):
+        processed = 0
         try:
-            while True:
+            while processed < 60:
                 item = self.events.get_nowait()
+                processed += 1
                 try:
                     if item[0] == "log":
                         self._append_log_record(item[1], item[2], item[3])
@@ -717,7 +769,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         finally:
             try:
                 if self.winfo_exists():
-                    self.after(120, self._process_events)
+                    self.after(25 if not self.events.empty() else 120, self._process_events)
             except Exception:
                 pass
 
@@ -766,7 +818,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             self._append_event(f"{stamp}  Сессия Twitch обновлена")
             self._set_status("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
             return
-        if "Twitch session saved securely" in message or "Restored the saved Twitch session" in message or "Restored the saved Twitch session with a refreshed token" in message:
+        if "Twitch session saved securely" in message:
             self.authenticated = True
             self.authenticated_username = self.username_entry.get().strip().lower()
             self.auth_status_label.configure(text=f"АККАУНТ ПОДКЛЮЧЁН · {self.authenticated_username}", text_color="#42D6A4")

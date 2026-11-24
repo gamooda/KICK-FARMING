@@ -228,6 +228,8 @@ class TwitchChannelPointsMiner:
             self.start_datetime = datetime.now()
 
             if not self.twitch.login():
+                self.running = False
+                logger.error("Twitch authorization failed. Reconnect the account and try again.")
                 return
             if not self.running or not self.twitch.running:
                 return
