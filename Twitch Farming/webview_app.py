@@ -493,6 +493,8 @@ class TwitchFarmingApi:
 
     def auth_result(self, username, client, success, restored, error):
         with self.lock:
+            if success and client is not None and self.authenticated and self.api_client is client and self.auth_worker_state == "completed":
+                return
             if success and client is not None:
                 self.api_client = client
                 self.authenticated = True
@@ -668,6 +670,19 @@ class TwitchFarmingApi:
         self._handle_log(safe, level, created)
 
     def _handle_log(self, message, level, created):
+        if message in ("Twitch session saved securely.", "Restored the saved Twitch session."):
+            with self.lock:
+                worker = self.auth_worker
+                client = worker.client if worker is not None else None
+                username = worker.username if worker is not None else self.username
+                restored = bool(worker.restoring) if worker is not None else False
+            if client is not None:
+                try:
+                    if client.twitch_login.get_auth_token():
+                        self.auth_result(username, client, True, restored, "")
+                except Exception:
+                    logging.getLogger("twitch_farming.auth").exception("Could not confirm Twitch session from the completion event")
+            return
         if message.startswith("DEVICE_AUTH_URL:"):
             with self.lock:
                 self.auth_url = message.split(":", 1)[1].strip()
