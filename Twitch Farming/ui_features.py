@@ -144,7 +144,8 @@ class TwitchFarmingFeatures:
         ctk.CTkLabel(filter_box, text="Ставка будет пропущена, если выбранное условие не выполнено.", font=("Segoe UI", 8), text_color="#8792A8").pack(anchor="w", padx=11, pady=(0, 5))
         filter_grid = ctk.CTkFrame(filter_box, fg_color="transparent")
         filter_grid.pack(fill="x", padx=8, pady=(0, 8))
-        filter_grid.grid_columnconfigure((0, 1, 2), weight=1)
+        for column in range(3):
+            filter_grid.grid_columnconfigure(column, weight=1)
         def add_filter_combo(column, key, values, title):
             cell = ctk.CTkFrame(filter_grid, fg_color="transparent")
             cell.grid(row=0, column=column, sticky="ew", padx=3)
@@ -236,7 +237,11 @@ class TwitchFarmingFeatures:
             self.custom_presets.pop(name, None)
             preset_combo.configure(values=["Оптимальный"] + sorted(self.custom_presets.keys()))
             preset_var.set("Оптимальный")
+            self.bet_settings = dict(DEFAULT_BET_SETTINGS)
+            self.selected_preset = "Оптимальный"
             fill_from_preset()
+            self._update_bet_button()
+            self._save_config()
         ctk.CTkButton(foot, text="Загрузить", width=86, height=33, fg_color="#26334A", hover_color="#394861", command=fill_from_preset).pack(side="left")
         ctk.CTkButton(foot, text="Сохранить как…", width=112, height=33, fg_color="#26334A", hover_color="#394861", command=save_preset).pack(side="left", padx=6)
         ctk.CTkButton(foot, text="Удалить", width=72, height=33, fg_color="#3A2636", hover_color="#633247", command=delete_preset).pack(side="left")
