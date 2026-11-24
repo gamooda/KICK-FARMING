@@ -274,10 +274,10 @@ class TwitchFarmingApi:
             channels = re.split(r"[\n,;]+", channels)
         self.channels = list(dict.fromkeys(self.normalize_channel(x) for x in channels if self.normalize_channel(x)))
         stored_options = data.get("settings", {})
+        config_version = int(data.get("ui_config_version", 0) or 0)
         self.options = {key: bool(stored_options.get(key, default)) for key, default in DEFAULT_OPTIONS.items()}
-        if int(data.get("ui_config_version", 0) or 0) < 2:
-            self.options["make_predictions"] = True
-            self.options["chat"] = True
+        if config_version < 2:
+            self.options = dict(DEFAULT_OPTIONS)
         self.tutorial_done = bool(data.get("tutorial_done", False))
         stored_bets = data.get("bet_settings", {})
         if isinstance(stored_bets, dict):
