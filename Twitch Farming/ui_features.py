@@ -117,7 +117,7 @@ class TwitchFarmingFeatures:
         text = str(value).replace("\r", " ").replace("\n", " ")
         patterns = [
             r"""(?i)(["']?(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|auth-token|client[_-]?secret|device[_-]?code|user[_-]?code|authorization|token)["']?\s*[:=]\s*["'])(.*?)(["'])""",
-            r'(?i)([?&](?:token|sig|auth_token|access_token|refresh_token)=)[^&\s]+',
+            r'(?i)([?&](?:token|sig|auth_token|access_token|refresh_token|dna)=)[^&\s]+',
             r'(?i)(\b(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|auth-token|client[_-]?secret|device[_-]?code|user[_-]?code|token)=)[^&,\s]+',
             r"""(?i)(["']user_ip["']\s*:\s*["'])[^"']+(["'])""",
             r'(?i)(\bBearer\s+)[A-Za-z0-9._~+/-]+=*',

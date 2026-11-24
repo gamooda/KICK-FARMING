@@ -699,8 +699,6 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                     elif item[0] == "auth_finished":
                         self.auth_button.configure(state="normal", text="Подключено" if self.authenticated else "Войти через Twitch")
                         self.start_button.configure(state="normal")
-                        if self.authenticated:
-                            self._complete_onboarding()
                     elif item[0] == "error":
                         self._append_event("Ошибка · " + str(item[1]).replace("\\n", " ")[:220])
                         self._set_status("●  ОШИБКА", "#FF6B78")
@@ -758,6 +756,14 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             self.online_channels.discard(name)
             self.online_value.configure(text=str(len(self.online_channels)))
             self._append_event(f"{stamp}  ○  {name} · Не в эфире")
+            return
+        if "Twitch session renewed after device confirmation" in message:
+            self.authenticated = True
+            self.authenticated_username = self.username_entry.get().strip().lower()
+            self.auth_status_label.configure(text=f"АККАУНТ ПОДКЛЮЧЁН · {self.authenticated_username}", text_color="#42D6A4")
+            self.auth_button.configure(text="Подключено")
+            self._append_event(f"{stamp}  Сессия Twitch обновлена")
+            self._set_status("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
             return
         if "Twitch session saved securely" in message or "Restored the saved Twitch session" in message or "Restored the saved Twitch session with a refreshed token" in message:
             self.authenticated = True

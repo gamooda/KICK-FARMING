@@ -366,7 +366,8 @@ class Twitch(object):
                     },
                     timeout=7,
                 )
-            logger.debug(f"GQLOperations {json_data.get('operationName', 'batch')} · HTTP {response.status_code}")
+            operation = json_data.get("operationName", "batch") if isinstance(json_data, dict) else "batch"
+            logger.debug(f"GQLOperations {operation} · HTTP {response.status_code}")
             return response.json()
         except requests.exceptions.RequestException as error:
             operation = json_data.get("operationName", "batch") if isinstance(json_data, dict) else "batch"
