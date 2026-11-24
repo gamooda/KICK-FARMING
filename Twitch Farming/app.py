@@ -27,6 +27,7 @@ from TwitchChannelPointsMiner.classes.entities.Streamer import StreamerSettings
 from TwitchChannelPointsMiner.logger import LoggerSettings
 from TwitchChannelPointsMiner.classes.Twitch import Twitch
 from TwitchChannelPointsMiner.utils import get_user_agent
+from ui_features import TwitchFarmingFeatures, DEFAULT_BET_SETTINGS
 
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "Twitch Farming"
@@ -48,7 +49,7 @@ class UIHandler(logging.Handler):
             pass
 
 
-class FarmingApp(ctk.CTk):
+class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
     def __init__(self):
         super().__init__()
         ctk.set_appearance_mode("dark")
@@ -58,8 +59,8 @@ class FarmingApp(ctk.CTk):
             self.iconbitmap(str(ICON_FILE))
         except Exception:
             pass
-        self.geometry("1120x780")
-        self.minsize(980, 700)
+        self.geometry("980x700")
+        self.minsize(900, 630)
         self.configure(fg_color="#0B0F19")
         self.events = queue.Queue()
         self.miner = None
@@ -78,6 +79,23 @@ class FarmingApp(ctk.CTk):
         self.channel_list = []
         self.channel_profiles = {}
         self.channel_images = {}
+        self.channel_add_button = None
+        self.session_running = False
+        self.bet_settings = dict(DEFAULT_BET_SETTINGS)
+        self.custom_presets = {}
+        self.selected_preset = "Оптимальный"
+        self.tutorial_done = False
+        self.intro_frame = None
+        self.intro_username_entry = None
+        self.intro_status_label = None
+        self.tutorial_frame = None
+        self.tutorial_step = 0
+        self.tutorial_target = None
+        self.log_records = []
+        self.log_window = None
+        self.log_textbox = None
+        self.toast_queue = []
+        self.toast_active = None
         self.gained_total = 0
         self.event_total = 0
         self.online_channels = set()

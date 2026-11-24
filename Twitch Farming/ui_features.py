@@ -1,11 +1,19 @@
 import os
+import sys
 import tkinter as tk
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 
 import customtkinter as ctk
 
 from TwitchChannelPointsMiner.classes.entities.Bet import BetSettings, FilterCondition, Condition, OutcomeKeys, DelayMode, Strategy
+
+
+APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "Twitch Farming"
+LOG_DIR = APP_DIR / "logs"
+LOG_FILE = LOG_DIR / "TwitchFarming.log"
+ICON_FILE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)) / "assets" / "twitch.ico"
 
 
 DEFAULT_BET_SETTINGS = {
@@ -25,6 +33,9 @@ DEFAULT_BET_SETTINGS = {
 
 
 class TwitchFarmingFeatures:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
     def _input_dialog(self, title, placeholder, initial=""):
         dialog = ctk.CTkToplevel(self)
         dialog.title(title)
