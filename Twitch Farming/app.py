@@ -60,8 +60,8 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             self.iconbitmap(str(ICON_FILE))
         except Exception:
             pass
-        self.geometry("980x700")
-        self.minsize(900, 630)
+        self.geometry("900x650")
+        self.minsize(820, 590)
         self.configure(fg_color="#0B0F19")
         self.events = queue.Queue()
         self.miner = None
@@ -82,6 +82,10 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self.channel_images = {}
         self.channel_add_button = None
         self.session_running = False
+        self.ui_icon_cache = {}
+        self.internal_page = None
+        self.internal_page_body = None
+        self.log_page = None
         self.bet_settings = dict(DEFAULT_BET_SETTINGS)
         self.custom_presets = {}
         self.selected_preset = "Оптимальный"
@@ -109,7 +113,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
 
-        sidebar = ctk.CTkFrame(self, width=172, corner_radius=0, fg_color="#101625")
+        sidebar = ctk.CTkFrame(self, width=154, corner_radius=0, fg_color="#101625")
         sidebar.grid(row=0, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
 
@@ -126,7 +130,8 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         ctk.CTkLabel(sidebar, text="v2  •  Windows", font=("Segoe UI", 10), text_color="#59647A").pack(side="bottom", anchor="w", padx=20, pady=20)
 
         main = ctk.CTkFrame(self, fg_color="transparent")
-        main.grid(row=0, column=1, sticky="nsew", padx=15, pady=12)
+        main.grid(row=0, column=1, sticky="nsew", padx=10, pady=9)
+        self.main_area = main
         main.grid_columnconfigure(0, weight=1)
         main.grid_rowconfigure(5, weight=1)
 
@@ -158,7 +163,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         channel_header = ctk.CTkFrame(channels_card, fg_color="transparent")
         channel_header.pack(fill="x", padx=15, pady=(11, 6))
         ctk.CTkLabel(channel_header, text="КАНАЛЫ ДЛЯ ПРОСМОТРА", font=("Segoe UI", 10, "bold"), text_color="#A9B4C9").pack(side="left")
-        self.channel_add_button = ctk.CTkButton(channel_header, text="+", width=31, height=28, corner_radius=8, fg_color="#9146FF", hover_color="#7B32E8", font=("Segoe UI", 18, "bold"), command=self._add_channel)
+        self.channel_add_button = ctk.CTkButton(channel_header, text="", image=self._make_icon("plus", "#FFFFFF", 17), width=31, height=28, corner_radius=8, fg_color="#9146FF", hover_color="#7B32E8", command=self._add_channel)
         self.channel_add_button.pack(side="right")
         self.channel_list_frame = ctk.CTkScrollableFrame(channels_card, height=126, corner_radius=9, fg_color="#0D1421", scrollbar_button_color="#37425A", scrollbar_button_hover_color="#9146FF")
         self.channel_list_frame.pack(fill="both", expand=True, padx=13, pady=(0, 12))
@@ -197,13 +202,13 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         actions = ctk.CTkFrame(main, fg_color="transparent")
         actions.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         actions.grid_columnconfigure(5, weight=1)
-        self.start_button = ctk.CTkButton(actions, text="▶  Запустить", width=126, height=36, corner_radius=9, fg_color="#9146FF", hover_color="#7B32E8", font=("Segoe UI", 11, "bold"), command=self._start)
+        self.start_button = ctk.CTkButton(actions, text="Запустить", image=self._make_icon("play", "#FFFFFF", 16), compound="left", width=118, height=34, corner_radius=9, fg_color="#9146FF", hover_color="#7B32E8", font=("Segoe UI", 10, "bold"), command=self._start)
         self.start_button.grid(row=0, column=0, padx=(0, 5))
-        self.stop_button = ctk.CTkButton(actions, text="■  Стоп", width=92, height=36, corner_radius=9, fg_color="#30384B", hover_color="#424E66", font=("Segoe UI", 11, "bold"), state="disabled", command=self._stop)
+        self.stop_button = ctk.CTkButton(actions, text="Стоп", image=self._make_icon("stop", "#C5CDDC", 15), compound="left", width=88, height=34, corner_radius=9, fg_color="#30384B", hover_color="#424E66", font=("Segoe UI", 10, "bold"), state="disabled", command=self._stop)
         self.stop_button.grid(row=0, column=1, padx=5)
         ctk.CTkButton(actions, text="Сохранить", width=88, height=36, corner_radius=9, fg_color="#1C2638", hover_color="#2A3850", font=("Segoe UI", 10), command=self._save_config).grid(row=0, column=2, padx=5)
-        ctk.CTkButton(actions, text="Логи", width=68, height=36, corner_radius=9, fg_color="#1C2638", hover_color="#2A3850", font=("Segoe UI", 10), command=self._open_logs).grid(row=0, column=3, padx=5)
-        ctk.CTkButton(actions, text="Папка", width=72, height=36, corner_radius=9, fg_color="#1C2638", hover_color="#2A3850", font=("Segoe UI", 10), command=self._open_app_folder).grid(row=0, column=4, padx=5)
+        ctk.CTkButton(actions, text="Логи", image=self._make_icon("logs", "#C9D5EA", 14), compound="left", width=68, height=34, corner_radius=9, fg_color="#1C2638", hover_color="#2A3850", font=("Segoe UI", 9), command=self._open_logs).grid(row=0, column=3, padx=4)
+        ctk.CTkButton(actions, text="Папка", image=self._make_icon("folder", "#C9D5EA", 14), compound="left", width=72, height=34, corner_radius=9, fg_color="#1C2638", hover_color="#2A3850", font=("Segoe UI", 9), command=self._open_app_folder).grid(row=0, column=4, padx=4)
 
         stats = ctk.CTkFrame(main, fg_color="transparent")
         stats.grid(row=4, column=0, sticky="ew", pady=(0, 8))
@@ -234,6 +239,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         return label
 
     def _load_config(self):
+        self._sanitize_existing_log()
         try:
             data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
@@ -304,43 +310,67 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             ctk.CTkLabel(text_box, text=f"{display_name}  ·  @{login}", font=("Segoe UI", 10, "bold"), text_color="#E8EAF2", anchor="w").grid(row=0, column=0, sticky="ew")
             details = f"● В ЭФИРЕ · {title[:38]}" if stream and title else status
             ctk.CTkLabel(text_box, text=details, font=("Segoe UI", 9), text_color=status_color, anchor="w").grid(row=1, column=0, sticky="ew")
-            ctk.CTkButton(card, text="✎", width=27, height=27, corner_radius=7, fg_color="#26334A", hover_color="#3A4964", state="disabled" if self.session_running else "normal", command=lambda name=login: self._edit_channel(name)).grid(row=0, column=2, padx=(3, 2))
-            ctk.CTkButton(card, text="×", width=27, height=27, corner_radius=7, fg_color="#3A2636", hover_color="#633247", text_color="#FF9AA8", state="disabled" if self.session_running else "normal", command=lambda name=login: self._remove_channel(name)).grid(row=0, column=3, padx=(2, 7))
+            ctk.CTkButton(card, text="", image=self._make_icon("edit", "#C7D5EE", 16), width=27, height=27, corner_radius=7, fg_color="#26334A", hover_color="#3A4964", state="disabled" if self.session_running else "normal", command=lambda name=login: self._edit_channel(name)).grid(row=0, column=2, padx=(3, 2))
+            ctk.CTkButton(card, text="", image=self._make_icon("trash", "#FF9AA8", 16), width=27, height=27, corner_radius=7, fg_color="#3A2636", hover_color="#633247", state="disabled" if self.session_running else "normal", command=lambda name=login: self._remove_channel(name)).grid(row=0, column=3, padx=(2, 7))
+
+    def _open_channel_editor(self, mode, old_login=None):
+        if self.session_running:
+            return
+        title = "Добавить канал" if mode == "add" else f"Изменить @{old_login}"
+        body = self._create_internal_page(title)
+        body.grid_columnconfigure(0, weight=1)
+        panel = ctk.CTkFrame(body, fg_color="#141C2B", corner_radius=13)
+        panel.place(relx=0.5, rely=0.4, anchor="center", relwidth=0.72)
+        ctk.CTkLabel(panel, text="КАНАЛ TWITCH", font=("Segoe UI", 10, "bold"), text_color="#A9B4C9").pack(anchor="w", padx=18, pady=(16, 6))
+        entry = ctk.CTkEntry(panel, height=39, placeholder_text="Логин или twitch.tv/channel", fg_color="#0D1421", border_color="#35425B")
+        entry.pack(fill="x", padx=18)
+        if old_login:
+            entry.insert(0, old_login)
+            entry.select_range(0, "end")
+        hint = ctk.CTkLabel(panel, text="Введи логин канала или ссылку. Название трансляции загрузится автоматически.", font=("Segoe UI", 9), text_color="#8792A8", anchor="w", justify="left", wraplength=480)
+        hint.pack(fill="x", padx=18, pady=(8, 0))
+        feedback = ctk.CTkLabel(panel, text="", font=("Segoe UI", 9), text_color="#FF7B89", anchor="w")
+        feedback.pack(fill="x", padx=18, pady=(6, 0))
+        buttons = ctk.CTkFrame(panel, fg_color="transparent")
+        buttons.pack(fill="x", padx=18, pady=(13, 16))
+        def save_channel():
+            login = self._normalize_channel(entry.get())
+            if not login:
+                feedback.configure(text="Укажи корректный логин или ссылку Twitch.", text_color="#FF7B89")
+                return
+            if mode == "add":
+                if login in self.channel_list:
+                    feedback.configure(text="Этот канал уже добавлен.", text_color="#FFB45C")
+                    return
+                self.channel_list.append(login)
+            else:
+                if login != old_login and login in self.channel_list:
+                    feedback.configure(text="Этот канал уже есть в списке.", text_color="#FFB45C")
+                    return
+                if old_login not in self.channel_list:
+                    self._close_internal_page()
+                    return
+                self.channel_list[self.channel_list.index(old_login)] = login
+                self.channel_profiles.pop(old_login, None)
+                self.channel_images.pop(old_login, None)
+            self._render_channels()
+            self._save_config()
+            self._close_internal_page()
+            self._refresh_channel_profiles([login])
+        ctk.CTkButton(buttons, text="Отмена", width=92, height=33, fg_color="#293448", hover_color="#394861", command=self._close_internal_page).pack(side="right", padx=(7, 0))
+        ctk.CTkButton(buttons, text="Сохранить", width=108, height=33, image=self._make_icon("edit", "#FFFFFF", 14), compound="left", fg_color="#9146FF", hover_color="#7B32E8", command=save_channel).pack(side="right")
+        entry.bind("<Return>", lambda event: save_channel())
+        entry.focus_set()
 
     def _add_channel(self):
         if self.session_running:
             return
-        value = self._input_dialog("Добавить канал", "Логин канала или ссылка twitch.tv/канал")
-        login = self._normalize_channel(value)
-        if not login:
-            if value:
-                messagebox.showwarning("Twitch Farming", "Нужен логин канала или ссылка Twitch, а не название трансляции.")
-            return
-        if login in self.channel_list:
-            messagebox.showinfo("Twitch Farming", "Этот канал уже добавлен.")
-            return
-        self.channel_list.append(login)
-        self._render_channels()
-        self._save_config()
-        self._refresh_channel_profiles([login])
+        self._open_channel_editor("add")
 
     def _edit_channel(self, old_login):
         if self.session_running:
             return
-        value = self._input_dialog(f"Изменить @{old_login}", "Новый логин или ссылка Twitch", old_login)
-        new_login = self._normalize_channel(value)
-        if not new_login:
-            return
-        if new_login != old_login and new_login in self.channel_list:
-            messagebox.showinfo("Twitch Farming", "Этот канал уже есть в списке.")
-            return
-        index = self.channel_list.index(old_login)
-        self.channel_list[index] = new_login
-        self.channel_profiles.pop(old_login, None)
-        self.channel_images.pop(old_login, None)
-        self._render_channels()
-        self._save_config()
-        self._refresh_channel_profiles([new_login])
+        self._open_channel_editor("edit", old_login)
 
     def _remove_channel(self, login):
         if self.session_running:
@@ -597,7 +627,8 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                 try:
                     if item[0] == "log":
                         self._append_log_record(item[1], item[2], item[3])
-                        self._handle_log(item[1], item[2], item[3], item[4])
+                        safe_message = item[1] if "and enter this code:" in item[1] else self._redact_log_text(item[1])
+                        self._handle_log(safe_message, item[2], item[3], item[4])
                     elif item[0] == "status":
                         self._set_status(item[1], item[2])
                     elif item[0] == "auth_success":
