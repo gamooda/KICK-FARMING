@@ -1,5 +1,5 @@
 pillow>=10.0.0
-PySide6>=6.8.1
+pywebview==6.2.1
 requests>=2.31.0
 websocket-client>=1.8.0
 python-dateutil>=2.9.0
@@ -9,6 +9,4 @@ colorama>=0.4.6
 irc>=20.0
 pytz>=2024.1
 validators>=0.28.0
-flask>=3.0.0
-pandas>=2.2.0
 pyinstaller>=6.8.0

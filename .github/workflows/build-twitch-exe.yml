@@ -35,13 +35,14 @@ jobs:
         run: |
           python "Twitch Farming/build_icon.py"
 
-      - name: Validate Python files
+      - name: Validate Python and UI files
         run: |
-          python -m compileall "Twitch Farming/app.py" "Twitch Farming/qt_app.py" "Twitch Farming/engine"
+          python -m compileall "Twitch Farming/app.py" "Twitch Farming/webview_app.py" "Twitch Farming/engine"
+          python -c "from pathlib import Path; root=Path('Twitch Farming'); required=[root/'ui/index.html',root/'ui/style.css',root/'ui/app.js']; missing=[str(p) for p in required if not p.is_file()]; assert not missing, 'Missing UI files: '+', '.join(missing)"
 
       - name: Build executable
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --icon "Twitch Farming/assets/twitch.ico" --add-data "Twitch Farming/assets/twitch.ico;assets" --paths "Twitch Farming/engine" --collect-all PySide6 --collect-all shiboken6 --collect-all irc --collect-submodules TwitchChannelPointsMiner "Twitch Farming/app.py"
+          pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --icon "Twitch Farming/assets/twitch.ico" --add-data "Twitch Farming/assets/twitch.ico;assets" --add-data "Twitch Farming/ui;ui" --paths "Twitch Farming/engine" --collect-all webview --collect-all clr_loader --collect-all irc --collect-submodules TwitchChannelPointsMiner --hidden-import=clr --hidden-import=clr_loader --hidden-import=webview.platforms.winforms --hidden-import=webview.platforms.edgechromium --hidden-import=webview.platforms.webview2core --hidden-import=System.Windows.Forms --hidden-import=System.Drawing --exclude-module PySide6 --exclude-module shiboken6 --exclude-module PyQt5 --exclude-module PyQt6 --exclude-module pandas --exclude-module numpy --exclude-module flask --exclude-module matplotlib --exclude-module scipy "Twitch Farming/app.py"
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
@@ -71,7 +72,8 @@ jobs:
           prerelease: false
           files: "dist/Twitch Farming.exe"
           body: |
-            Windows build of Twitch Farming (PySide6/Qt6).
+            Windows build of Twitch Farming (PyWebView/WebView2).
+            Microsoft Edge WebView2 Runtime is required.
             Source code and GPL-3.0 license are available in the repository.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
