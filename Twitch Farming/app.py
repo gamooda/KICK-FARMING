@@ -134,7 +134,8 @@ class FarmingApp(ctk.CTk):
         ]
         grid = ctk.CTkFrame(options, fg_color="transparent")
         grid.pack(fill="both", expand=True, padx=13, pady=(0, 10))
-        grid.grid_columnconfigure((0, 1), weight=1)
+        for column in (0, 1):
+            grid.grid_columnconfigure(column, weight=1)
         for index, (key, name) in enumerate(option_names):
             ctk.CTkCheckBox(grid, text=name, variable=self.option_vars[key], font=("Segoe UI", 11), checkbox_width=17, checkbox_height=17, corner_radius=5, fg_color="#9146FF", hover_color="#A970FF").grid(row=index // 2, column=index % 2, sticky="w", padx=3, pady=7)
 
@@ -149,7 +150,8 @@ class FarmingApp(ctk.CTk):
 
         stats = ctk.CTkFrame(main, fg_color="transparent")
         stats.grid(row=4, column=0, sticky="ew", pady=(0, 12))
-        stats.grid_columnconfigure((0, 1, 2), weight=1)
+        for column in (0, 1, 2):
+            stats.grid_columnconfigure(column, weight=1)
         self.points_value = self._stat_card(stats, 0, "ПОЛУЧЕНО ЗА СЕССИЮ", "0", "#A970FF")
         self.online_value = self._stat_card(stats, 1, "КАНАЛЫ В ЭФИРЕ", "0", "#42D6A4")
         self.events_value = self._stat_card(stats, 2, "СОБЫТИЯ", "0", "#67B6FF")
