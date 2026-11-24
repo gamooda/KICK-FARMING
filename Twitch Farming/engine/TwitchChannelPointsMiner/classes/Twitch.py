@@ -843,7 +843,9 @@ class Twitch(object):
 
         json_data = copy.deepcopy(GQLOperations.CommunityMomentCallout_Claim)
         json_data["variables"] = {"input": {"momentID": moment_id}}
-        self.post_gql_request(json_data)
+        response = self.post_gql_request(json_data)
+        if response and not response.get("errors"):
+            logger.info(f"Twitch Moment claimed: {streamer.username}")
 
     # === CAMPAIGNS / DROPS / INVENTORY === #
     def __get_campaign_ids_from_streamer(self, streamer):
@@ -959,6 +961,7 @@ class Twitch(object):
                 response["data"]["claimDropRewards"]["status"]
                 in ["ELIGIBLE_FOR_ALL", "DROP_INSTANCE_ALREADY_CLAIMED"]
             ):
+                logger.info(f"Twitch Drop received: {drop}")
                 return True
             else:
                 return False
