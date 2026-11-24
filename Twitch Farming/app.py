@@ -24,6 +24,7 @@ from TwitchChannelPointsMiner import TwitchChannelPointsMiner
 from TwitchChannelPointsMiner.classes.Chat import ChatPresence
 from TwitchChannelPointsMiner.classes.Settings import Priority
 from TwitchChannelPointsMiner.classes.entities.Streamer import StreamerSettings
+from TwitchChannelPointsMiner.classes.entities.Bet import BetSettings, FilterCondition, Condition, OutcomeKeys, DelayMode, Strategy
 from TwitchChannelPointsMiner.logger import LoggerSettings
 from TwitchChannelPointsMiner.classes.Twitch import Twitch
 from TwitchChannelPointsMiner.utils import get_user_agent
@@ -39,7 +40,7 @@ ICON_FILE = RESOURCE_DIR / "assets" / "twitch.ico"
 
 class UIHandler(logging.Handler):
     def __init__(self, event_queue):
-        super().__init__(logging.INFO)
+        super().__init__(logging.DEBUG)
         self.event_queue = event_queue
 
     def emit(self, record):
@@ -593,71 +594,91 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         try:
             while True:
                 item = self.events.get_nowait()
-                if item[0] == "log":
-                    self._handle_log(item[1], item[2], item[3], item[4])
-                elif item[0] == "status":
-                    self._set_status(item[1], item[2])
-                elif item[0] == "auth_success":
-                    self.authenticated = True
-                    self.authenticated_username = item[1]
-                    self.api_client = item[2]
-                    restored = bool(item[3])
-                    self.auth_status_label.configure(text=f"АККАУНТ ПОДКЛЮЧЁН · {item[1]}", text_color="#42D6A4")
-                    self.auth_button.configure(text="Подключено")
-                    self.auth_code_label.configure(text="Сессия восстановлена" if restored else "Код авторизации: подтверждён")
-                    self._append_event(f"Сессия Twitch восстановлена · {item[1]}" if restored else f"Аккаунт Twitch подключён · {item[1]}")
-                    self._set_status("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
-                    self._refresh_channel_profiles()
-                elif item[0] == "session_missing":
-                    self.authenticated = False
-                    self.authenticated_username = ""
-                    self.auth_status_label.configure(text="АККАУНТ НЕ ПОДКЛЮЧЁН", text_color="#8792A8")
-                    self.auth_button.configure(state="normal", text="Войти через Twitch")
-                    self.start_button.configure(state="normal")
-                    self._set_status("●  НЕ ЗАПУЩЕН", "#A9B2C3")
-                    if item[1]:
-                        self._append_event("Сессию не удалось восстановить · " + str(item[1])[:180])
-                elif item[0] == "channel_profile":
-                    login, user, stream, image_data = item[1], item[2], item[3], item[4]
-                    if login in self.channel_list:
-                        profile = {"loaded": True, "stream": stream}
-                        if user:
-                            profile["display_name"] = user.get("display_name") or login
-                            profile["profile_image_url"] = user.get("profile_image_url")
-                        else:
-                            profile["error"] = "Канал не найден"
-                        self.channel_profiles[login] = profile
-                        if image_data:
-                            try:
-                                image = Image.open(io.BytesIO(image_data)).convert("RGBA")
-                                image.thumbnail((72, 72), Image.Resampling.LANCZOS)
-                                self.channel_images[login] = ctk.CTkImage(light_image=image, dark_image=image, size=(36, 36))
-                            except Exception:
-                                self.channel_images.pop(login, None)
-                        self._render_channels()
-                elif item[0] == "channel_profile_error":
-                    login, error = item[1], item[2]
-                    if login in self.channel_list:
-                        self.channel_profiles[login] = {"loaded": True, "error": error}
-                        self._render_channels()
-                elif item[0] == "auth_failure":
-                    self.authenticated = False
-                    self.authenticated_username = ""
-                    self.auth_status_label.configure(text="АВТОРИЗАЦИЯ НЕ УДАЛАСЬ", text_color="#FF6B78")
-                    self._append_event("Вход не выполнен · " + str(item[1]).replace("\\n", " ")[:220])
-                    self._set_status("●  ОШИБКА АВТОРИЗАЦИИ", "#FF6B78")
-                elif item[0] == "auth_finished":
-                    self.auth_button.configure(state="normal", text="Подключено" if self.authenticated else "Войти через Twitch")
-                    self.start_button.configure(state="normal")
-                elif item[0] == "error":
-                    self._append_event("Ошибка · " + str(item[1]).replace("\\n", " ")[:220])
-                    self._set_status("●  ОШИБКА", "#FF6B78")
-                elif item[0] == "finished":
-                    self.start_button.configure(state="normal")
-                    self.stop_button.configure(state="disabled")
+                try:
+                    if item[0] == "log":
+                        self._append_log_record(item[1], item[2], item[3])
+                        self._handle_log(item[1], item[2], item[3], item[4])
+                    elif item[0] == "status":
+                        self._set_status(item[1], item[2])
+                    elif item[0] == "auth_success":
+                        self.authenticated = True
+                        self.authenticated_username = item[1]
+                        self.api_client = item[2]
+                        restored = bool(item[3])
+                        self.auth_status_label.configure(text=f"АККАУНТ ПОДКЛЮЧЁН · {item[1]}", text_color="#42D6A4")
+                        self.auth_button.configure(text="Подключено")
+                        self.auth_code_label.configure(text="Сессия восстановлена" if restored else "Код авторизации: подтверждён")
+                        self._append_event(f"Сессия Twitch восстановлена · {item[1]}" if restored else f"Аккаунт Twitch подключён · {item[1]}")
+                        self._set_intro_status("Аккаунт подключён.", "#42D6A4")
+                        self._set_status("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
+                        self._complete_onboarding()
+                        self._refresh_channel_profiles()
+                    elif item[0] == "session_missing":
+                        self.authenticated = False
+                        self.authenticated_username = ""
+                        self.auth_status_label.configure(text="АККАУНТ НЕ ПОДКЛЮЧЁН", text_color="#8792A8")
+                        self.auth_button.configure(state="normal", text="Войти через Twitch")
+                        self.start_button.configure(state="normal")
+                        self._set_intro_status("Сохранённая сессия не найдена. Подключи Twitch.", "#F0B65A")
+                        self._set_status("●  НЕ ЗАПУЩЕН", "#A9B2C3")
+                        if item[1]:
+                            self._append_event("Сессию не удалось восстановить · " + str(item[1])[:180])
+                    elif item[0] == "channel_profile":
+                        login, user, stream, image_data = item[1], item[2], item[3], item[4]
+                        if login in self.channel_list:
+                            profile = {"loaded": True, "stream": stream}
+                            if user:
+                                profile["display_name"] = user.get("display_name") or login
+                                profile["profile_image_url"] = user.get("profile_image_url")
+                            else:
+                                profile["error"] = "Канал не найден"
+                            self.channel_profiles[login] = profile
+                            if image_data:
+                                try:
+                                    image = Image.open(io.BytesIO(image_data)).convert("RGBA")
+                                    image.thumbnail((72, 72), Image.Resampling.LANCZOS)
+                                    self.channel_images[login] = ctk.CTkImage(light_image=image, dark_image=image, size=(36, 36))
+                                except Exception:
+                                    self.channel_images.pop(login, None)
+                            self._render_channels()
+                    elif item[0] == "channel_profile_error":
+                        login, error = item[1], item[2]
+                        if login in self.channel_list:
+                            self.channel_profiles[login] = {"loaded": True, "error": error}
+                            self._render_channels()
+                    elif item[0] == "auth_failure":
+                        self.authenticated = False
+                        self.authenticated_username = ""
+                        self.auth_status_label.configure(text="АВТОРИЗАЦИЯ НЕ УДАЛАСЬ", text_color="#FF6B78")
+                        self._set_intro_status("Не удалось подключиться. Проверь Twitch и повтори вход.", "#FF7B89")
+                        self._append_event("Вход не выполнен · " + str(item[1]).replace("\\n", " ")[:220])
+                        self._set_status("●  ОШИБКА АВТОРИЗАЦИИ", "#FF6B78")
+                    elif item[0] == "auth_finished":
+                        self.auth_button.configure(state="normal", text="Подключено" if self.authenticated else "Войти через Twitch")
+                        self.start_button.configure(state="normal")
+                        if self.authenticated:
+                            self._complete_onboarding()
+                    elif item[0] == "error":
+                        self._append_event("Ошибка · " + str(item[1]).replace("\\n", " ")[:220])
+                        self._set_status("●  ОШИБКА", "#FF6B78")
+                    elif item[0] == "finished":
+                        self._set_channels_locked(False)
+                        self.start_button.configure(state="normal")
+                        self.stop_button.configure(state="disabled")
+                except Exception as error:
+                    self._append_event("Ошибка обработки события · " + str(error)[:160])
+                    try:
+                        self._append_log_record("UI event handler: " + str(error), "ERROR", datetime.now().timestamp())
+                    except Exception:
+                        pass
         except queue.Empty:
             pass
-        self.after(120, self._process_events)
+        finally:
+            try:
+                if self.winfo_exists():
+                    self.after(120, self._process_events)
+            except Exception:
+                pass
 
     def _handle_log(self, message, level, created, event):
         if message.startswith("DEVICE_AUTH_URL:"):
@@ -668,6 +689,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             self.auth_code = code
             self.auth_code_label.configure(text=f"Код авторизации: {code}")
             self.auth_status_label.configure(text="ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ В TWITCH", text_color="#F0B65A")
+            self._set_intro_status("Подтверди вход в открывшемся браузере…")
             self._append_event(f"Код входа готов · {code}")
             if not self.auth_opened:
                 self.auth_opened = True
@@ -677,8 +699,6 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                 webbrowser.open(url)
             return
         if "Join IRC Chat:" in message or "Leave IRC Chat:" in message:
-            return
-        if any(text in message for text in ("Claiming the bonus", "Saving cookies", "Trying the TV login")):
             return
         stamp = datetime.fromtimestamp(created).strftime("%H:%M:%S")
         online = re.search(r"^(.*?) is Online!$", message)
@@ -703,11 +723,12 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             self.auth_button.configure(text="Подключено")
             self._append_event(f"{stamp}  Аккаунт подключён")
             self._set_status("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
+            self._complete_onboarding()
             return
-        gain = re.search(r"\+([\d,]+)\s*→\s*(.*?)\s*-\s*Reason:\s*([A-Z_]+)", message)
+        gain = re.search(r"\+([\d,]+)\s*(?:→|-->)\s*(.*?)\s*-\s*Reason:\s*([A-Z_]+)", message)
         if gain:
             amount = int(gain.group(1).replace(",", ""))
-            channel = gain.group(2).split(" (", 1)[0]
+            channel = gain.group(2).split(" (", 1)[0].strip()
             reason = gain.group(3)
             labels = {
                 "WATCH": "Просмотр",
@@ -717,24 +738,35 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                 "PREDICTION": "Прогноз",
                 "REFUND": "Возврат",
             }
+            reward = labels.get(reason, reason)
             self.gained_total += amount
             self.event_total += 1
             self.points_value.configure(text=f"{self.gained_total:,}".replace(",", " "))
             self.events_value.configure(text=str(self.event_total))
-            self._append_event(f"{stamp}  +{amount}  ·  {channel}  ·  {labels.get(reason, reason)}")
+            self._append_event(f"{stamp}  +{amount}  ·  {channel}  ·  {reward}")
+            self._show_reward_toast(channel, amount, reward)
+            return
+        if "Twitch Drop received:" in message:
+            drop_name = message.split("Twitch Drop received:", 1)[1].strip()[:100]
+            self.event_total += 1
+            self.events_value.configure(text=str(self.event_total))
+            self._append_event(f"{stamp}  Twitch Drop · {drop_name}")
+            self._show_reward_toast(self.authenticated_username or "Twitch", "Drop", drop_name or "Награда получена")
+            return
+        if "Twitch Moment claimed:" in message:
+            moment_name = message.split("Twitch Moment claimed:", 1)[1].strip()[:100]
+            self._append_event(f"{stamp}  Момент · {moment_name}")
+            self._show_reward_toast(self.authenticated_username or "Twitch", "✓", "Момент получен")
             return
         if "Joining raid from" in message:
             self._append_event(f"{stamp}  Рейд · {message.split('Joining raid from', 1)[1].strip()[:140]}")
-            return
-        if str(event) == "DROP_CLAIM":
-            self._append_event(f"{stamp}  Twitch Drop · Награда получена")
             return
         if "Place " in message and "channel points on:" in message:
             self._append_event(f"{stamp}  Прогноз · {message[:150]}")
             return
         if level in ("ERROR", "CRITICAL"):
             self._append_event(f"{stamp}  Ошибка · {message.replace(chr(10), ' ')[:200]}")
-        elif level == "WARNING" and any(word in message.lower() for word in ("failed", "unable", "invalid", "expired")):
+        elif level == "WARNING" and any(word in message.lower() for word in ("failed", "unable", "invalid", "expired", "ошибка")):
             self._append_event(f"{stamp}  Предупреждение · {message[:180]}")
 
     def _append_event(self, text):
@@ -754,6 +786,11 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
 
     def _close(self):
         self.stop_requested = True
+        if self.toast_active is not None:
+            try:
+                self.toast_active.destroy()
+            except Exception:
+                pass
         if self.auth_client is not None:
             try:
                 self.auth_client.twitch_login.cancel()
