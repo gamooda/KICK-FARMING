@@ -46,7 +46,7 @@ class TwitchFarmingFeatures:
         if key in cache:
             return cache[key]
         scale = 2
-        canvas_size = size * scale
+        canvas_size = 24 * scale
         image = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
         c = color
@@ -78,6 +78,8 @@ class TwitchFarmingFeatures:
                 draw.line((8 * scale, y * scale, 16 * scale, y * scale), fill=c, width=max(1, w - 1))
         elif kind == "folder":
             draw.polygon([(3 * scale, 6 * scale), (9 * scale, 6 * scale), (11 * scale, 9 * scale), (21 * scale, 9 * scale), (19 * scale, 19 * scale), (3 * scale, 19 * scale)], fill=c)
+        if size != 24:
+            image = image.resize((size * scale, size * scale), Image.Resampling.LANCZOS)
         icon = ctk.CTkImage(light_image=image, dark_image=image, size=(size, size))
         cache[key] = icon
         return icon
@@ -119,16 +121,17 @@ class TwitchFarmingFeatures:
             r"""(?i)(["']?(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|auth-token|client[_-]?secret|device[_-]?code|user[_-]?code|authorization|token)["']?\s*[:=]\s*["'])(.*?)(["'])""",
             r'(?i)([?&](?:token|sig|auth_token|access_token|refresh_token|dna)=)[^&\s]+',
             r'(?i)(\b(?:access[_-]?token|refresh[_-]?token|auth[_-]?token|auth-token|client[_-]?secret|device[_-]?code|user[_-]?code|token)=)[^&,\s]+',
+            r'(?i)(enter this code:\s*)[A-Z0-9-]+',
             r"""(?i)(["']user_ip["']\s*:\s*["'])[^"']+(["'])""",
             r'(?i)(\bBearer\s+)[A-Za-z0-9._~+/-]+=*',
             r'(?i)(\bOAuth\s+)[A-Za-z0-9._~+/-]+=*',
-            r'(?i)(device-code=)[A-Z0-9-]+',
         ]
         replacements = [
             r'\1[REDACTED]\3',
             r'\1[REDACTED]',
-            r'\1[REDACTED]\2',
             r'\1[REDACTED]',
+            r'\1[REDACTED]',
+            r'\1[REDACTED]\2',
             r'\1[REDACTED]',
             r'\1[REDACTED]',
         ]

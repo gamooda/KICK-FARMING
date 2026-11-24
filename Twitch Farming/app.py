@@ -464,22 +464,22 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             CONFIG_FILE.write_text(json.dumps(self._config_data(), ensure_ascii=False, indent=2), encoding="utf-8")
             self._append_event("Настройки сохранены")
         except OSError as error:
-            messagebox.showerror("Twitch Farming", f"Не удалось сохранить настройки:\n{error}")
+            self._append_event("Не удалось сохранить настройки · " + str(error)[:180])
 
     def _start(self):
         username = self.username_entry.get().strip().lower()
         if not username:
-            messagebox.showwarning("Twitch Farming", "Укажи логин Twitch.")
+            self._append_event("Укажи логин Twitch перед подключением.")
             return
         if self.restore_thread is not None and self.restore_thread.is_alive():
-            messagebox.showinfo("Twitch Farming", "Проверяется сохранённая сессия Twitch.")
+            self._append_event("Проверяется сохранённая сессия Twitch.")
             return
         if not self.authenticated or self.authenticated_username != username:
             self._login()
             return
         channels = self._get_channels()
         if not channels:
-            messagebox.showwarning("Twitch Farming", "Добавь хотя бы один канал.")
+            self._append_event("Добавь хотя бы один канал перед запуском.")
             return
         self._save_config()
         self.stop_requested = False
@@ -512,7 +512,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         if self.auth_thread is not None and self.auth_thread.is_alive():
             return
         if self.worker is not None and self.worker.is_alive():
-            messagebox.showwarning("Twitch Farming", "Останови текущий сбор перед сменой аккаунта.")
+            self._append_event("Останови текущий сбор перед сменой аккаунта.")
             return
         self.auth_opened = False
         self.auth_code = ""
@@ -772,7 +772,6 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             self.auth_button.configure(text="Подключено")
             self._append_event(f"{stamp}  Аккаунт подключён")
             self._set_status("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
-            self._complete_onboarding()
             return
         gain = re.search(r"\+([\d,]+)\s*(?:→|-->)\s*(.*?)\s*-\s*Reason:\s*([A-Z_]+)", message)
         if gain:
