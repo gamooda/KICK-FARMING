@@ -731,10 +731,24 @@ class TwitchFarmingApi:
         try:
             if not LOG_FILE.is_file():
                 return
-            old = LOG_FILE.read_text(encoding="utf-8", errors="replace")
-            clean = "\n".join(self._redact(line) for line in old.splitlines())
-            if clean != old:
-                LOG_FILE.write_text(clean + ("\n" if old.endswith("\n") else ""), encoding="utf-8")
+            with LOG_FILE.open("r+b") as file:
+                file.seek(0, os.SEEK_END)
+                size = file.tell()
+                start = max(0, size - 262144)
+                if start:
+                    file.seek(start)
+                    file.readline()
+                    start = file.tell()
+                file.seek(start)
+                original = file.read().decode("utf-8", errors="replace")
+                lines = original.splitlines()
+                clean = "\n".join(self._redact(line) for line in lines)
+                if original.endswith("\n"):
+                    clean += "\n"
+                if clean != original:
+                    file.seek(start)
+                    file.write(clean.encode("utf-8"))
+                    file.truncate()
         except OSError:
             pass
 
