@@ -132,7 +132,7 @@ class Twitch(object):
                 "Authorization": f"Bearer {token}",
             },
             params=params or {},
-            timeout=10,
+            timeout=7,
         )
         response.raise_for_status()
         payload = response.json()
@@ -185,14 +185,14 @@ class Twitch(object):
 
             headers = {"User-Agent": USER_AGENTS["Linux"]["FIREFOX"]}
 
-            main_page_request = requests.get(streamer.streamer_url, headers=headers, timeout=7)
+            main_page_request = requests.get(streamer.streamer_url, headers=headers, timeout=5)
             if main_page_request.status_code != 200:
                 return
             regex_settings = "(https://static.twitchcdn.net/config/settings.*?js|https://assets.twitch.tv/config/settings.*?.js)"
             settings_match = re.search(regex_settings, main_page_request.text)
             if not settings_match:
                 return
-            settings_request = requests.get(settings_match.group(1), headers=headers, timeout=7)
+            settings_request = requests.get(settings_match.group(1), headers=headers, timeout=5)
             if settings_request.status_code != 200:
                 return
             spade_match = re.search('"spade_url":"(.*?)"', settings_request.text)
@@ -322,7 +322,7 @@ class Twitch(object):
                     "User-Agent": self.user_agent,
                     "X-Device-Id": self.device_id,
                 },
-                timeout=10,
+                timeout=7,
             )
             logger.debug(
                 f"Data: {json_data}, Status code: {response.status_code}, Content: {response.text}"
@@ -392,7 +392,7 @@ class Twitch(object):
 
     def update_client_version(self):
         try:
-            response = requests.get(URL, timeout=6)
+            response = requests.get(URL, timeout=4)
             if response.status_code != 200:
                 logger.debug(
                     f"Error with update_client_version: {response.status_code}"

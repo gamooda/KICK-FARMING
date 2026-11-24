@@ -242,8 +242,11 @@ class FarmingApp(ctk.CTk):
             display_name = profile.get("display_name") or login
             title = (stream or {}).get("title", "")
             if stream:
-                status = "В ЭФИРЕ"
+                status = "● В ЭФИРЕ"
                 status_color = "#42D6A4"
+            elif profile.get("error"):
+                status = "КАНАЛ НЕ НАЙДЕН" if profile.get("error") == "Канал не найден" else "ОШИБКА ПРОВЕРКИ"
+                status_color = "#FF7B89"
             elif profile.get("loaded"):
                 status = "НЕ В ЭФИРЕ"
                 status_color = "#8792A8"
@@ -262,8 +265,8 @@ class FarmingApp(ctk.CTk):
             text_box.grid(row=0, column=1, sticky="nsew", pady=4)
             text_box.grid_columnconfigure(0, weight=1)
             ctk.CTkLabel(text_box, text=f"{display_name}  ·  @{login}", font=("Segoe UI", 10, "bold"), text_color="#E8EAF2", anchor="w").grid(row=0, column=0, sticky="ew")
-            details = title[:48] if title else status
-            ctk.CTkLabel(text_box, text=details, font=("Segoe UI", 9), text_color=status_color if not title else "#8995AA", anchor="w").grid(row=1, column=0, sticky="ew")
+            details = f"● В ЭФИРЕ · {title[:38]}" if stream and title else status
+            ctk.CTkLabel(text_box, text=details, font=("Segoe UI", 9), text_color=status_color, anchor="w").grid(row=1, column=0, sticky="ew")
             ctk.CTkButton(card, text="✎", width=27, height=27, corner_radius=7, fg_color="#26334A", hover_color="#3A4964", command=lambda name=login: self._edit_channel(name)).grid(row=0, column=2, padx=(3, 2))
             ctk.CTkButton(card, text="×", width=27, height=27, corner_radius=7, fg_color="#3A2636", hover_color="#633247", text_color="#FF9AA8", command=lambda name=login: self._remove_channel(name)).grid(row=0, column=3, padx=(2, 7))
 
@@ -414,6 +417,7 @@ class FarmingApp(ctk.CTk):
         if not username:
             messagebox.showwarning("Twitch Farming", "Укажи логин Twitch.")
             return
+        self._save_config()
         if self.auth_thread is not None and self.auth_thread.is_alive():
             return
         if self.worker is not None and self.worker.is_alive():
