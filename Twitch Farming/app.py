@@ -504,7 +504,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
     def _login(self, username_override=None):
         username = self.username_entry.get().strip().lower() if username_override is None else str(username_override).strip().lower()
         if not username:
-            messagebox.showwarning("Twitch Farming", "Укажи логин Twitch.")
+            self._append_event("Укажи логин Twitch перед подключением.")
             return
         self.username_entry.delete(0, "end")
         self.username_entry.insert(0, username)
