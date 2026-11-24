@@ -145,9 +145,9 @@ class TwitchFarmingFeatures:
             if not LOG_FILE.is_file():
                 return
             original = LOG_FILE.read_text(encoding="utf-8", errors="replace")
-            cleaned = "\\n".join(self._redact_log_text(line) for line in original.splitlines())
+            cleaned = "\n".join(self._redact_log_text(line) for line in original.splitlines())
             if cleaned != original:
-                LOG_FILE.write_text(cleaned + ("\\n" if original.endswith("\\n") else ""), encoding="utf-8")
+                LOG_FILE.write_text(cleaned + ("\n" if original.endswith("\n") else ""), encoding="utf-8")
         except OSError:
             pass
 
@@ -339,7 +339,7 @@ class TwitchFarmingFeatures:
             stored = LOG_FILE.read_text(encoding="utf-8", errors="replace") if LOG_FILE.is_file() else ""
         except OSError:
             stored = ""
-        textbox.insert("1.0", stored[-250000:] or "\\n".join(self.log_records))
+        textbox.insert("1.0", stored[-250000:] or "\n".join(self.log_records))
         textbox.configure(state="disabled")
 
     def _open_log_file(self):
