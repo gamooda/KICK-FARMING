@@ -88,7 +88,6 @@ class TwitchFarmingFeatures:
     def _create_internal_page(self, title):
         self._close_internal_page()
         page = ctk.CTkFrame(self.main_area, fg_color="#0B0F19", corner_radius=0)
-        page.place(relx=0, rely=0, relwidth=1, relheight=1)
         header = ctk.CTkFrame(page, fg_color="#141C2B", corner_radius=12)
         header.pack(fill="x", padx=2, pady=(2, 10))
         back = ctk.CTkButton(header, text="Назад", image=self._make_icon("back", "#D8C7FF", 16), compound="left", width=96, height=32, corner_radius=8, fg_color="#202A3D", hover_color="#303E58", command=self._close_internal_page)
@@ -125,6 +124,12 @@ class TwitchFarmingFeatures:
         self.log_page = None
         self.log_window = None
         self.log_textbox = None
+
+    def _show_internal_page(self):
+        page = getattr(self, "internal_page", None)
+        if page is not None:
+            page.place(relx=0, rely=0, relwidth=1, relheight=1)
+            page.lift()
 
     def _redact_log_text(self, value):
         text = str(value).replace("\r", " ").replace("\n", " ")
@@ -333,6 +338,7 @@ class TwitchFarmingFeatures:
         ctk.CTkButton(foot, text="Сохранить", width=88, height=32, fg_color="#26334A", hover_color="#394861", command=save_preset).pack(side="left", padx=3)
         ctk.CTkButton(foot, text="Удалить", width=72, height=32, fg_color="#3A2636", hover_color="#633247", command=delete_preset).pack(side="left", padx=3)
         ctk.CTkButton(foot, text="Применить", width=94, height=32, fg_color="#9146FF", hover_color="#7B32E8", command=apply_values).pack(side="right", padx=3)
+        self._show_internal_page()
 
     def _open_logs(self):
         body = self._create_internal_page("Журнал событий")
@@ -345,11 +351,13 @@ class TwitchFarmingFeatures:
         textbox.grid(row=1, column=0, sticky="nsew")
         self.log_textbox = textbox
         self.log_page = self.internal_page
+        self._flush_log_to_disk()
         stored = self._read_log_tail()
-        textbox.insert("1.0", stored or "\n".join(self.log_records[-500:]))
+        textbox.insert("1.0", stored or "\n".join(self.log_records[-300:]))
         textbox.configure(state="disabled")
+        self._show_internal_page()
 
-    def _read_log_tail(self, max_bytes=40000):
+    def _read_log_tail(self, max_bytes=20000):
         try:
             if not LOG_FILE.is_file():
                 return ""
@@ -388,12 +396,9 @@ class TwitchFarmingFeatures:
         self.log_records.append(line)
         if len(self.log_records) > 5000:
             self.log_records = self.log_records[-5000:]
-        try:
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
-            with LOG_FILE.open("a", encoding="utf-8") as file:
-                file.write(line + "\n")
-        except OSError:
-            pass
+        self.log_disk_pending.append(line + "\n")
+        if self.log_disk_job is None:
+            self.log_disk_job = self.after(400, self._flush_log_to_disk)
         if self.log_textbox is not None:
             pending = getattr(self, "log_pending_lines", None)
             if pending is None:
@@ -405,6 +410,20 @@ class TwitchFarmingFeatures:
             if getattr(self, "log_flush_job", None) is None:
                 self.log_flush_job = self.after(250, self._flush_log_view)
 
+    def _flush_log_to_disk(self):
+        self.log_disk_job = None
+        pending = self.log_disk_pending
+        if not pending:
+            return
+        batch = "".join(pending)
+        pending.clear()
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            with LOG_FILE.open("a", encoding="utf-8") as file:
+                file.write(batch)
+        except OSError:
+            pending.insert(0, batch)
+
     def _flush_log_view(self):
         self.log_flush_job = None
         textbox = self.log_textbox
@@ -412,8 +431,8 @@ class TwitchFarmingFeatures:
         if textbox is None or not pending:
             pending.clear()
             return
-        lines = pending[:]
-        pending.clear()
+        lines = pending[:250]
+        del pending[:len(lines)]
         try:
             textbox.configure(state="normal")
             textbox.insert("end", "\n".join(lines) + "\n")
@@ -424,6 +443,10 @@ class TwitchFarmingFeatures:
             textbox.configure(state="disabled")
         except Exception:
             self.log_textbox = None
+            pending.clear()
+            return
+        if pending and self.log_flush_job is None:
+            self.log_flush_job = self.after(60, self._flush_log_view)
 
     def _show_intro(self):
         if self.intro_frame is not None and self.intro_frame.winfo_exists():

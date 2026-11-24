@@ -101,6 +101,8 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self.log_textbox = None
         self.log_pending_lines = []
         self.log_flush_job = None
+        self.log_disk_pending = []
+        self.log_disk_job = None
         self.toast_queue = []
         self.toast_active = None
         self.gained_total = 0
@@ -363,6 +365,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         ctk.CTkButton(buttons, text="Отмена", width=92, height=33, fg_color="#293448", hover_color="#394861", command=self._close_internal_page).pack(side="right", padx=(7, 0))
         ctk.CTkButton(buttons, text="Сохранить", width=108, height=33, image=self._make_icon("edit", "#FFFFFF", 14), compound="left", fg_color="#9146FF", hover_color="#7B32E8", command=save_channel).pack(side="right")
         entry.bind("<Return>", lambda event: save_channel())
+        self._show_internal_page()
         entry.focus_set()
 
     def _add_channel(self):
@@ -394,22 +397,24 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         threading.Thread(target=self._channel_profiles_worker, args=(self.api_client, targets), daemon=True).start()
 
     def _channel_profiles_worker(self, client, logins):
+        results = []
         for login in logins:
             try:
                 user = client.get_user_info(login)
                 if not user:
-                    self.events.put(("channel_profile", login, None, None, None))
+                    results.append((login, None, None, None, None))
                     continue
                 stream = client.get_stream_by_login(login)
                 image_data = None
                 avatar_url = user.get("profile_image_url")
                 if avatar_url:
-                    response = requests.get(avatar_url, timeout=8)
+                    response = requests.get(avatar_url, timeout=5)
                     if response.status_code == 200:
                         image_data = response.content
-                self.events.put(("channel_profile", login, user, stream, image_data))
+                results.append((login, user, stream, image_data, None))
             except Exception as error:
-                self.events.put(("channel_profile_error", login, str(error)))
+                results.append((login, None, None, None, str(error)))
+        self.events.put(("channel_profiles", results))
 
     def _restore_session(self):
         username = self.username_entry.get().strip().lower()
@@ -469,6 +474,23 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         except OSError as error:
             self._append_event("Не удалось сохранить настройки · " + str(error)[:180])
 
+    def report_callback_exception(self, exc, value, tb):
+        message = f"{getattr(exc, '__name__', 'UI error')}: {value}"
+        if hasattr(self, "events"):
+            self.events.put(("error", message))
+        else:
+            super().report_callback_exception(exc, value, tb)
+
+    def _set_channels_locked(self, locked):
+        self.session_running = bool(locked)
+        state = "disabled" if self.session_running else "normal"
+        if self.channel_add_button is not None:
+            self.channel_add_button.configure(state=state)
+        for card in self.channel_list_frame.winfo_children():
+            for widget in card.winfo_children():
+                if isinstance(widget, ctk.CTkButton):
+                    widget.configure(state=state)
+
     def _start(self):
         username = self.username_entry.get().strip().lower()
         if not username:
@@ -513,38 +535,57 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             focus = self.focus_get()
             if focus is None or focus.winfo_class() not in ("Entry", "Text", "Spinbox"):
                 return
-            virtual_event = None
             select_all = keycode == 65 or keysym in ("a", "ф", "cyrillic_ef")
             if control and select_all:
                 if focus.winfo_class() == "Entry":
                     focus.selection_range(0, "end")
+                    focus.icursor("end")
                 else:
                     focus.tag_add("sel", "1.0", "end-1c")
                 return "break"
-            if control and keycode == 45:
-                virtual_event = "<<Copy>>"
-            elif control:
-                virtual_event = {
-                    67: "<<Copy>>",
-                    88: "<<Cut>>",
-                    86: "<<Paste>>",
-                }.get(keycode)
-                if virtual_event is None:
-                    virtual_event = {
-                        "c": "<<Copy>>", "с": "<<Copy>>", "cyrillic_es": "<<Copy>>",
-                        "x": "<<Cut>>", "ч": "<<Cut>>", "cyrillic_che": "<<Cut>>",
-                        "v": "<<Paste>>", "м": "<<Paste>>", "cyrillic_em": "<<Paste>>",
-                    }.get(keysym)
-            elif keycode == 45 and shift:
-                virtual_event = "<<Paste>>"
-            elif keycode == 46 and shift:
-                virtual_event = "<<Cut>>"
-            if virtual_event:
-                focus.event_generate(virtual_event)
-                return "break"
+            action = None
+            if control:
+                if keycode in (67, 45) or keysym in ("c", "с", "cyrillic_es"):
+                    action = "copy"
+                elif keycode == 88 or keysym in ("x", "ч", "cyrillic_che"):
+                    action = "cut"
+                elif keycode == 86 or keysym in ("v", "м", "cyrillic_em"):
+                    action = "paste"
+            elif shift and keycode == 45:
+                action = "paste"
+            elif shift and keycode == 46:
+                action = "cut"
+            if action is None:
+                return
+            widget_class = focus.winfo_class()
+            if action in ("copy", "cut"):
+                try:
+                    if widget_class == "Entry":
+                        start = focus.index("sel.first")
+                        end = focus.index("sel.last")
+                        selected = focus.get()[start:end]
+                    else:
+                        selected = focus.get("sel.first", "sel.last")
+                except Exception:
+                    selected = ""
+                if selected:
+                    self.clipboard_clear()
+                    self.clipboard_append(selected)
+            if action in ("cut", "paste"):
+                try:
+                    focus.delete("sel.first", "sel.last")
+                except Exception:
+                    pass
+            if action == "paste":
+                try:
+                    clipboard_text = self.clipboard_get()
+                    if clipboard_text:
+                        focus.insert("insert", clipboard_text)
+                except Exception:
+                    pass
+            return "break"
         except Exception:
             return
-        return
 
     def _login(self, username_override=None):
         username = self.username_entry.get().strip().lower() if username_override is None else str(username_override).strip().lower()
@@ -633,6 +674,8 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                 bet=bet_settings,
                 chat=ChatPresence.ONLINE if options["chat"] else ChatPresence.NEVER,
             )
+            if authenticated_client is None or not authenticated_client.twitch_login.get_auth_token():
+                raise RuntimeError("Сохранённая авторизация Twitch недоступна. Нажми «Войти через Twitch».")
             miner = TwitchChannelPointsMiner(
                 username=username,
                 claim_drops_startup=False,
@@ -640,12 +683,11 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                 priority=[Priority.STREAK, Priority.DROPS, Priority.ORDER],
                 logger_settings=LoggerSettings(save=False, less=True, console_level=logging.CRITICAL, file_level=logging.CRITICAL, emoji=False, colored=False),
                 streamer_settings=streamer_settings,
+                twitch_client=authenticated_client,
+                check_for_updates=False,
             )
-            if authenticated_client is None or not authenticated_client.twitch_login.get_auth_token():
-                raise RuntimeError("Сохранённая авторизация Twitch недоступна. Нажми «Войти через Twitch».")
             authenticated_client.running = True
             authenticated_client.twitch_login.cancelled = False
-            miner.twitch = authenticated_client
             self.miner = miner
             handler = UIHandler(self.events)
             handler.setLevel(logging.INFO)
@@ -653,7 +695,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             if self.stop_requested:
                 miner.request_stop()
                 return
-            self.events.put(("status", "●  ОЖИДАНИЕ АВТОРИЗАЦИИ", "#F0B65A"))
+            self.events.put(("status", "●  ПОДГОТОВКА КАНАЛОВ", "#F0B65A"))
             miner.mine(streamers=channels, followers=False)
         except SystemExit as error:
             self.events.put(("error", f"Движок завершил работу: {error}"))
@@ -741,6 +783,29 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                         if login in self.channel_list:
                             self.channel_profiles[login] = {"loaded": True, "error": error}
                             self._render_channels()
+                    elif item[0] == "channel_profiles":
+                        for login, user, stream, image_data, error in item[1]:
+                            if login not in self.channel_list:
+                                continue
+                            if error:
+                                self.channel_profiles[login] = {"loaded": True, "error": error}
+                            elif user:
+                                self.channel_profiles[login] = {
+                                    "loaded": True,
+                                    "stream": stream,
+                                    "display_name": user.get("display_name") or login,
+                                    "profile_image_url": user.get("profile_image_url"),
+                                }
+                            else:
+                                self.channel_profiles[login] = {"loaded": True, "error": "Канал не найден"}
+                            if image_data:
+                                try:
+                                    image = Image.open(io.BytesIO(image_data)).convert("RGBA")
+                                    image.thumbnail((72, 72), Image.Resampling.LANCZOS)
+                                    self.channel_images[login] = ctk.CTkImage(light_image=image, dark_image=image, size=(36, 36))
+                                except Exception:
+                                    self.channel_images.pop(login, None)
+                        self._render_channels()
                     elif item[0] == "auth_failure":
                         self.authenticated = False
                         self.authenticated_username = ""
@@ -791,6 +856,30 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                 if "device-code=" not in url:
                     url = f"{ACTIVATION_URL}?public=true&device-code={quote(code)}"
                 webbrowser.open(url)
+            return
+        if "Restored the saved Twitch session." in message and self.worker is not None and self.worker.is_alive():
+            self._set_status("●  АВТОРИЗАЦИЯ ПОДТВЕРЖДЕНА", "#42D6A4")
+            self._append_event("Сессия подтверждена. Подготавливаю каналы…")
+            return
+        if "Twitch authorization confirmed." in message:
+            self._set_status("●  ПОДГОТОВКА КАНАЛОВ", "#F0B65A")
+            return
+        channel_progress = re.search(r"Loading channel (\\d+)/(\\d+): (.+)", message)
+        if channel_progress:
+            current, total, channel = channel_progress.groups()
+            self._set_status(f"●  ЗАГРУЗКА КАНАЛОВ {current}/{total}", "#F0B65A")
+            self._append_event(f"Загружаю канал · @{channel}")
+            return
+        if "Synchronizing Drops inventory and dashboard." in message:
+            self._set_status("●  СИНХРОНИЗАЦИЯ DROPS", "#F0B65A")
+            return
+        if "Monitoring started for " in message:
+            self._set_status("●  РАБОТАЕТ", "#42D6A4")
+            self._append_event(message)
+            return
+        if "No valid Twitch channels were loaded." in message:
+            self._set_status("●  НЕТ ДОСТУПНЫХ КАНАЛОВ", "#FF6B78")
+            self._append_event(message)
             return
         if "Join IRC Chat:" in message or "Leave IRC Chat:" in message:
             return
@@ -887,6 +976,10 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
 
     def _close(self):
         self.stop_requested = True
+        try:
+            self._flush_log_to_disk()
+        except Exception:
+            pass
         if self.toast_active is not None:
             try:
                 self.toast_active.destroy()

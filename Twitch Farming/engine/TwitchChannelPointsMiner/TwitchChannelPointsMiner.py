@@ -85,6 +85,8 @@ class TwitchChannelPointsMiner:
         logger_settings: LoggerSettings = LoggerSettings(),
         # Default values for all streamers
         streamer_settings: StreamerSettings = StreamerSettings(),
+        twitch_client=None,
+        check_for_updates: bool = True,
     ):
         # Fixes TypeError: 'NoneType' object is not subscriptable
         if not username or username == "your-twitch-username":
@@ -136,8 +138,11 @@ class TwitchChannelPointsMiner:
         Settings.streamer_settings = streamer_settings
 
         # user_agent = get_user_agent("FIREFOX")
-        user_agent = get_user_agent("CHROME")
-        self.twitch = Twitch(self.username, user_agent, password)
+        if twitch_client is None:
+            user_agent = get_user_agent("CHROME")
+            self.twitch = Twitch(self.username, user_agent, password)
+        else:
+            self.twitch = twitch_client
 
         self.claim_drops_startup = claim_drops_startup
         self.priority = priority if isinstance(priority, list) else [priority]
@@ -157,21 +162,17 @@ class TwitchChannelPointsMiner:
             self.username, logger_settings
         )
 
-        # Check for the latest version of the script
-        current_version, github_version = check_versions()
-
-        logger.info(
-            f"Twitch Channel Points Miner v2-{current_version} (fork by rdavydov)"
-        )
-        logger.info("https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2")
-
-        if github_version == "0.0.0":
-            logger.error(
-                "Unable to detect if you have the latest version of this script"
+        if check_for_updates:
+            current_version, github_version = check_versions()
+            logger.info(
+                f"Twitch Channel Points Miner v2-{current_version} (fork by rdavydov)"
             )
-        elif current_version != github_version:
-            logger.info(f"You are running version {current_version} of this script")
-            logger.info(f"The latest version on GitHub is {github_version}")
+            logger.info("https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2")
+            if github_version == "0.0.0":
+                logger.error("Unable to detect if you have the latest version of this script")
+            elif current_version != github_version:
+                logger.info(f"You are running version {current_version} of this script")
+                logger.info(f"The latest version on GitHub is {github_version}")
 
         if threading.current_thread() is threading.main_thread():
             for sign in [signal.SIGINT, signal.SIGSEGV, signal.SIGTERM]:
@@ -233,6 +234,7 @@ class TwitchChannelPointsMiner:
                 return
             if not self.running or not self.twitch.running:
                 return
+            logger.info("Twitch authorization confirmed. Preparing channel list.")
 
             if self.claim_drops_startup is True:
                 self.twitch.claim_all_drops_from_inventory()
@@ -265,10 +267,11 @@ class TwitchChannelPointsMiner:
                 f"Loading data for {len(streamers_name)} streamers. Please wait...",
                 extra={"emoji": ":nerd_face:"},
             )
-            for username in streamers_name:
+            for channel_index, username in enumerate(streamers_name, start=1):
                 if not self.running:
                     return
                 if username in streamers_name:
+                    logger.info(f"Loading channel {channel_index}/{len(streamers_name)}: {username}")
                     time.sleep(random.uniform(0.3, 0.7))
                     try:
                         streamer = (
@@ -314,6 +317,11 @@ class TwitchChannelPointsMiner:
                         extra={"emoji": ":cry:"},
                     )
 
+            if not self.streamers:
+                logger.error("No valid Twitch channels were loaded. Check channel names and Twitch connectivity.")
+                self.running = False
+                return
+
             self.original_streamers = [
                 streamer.channel_points for streamer in self.streamers
             ]
@@ -338,6 +346,7 @@ class TwitchChannelPointsMiner:
                     daemon=True,
                 )
                 self.sync_campaigns_thread.name = "Sync campaigns/inventory"
+                logger.info("Synchronizing Drops inventory and dashboard.")
                 self.sync_campaigns_thread.start()
                 self._interruptible_sleep(30)
                 if not self.running:
@@ -405,6 +414,7 @@ class TwitchChannelPointsMiner:
                         PubsubTopic("community-points-channel-v1", streamer=streamer)
                     )
 
+            logger.info(f"Monitoring started for {len(self.streamers)} channels.")
             refresh_context = time.time()
             while self.running:
                 self._interruptible_sleep(random.uniform(20, 60))
