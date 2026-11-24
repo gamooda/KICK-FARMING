@@ -42,7 +42,18 @@ jobs:
           path: "dist/Twitch Farming.exe"
           if-no-files-found: error
 
+      - name: Check latest branch commit
+        id: head
+        shell: pwsh
+        run: |
+          $result = Invoke-RestMethod -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/commits/main" -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = "application/vnd.github+json" }
+          $isLatest = ($result.sha -eq $env:GITHUB_SHA).ToString().ToLower()
+          "is_latest=$isLatest" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Publish executable release
+        if: steps.head.outputs.is_latest == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: twitch-farming-build-${{ github.run_number }}
