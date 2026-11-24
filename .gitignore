@@ -1,4 +1,9 @@
 __pycache__/
 *.py[cod]
 .kick-farming/
+.twitch-farming/
 .env
+Twitch Farming/cookies/
+Twitch Farming/logs/
+Twitch Farming/build/
+Twitch Farming/dist/

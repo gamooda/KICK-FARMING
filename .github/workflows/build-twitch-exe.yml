@@ -1,0 +1,58 @@
+name: Build Twitch Farming
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "Twitch Farming/**"
+      - ".github/workflows/build-twitch-exe.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "Twitch Farming/requirements.txt"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r "Twitch Farming/requirements.txt"
+
+      - name: Build executable
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --paths "Twitch Farming/engine" --collect-all customtkinter --collect-submodules TwitchChannelPointsMiner "Twitch Farming/app.py"
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Twitch-Farming-Windows
+          path: "dist/Twitch Farming.exe"
+          if-no-files-found: error
+
+      - name: Publish executable release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: twitch-farming-build-${{ github.run_number }}
+          name: Twitch Farming build ${{ github.run_number }}
+          make_latest: true
+          draft: false
+          prerelease: false
+          files: "dist/Twitch Farming.exe"
+          body: |
+            Windows build of Twitch Farming.
+            Source code and GPL-3.0 license are available in the repository.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
