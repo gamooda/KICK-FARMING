@@ -33,7 +33,7 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --paths "Twitch Farming/engine" --collect-all customtkinter --collect-submodules TwitchChannelPointsMiner "Twitch Farming/app.py"
+          pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --paths "Twitch Farming/engine" --collect-all customtkinter --collect-all irc --collect-submodules TwitchChannelPointsMiner "Twitch Farming/app.py"
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
