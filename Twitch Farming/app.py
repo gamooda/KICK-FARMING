@@ -864,7 +864,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         if "Twitch authorization confirmed." in message:
             self._set_status("●  ПОДГОТОВКА КАНАЛОВ", "#F0B65A")
             return
-        channel_progress = re.search(r"Loading channel (\\d+)/(\\d+): (.+)", message)
+        channel_progress = re.search(r"Loading channel (\d+)/(\d+): (.+)", message)
         if channel_progress:
             current, total, channel = channel_progress.groups()
             self._set_status(f"●  ЗАГРУЗКА КАНАЛОВ {current}/{total}", "#F0B65A")
