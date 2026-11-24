@@ -222,7 +222,7 @@ class FarmingApp(ctk.CTk):
 
     def _normalize_channel(self, value):
         value = str(value or "").strip()
-        value = re.sub(r"^https?://(www\.)?twitch\.tv/", "", value, flags=re.IGNORECASE)
+        value = re.sub(r"^(?:https?://)?(?:www\.)?twitch\.tv/", "", value, flags=re.IGNORECASE)
         value = value.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
         value = value.lstrip("@").strip().lower()
         return value if re.fullmatch(r"[a-z0-9_]{1,25}", value) else ""
