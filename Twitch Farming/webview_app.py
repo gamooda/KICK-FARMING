@@ -194,27 +194,36 @@ class ChannelProfileWorker(threading.Thread):
 
     def run(self):
         try:
-            for login in self.logins:
-                profile = {"loaded": True, "is_live": False}
+            for offset in range(0, len(self.logins), 100):
+                batch = self.logins[offset:offset + 100]
                 try:
-                    user = self.client.get_user_info(login)
-                    if not user:
-                        profile["error"] = "Канал не найден"
-                    else:
-                        profile["display_name"] = user.get("display_name") or login
+                    users = self.client.helix_get("users", [("login", login) for login in batch])
+                    streams = self.client.helix_get("streams", [("user_login", login) for login in batch])
+                    users_by_login = {str(user.get("login", "")).lower(): user for user in users}
+                    streams_by_login = {str(stream.get("user_login", "")).lower(): stream for stream in streams}
+                    for login in batch:
+                        user = users_by_login.get(login)
+                        if not user:
+                            self.app.update_channel_profile(login, {"loaded": True, "is_live": False, "error": "Канал не найден"})
+                            continue
+                        profile = {
+                            "loaded": True,
+                            "is_live": False,
+                            "display_name": user.get("display_name") or login,
+                        }
                         avatar = str(user.get("profile_image_url") or "")
                         if avatar.startswith("https://"):
                             profile["avatar_url"] = avatar
-                        stream = self.client.get_stream_by_login(login)
+                        stream = streams_by_login.get(login)
                         if stream:
                             profile["is_live"] = True
                             profile["stream_title"] = str(stream.get("title") or "")
                             profile["viewer_count"] = int(stream.get("viewer_count") or 0)
-                        else:
-                            profile["is_live"] = False
+                        self.app.update_channel_profile(login, profile)
                 except Exception as error:
-                    profile["error"] = str(error)[:180]
-                self.app.update_channel_profile(login, profile)
+                    message = str(error)[:180]
+                    for login in batch:
+                        self.app.update_channel_profile(login, {"loaded": True, "is_live": False, "error": message})
         finally:
             self.app.profile_worker_finished(self)
 
