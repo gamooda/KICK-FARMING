@@ -727,12 +727,13 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             return
         if "and enter this code:" in message:
             code = message.split("and enter this code:", 1)[1].strip().split()[0]
+            new_code = code != self.auth_code
             self.auth_code = code
             self.auth_code_label.configure(text=f"Код авторизации: {code}")
             self.auth_status_label.configure(text="ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ В TWITCH", text_color="#F0B65A")
             self._set_intro_status("Подтверди вход в открывшемся браузере…")
             self._append_event(f"Код входа готов · {code}")
-            if not self.auth_opened:
+            if new_code or not self.auth_opened:
                 self.auth_opened = True
                 url = self.auth_url
                 if "device-code=" not in url:
