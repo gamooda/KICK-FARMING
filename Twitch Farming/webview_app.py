@@ -774,7 +774,21 @@ def main():
     window.events.loaded += api.on_loaded
     window.events.closing += api.on_closing
     try:
-        webview.start(private_mode=True, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None)
+        webview.start(gui="edgechromium", private_mode=True, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None)
+    except Exception as error:
+        if os.name == "nt":
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "Не удалось запустить WebView2. Установи Microsoft Edge WebView2 Runtime и запусти приложение снова.\n\n" + str(error)[:700],
+                    "Twitch Farming",
+                    0x10,
+                )
+                webbrowser.open("https://developer.microsoft.com/en-us/microsoft-edge/webview2/")
+            except Exception:
+                pass
+        raise
     finally:
         api.shutdown()
 
