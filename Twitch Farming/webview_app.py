@@ -52,8 +52,8 @@ DEFAULT_OPTIONS = {
     "watch_streak": True,
     "claim_moments": True,
     "follow_raid": True,
-    "make_predictions": False,
-    "chat": False,
+    "make_predictions": True,
+    "chat": True,
 }
 OPTION_NAMES = [
     ("claim_drops", "Twitch Drops"),
@@ -73,6 +73,8 @@ class AppLogHandler(logging.Handler):
         self.app = app
 
     def emit(self, record):
+        if record.name.startswith(("pywebview", "webview", "clr")):
+            return
         try:
             self.app.on_log(record.getMessage(), record.levelname, record.created)
         except Exception:
@@ -183,17 +185,55 @@ class EngineWorker(threading.Thread):
             self.app.engine_finished(self)
 
 
+class ChannelProfileWorker(threading.Thread):
+    def __init__(self, app, client, logins):
+        super().__init__(name="TwitchChannelProfiles", daemon=True)
+        self.app = app
+        self.client = client
+        self.logins = list(logins)
+
+    def run(self):
+        try:
+            for login in self.logins:
+                profile = {"loaded": True, "is_live": False}
+                try:
+                    user = self.client.get_user_info(login)
+                    if not user:
+                        profile["error"] = "Канал не найден"
+                    else:
+                        profile["display_name"] = user.get("display_name") or login
+                        avatar = str(user.get("profile_image_url") or "")
+                        if avatar.startswith("https://"):
+                            profile["avatar_url"] = avatar
+                        stream = self.client.get_stream_by_login(login)
+                        if stream:
+                            profile["is_live"] = True
+                            profile["stream_title"] = str(stream.get("title") or "")
+                            profile["viewer_count"] = int(stream.get("viewer_count") or 0)
+                        else:
+                            profile["is_live"] = False
+                except Exception as error:
+                    profile["error"] = str(error)[:180]
+                self.app.update_channel_profile(login, profile)
+        finally:
+            self.app.profile_worker_finished(self)
+
+
 class TwitchFarmingApi:
     def __init__(self):
         self.lock = threading.RLock()
-        self.window = None
         self.username = ""
         self.channels = []
         self.options = dict(DEFAULT_OPTIONS)
         self.bet_settings = dict(DEFAULT_BET_SETTINGS)
         self.custom_presets = {}
         self.selected_preset = "Оптимальный"
+        self.tutorial_done = False
+        self.channel_profiles = {}
         self.online_channels = set()
+        self.profile_worker = None
+        self.pending_profile_logins = set()
+        self.restore_started = False
         self.authenticated = False
         self.authenticated_username = ""
         self.auth_code = ""
@@ -235,6 +275,10 @@ class TwitchFarmingApi:
         self.channels = list(dict.fromkeys(self.normalize_channel(x) for x in channels if self.normalize_channel(x)))
         stored_options = data.get("settings", {})
         self.options = {key: bool(stored_options.get(key, default)) for key, default in DEFAULT_OPTIONS.items()}
+        if int(data.get("ui_config_version", 0) or 0) < 2:
+            self.options["make_predictions"] = True
+            self.options["chat"] = True
+        self.tutorial_done = bool(data.get("tutorial_done", False))
         stored_bets = data.get("bet_settings", {})
         if isinstance(stored_bets, dict):
             self.bet_settings.update(stored_bets)
@@ -250,6 +294,8 @@ class TwitchFarmingApi:
             "bet_settings": dict(self.bet_settings),
             "custom_presets": self.custom_presets,
             "selected_preset": self.selected_preset,
+            "tutorial_done": self.tutorial_done,
+            "ui_config_version": 2,
         }
 
     def _save_config(self):
@@ -317,11 +363,13 @@ class TwitchFarmingApi:
                     return {"ok": False, "message": "Этот канал уже есть в списке."}
                 self.channels[self.channels.index(old)] = channel
                 self.online_channels.discard(old)
+                self.channel_profiles.pop(old, None)
             else:
                 if channel in self.channels:
                     return {"ok": False, "message": "Этот канал уже добавлен."}
                 self.channels.append(channel)
         self._save_config()
+        self.refresh_channel_profiles([channel])
         return {"ok": True, "message": "Канал сохранён."}
 
     def remove_channel(self, channel):
@@ -332,6 +380,7 @@ class TwitchFarmingApi:
             if channel in self.channels:
                 self.channels.remove(channel)
                 self.online_channels.discard(channel)
+                self.channel_profiles.pop(channel, None)
         self._save_config()
         return {"ok": True}
 
@@ -372,6 +421,12 @@ class TwitchFarmingApi:
                 self.custom_presets[self.selected_preset] = dict(self.bet_settings)
         self._save_config()
         return {"ok": True, "message": "Параметры применены для следующего запуска."}
+
+    def finish_tutorial(self):
+        with self.lock:
+            self.tutorial_done = True
+        self._save_config()
+        return {"ok": True}
 
     def login(self, username):
         username = str(username or "").strip().lower()
@@ -416,7 +471,7 @@ class TwitchFarmingApi:
                 self.authenticated_username = username
                 self.username = username
                 self.auth_status = "АККАУНТ ПОДКЛЮЧЁН · " + username
-                self.auth_code = "Сессия восстановлена" if restored else "Код авторизации: подтверждён"
+                self.auth_code = "Сессия восстановлена" if restored else "подтверждён"
                 self._set_status_locked("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
                 self._append_event_locked(("Сессия Twitch восстановлена · " if restored else "Аккаунт Twitch подключён · ") + username)
             else:
@@ -427,6 +482,49 @@ class TwitchFarmingApi:
                 self._append_event_locked("Вход не выполнен · " + str(error)[:220])
                 self._set_status_locked("●  ОШИБКА АВТОРИЗАЦИИ", "#FF6B78")
         self._save_config()
+        if success:
+            self.refresh_channel_profiles()
+
+    def refresh_channel_profiles(self, logins=None):
+        with self.lock:
+            if not self.authenticated or self.api_client is None:
+                return
+            targets = list(logins if logins is not None else self.channels)
+            self.pending_profile_logins.update(x for x in targets if x in self.channels)
+            if self.profile_worker is not None and self.profile_worker.is_alive():
+                return
+            batch = sorted(self.pending_profile_logins)
+            self.pending_profile_logins.clear()
+            if not batch:
+                return
+            worker = ChannelProfileWorker(self, self.api_client, batch)
+            self.profile_worker = worker
+        worker.start()
+
+    def update_channel_profile(self, login, profile):
+        with self.lock:
+            if login not in self.channels:
+                return
+            current = dict(self.channel_profiles.get(login, {}))
+            current.update(profile)
+            self.channel_profiles[login] = current
+            if current.get("is_live"):
+                self.online_channels.add(login)
+            elif current.get("loaded"):
+                self.online_channels.discard(login)
+
+    def profile_worker_finished(self, worker):
+        with self.lock:
+            if self.profile_worker is not worker:
+                return
+            self.profile_worker = None
+            batch = sorted(self.pending_profile_logins)
+            self.pending_profile_logins.clear()
+            if not batch or not self.authenticated or self.api_client is None:
+                return
+            next_worker = ChannelProfileWorker(self, self.api_client, batch)
+            self.profile_worker = next_worker
+        next_worker.start()
 
     def start_farm(self, payload):
         saved = self.save_settings(payload)
@@ -556,19 +654,25 @@ class TwitchFarmingApi:
         if "Join IRC Chat:" in message or "Leave IRC Chat:" in message:
             return
         stamp = datetime.fromtimestamp(created).strftime("%H:%M:%S")
-        online = re.search(r"^(.*?) is Online!$", message)
-        offline = re.search(r"^(.*?) is Offline!$", message)
+        online = re.match(r"^([a-zA-Z0-9_]{1,25})(?:\s+\([^)]*\))?\s+is Online!$", message.strip(), re.IGNORECASE)
+        offline = re.match(r"^([a-zA-Z0-9_]{1,25})(?:\s+\([^)]*\))?\s+is Offline!$", message.strip(), re.IGNORECASE)
         if online:
-            name = online.group(1).split(" (", 1)[0].strip().lstrip("@").lower()
+            name = online.group(1).lower()
             with self.lock:
                 self.online_channels.add(name)
+                profile = dict(self.channel_profiles.get(name, {}))
+                profile.update(loaded=True, is_live=True)
+                self.channel_profiles[name] = profile
                 self._append_event_locked(name + " · В эфире")
                 self._set_status_locked("●  РАБОТАЕТ", "#42D6A4")
             return
         if offline:
-            name = offline.group(1).split(" (", 1)[0].strip().lstrip("@").lower()
+            name = offline.group(1).lower()
             with self.lock:
                 self.online_channels.discard(name)
+                profile = dict(self.channel_profiles.get(name, {}))
+                profile.update(loaded=True, is_live=False)
+                self.channel_profiles[name] = profile
                 self._append_event_locked(name + " · Не в эфире")
             return
         gain = re.search(r"\+([\d,]+)\s*(?:→|-->)\s*(.*?)\s*-\s*Reason:\s*([A-Z_]+)", message)
@@ -677,6 +781,8 @@ class TwitchFarmingApi:
                 "bet_settings": dict(self.bet_settings),
                 "custom_presets": dict(self.custom_presets),
                 "selected_preset": self.selected_preset,
+                "tutorial_done": self.tutorial_done,
+                "channel_profiles": {key: dict(value) for key, value in self.channel_profiles.items()},
                 "authenticated": self.authenticated,
                 "authenticated_username": self.authenticated_username,
                 "auth_status": self.auth_status,
@@ -693,21 +799,32 @@ class TwitchFarmingApi:
             }
 
     def get_log_snapshot(self):
-        self._flush_logs()
-        try:
-            if LOG_FILE.is_file():
-                with LOG_FILE.open("rb") as file:
-                    file.seek(0, os.SEEK_END)
-                    size = file.tell()
-                    file.seek(max(0, size - 50000))
-                    content = file.read(50000).decode("utf-8", errors="replace")
-                if size > 50000:
-                    content = content.split("\n", 1)[-1]
-                return content.splitlines()[-1000:]
-        except OSError:
-            pass
         with self.lock:
-            return [item["line"] for item in self.log_records[-500:]]
+            pending = list(self.pending_log_lines)
+            self.pending_log_lines.clear()
+            snapshot_id = self.next_log_id - 1
+            if pending:
+                try:
+                    LOG_DIR.mkdir(parents=True, exist_ok=True)
+                    with LOG_FILE.open("a", encoding="utf-8") as file:
+                        file.write("\n".join(pending) + "\n")
+                except OSError:
+                    self.pending_log_lines[0:0] = pending
+            try:
+                if LOG_FILE.is_file():
+                    with LOG_FILE.open("rb") as file:
+                        file.seek(0, os.SEEK_END)
+                        size = file.tell()
+                        file.seek(max(0, size - 18000))
+                        content = file.read(18000).decode("utf-8", errors="replace")
+                    if size > 18000:
+                        content = content.split("\n", 1)[-1]
+                    lines = content.splitlines()[-250:]
+                else:
+                    lines = [item["line"] for item in self.log_records[-250:]]
+            except OSError:
+                lines = [item["line"] for item in self.log_records[-250:]]
+            return {"lines": lines, "last_log_id": snapshot_id}
 
     def open_app_folder(self):
         APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -725,6 +842,10 @@ class TwitchFarmingApi:
         return {"ok": False}
 
     def on_loaded(self):
+        with self.lock:
+            if self.restore_started:
+                return
+            self.restore_started = True
         self._restore_session()
 
     def on_closing(self):
@@ -741,7 +862,7 @@ class TwitchFarmingApi:
 
     def shutdown(self):
         self.on_closing()
-        for worker in (self.auth_worker, self.engine_worker):
+        for worker in (self.auth_worker, self.engine_worker, self.profile_worker):
             if worker is not None and worker.is_alive():
                 worker.join(timeout=5)
         self._flush_logs()
@@ -770,11 +891,10 @@ def main():
         background_color="#0B0F19",
         text_select=True,
     )
-    api.window = window
     window.events.loaded += api.on_loaded
     window.events.closing += api.on_closing
     try:
-        webview.start(gui="edgechromium", private_mode=True, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None)
+        webview.start(gui="edgechromium", private_mode=False, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None)
     except Exception as error:
         if os.name == "nt":
             try:

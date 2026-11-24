@@ -8,10 +8,24 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="app-shell">
+<section class="login-gate visible" id="login-gate">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="login-logo"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><path fill="#171327" d="M17 13h5v13h-5zm11 0h5v13h-5z"/></svg></div>
+      <div><div class="login-brand-title">TWITCH</div><div class="login-brand-subtitle">F A R M I N G</div></div>
+    </div>
+    <div class="login-title">Подключи аккаунт Twitch</div>
+    <div class="login-description">Авторизация проходит на официальном сайте Twitch. Пароль вводить в приложении не нужно.</div>
+    <input class="input login-input" id="gate-username" type="text" placeholder="Логин Twitch" autocomplete="off" spellcheck="false">
+    <button class="button button-primary login-submit" id="gate-login-button">Подключить Twitch</button>
+    <div class="login-status" id="gate-status">Введи логин и подключи аккаунт, чтобы открыть приложение.</div>
+    <div class="login-security">Сессия сохраняется локально на этом компьютере.</div>
+  </div>
+</section>
+<div class="app-shell auth-hidden" id="app-shell">
 <aside class="sidebar">
   <div class="brand">
-    <div class="brand-mark">T</div>
+    <div class="brand-mark"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><path fill="#191427" d="M17 13h5v13h-5zm11 0h5v13h-5z"/></svg></div>
     <div><div class="brand-title">TWITCH</div><div class="brand-subtitle">FARMING</div></div>
   </div>
   <div class="side-caption">НАВИГАЦИЯ</div>
@@ -76,15 +90,13 @@
     <section class="panel activity-panel">
       <div class="panel-heading">
         <div class="section-heading">ПОСЛЕДНИЕ НАГРАДЫ И СОБЫТИЯ</div>
-        <button class="button button-mini" id="open-journal">Открыть журнал</button>
       </div>
       <div class="event-list" id="event-list"></div>
     </section>
   </section>
   <section class="page" id="page-logs">
     <header class="page-header">
-      <div><div class="page-title">Журнал событий</div><div class="page-subtitle">Секреты авторизации и IP-адреса скрываются автоматически.</div></div>
-      <button class="button button-soft" id="back-from-logs">←　Назад</button>
+      <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-logs">←　Назад</button><div><div class="page-title">Журнал событий</div><div class="page-subtitle">Секреты авторизации и IP-адреса скрываются автоматически.</div></div></div>
     </header>
     <section class="panel logs-panel">
       <div class="logs-toolbar">
@@ -96,8 +108,7 @@
   </section>
   <section class="page" id="page-channel">
     <header class="page-header">
-      <div><div class="page-title" id="channel-page-title">Добавить канал</div><div class="page-subtitle">Управление каналами Twitch для фарма</div></div>
-      <button class="button button-soft" id="back-from-channel">←　Назад</button>
+      <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-channel">←　Назад</button><div><div class="page-title" id="channel-page-title">Добавить канал</div><div class="page-subtitle">Управление каналами Twitch для фарма</div></div></div>
     </header>
     <section class="panel editor-panel">
       <div class="section-heading">КАНАЛ TWITCH</div>
@@ -109,8 +120,7 @@
   </section>
   <section class="page" id="page-bets">
     <header class="page-header">
-      <div><div class="page-title">Настройки прогнозов</div><div class="page-subtitle">Стратегия автоматического размещения баллов</div></div>
-      <button class="button button-soft" id="back-from-bets">←　Назад</button>
+      <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-bets">←　Назад</button><div><div class="page-title">Настройки прогнозов</div><div class="page-subtitle">Стратегия автоматического размещения баллов</div></div></div>
     </header>
     <section class="panel bet-panel">
       <div class="section-heading">СТРАТЕГИЯ АВТОМАТИЧЕСКИХ ПРОГНОЗОВ</div>
@@ -143,6 +153,14 @@
     </div>
   </section>
 </main>
+</div>
+<div class="tutorial-overlay" id="tutorial-overlay">
+  <div class="tutorial-card">
+    <div class="tutorial-step" id="tutorial-step">1 / 3</div>
+    <div class="tutorial-title" id="tutorial-title">Каналы</div>
+    <div class="tutorial-text" id="tutorial-text"></div>
+    <div class="tutorial-actions"><button class="button button-soft" id="tutorial-skip">Пропустить</button><button class="button button-primary" id="tutorial-next">Далее</button></div>
+  </div>
 </div>
 <div class="toast" id="toast"></div>
 <script src="app.js"></script>

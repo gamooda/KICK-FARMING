@@ -8,6 +8,16 @@ let editingChannel="";
 let channelCache="";
 let polling=false;
 let toastTimer=null;
+let logsLoaded=false;
+let logsLoading=false;
+let pendingLogRows=[];
+let tutorialShown=false;
+let tutorialStep=0;
+const tutorialSteps=[
+  {title:"Добавление каналов",text:"Нажми + и добавь Twitch-каналы по логину или ссылке. Аватары, имена и статус трансляции загрузятся автоматически.",target:".channels-panel"},
+  {title:"Автоматизация",text:"Здесь включаются Drops, серии просмотров, моменты, рейды, прогнозы и IRC-чат. Настройки прогнозов открываются отдельной кнопкой.",target:".automation-panel"},
+  {title:"Запуск и логи",text:"Нажми «Запустить». Награды и изменения баланса появятся в ленте событий. Полный технический журнал открывается кнопкой «Логи».",target:"#start-button"}
+];
 
 function esc(value){
   return String(value==null?"":value).replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
@@ -45,8 +55,8 @@ function setFeedback(id,message,error){
   node.style.color=error?"#ff8797":"#e5b866";
 }
 
-function renderChannels(channels,online,running){
-  const signature=JSON.stringify([channels,online,running]);
+function renderChannels(channels,online,running,profiles){
+  const signature=JSON.stringify([channels,online,running,profiles]);
   if(signature===channelCache) return;
   channelCache=signature;
   const root=$("channel-list");
@@ -56,8 +66,18 @@ function renderChannels(channels,online,running){
     return;
   }
   root.innerHTML=channels.map(login=>{
-    const live=online.includes(login);
-    return '<div class="channel-card"><div class="channel-avatar">'+esc(login.charAt(0).toUpperCase())+'</div><div><div class="channel-name">@'+esc(login)+'</div><div class="channel-state '+(live?"online":"")+'">'+(live?"● В ЭФИРЕ":"ОЖИДАЕТСЯ ПРОВЕРКА")+'</div></div><div class="channel-spacer"></div><button class="button button-soft channel-action" data-action="edit" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Изменить">✎</button><button class="button button-danger channel-action" data-action="remove" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Удалить">×</button></div>';
+    const profile=profiles&&profiles[login]?profiles[login]:{};
+    const live=online.includes(login)||Boolean(profile.is_live);
+    const loaded=Boolean(profile.loaded)||live;
+    const status=live?"● В ЭФИРЕ":profile.error?"ОШИБКА ПРОВЕРКИ":loaded?"НЕ В ЭФИРЕ":"ПРОВЕРКА…";
+    const displayName=profile.display_name||login;
+    const avatar=typeof profile.avatar_url==="string"&&profile.avatar_url.startsWith("https://")?profile.avatar_url:"";
+    const title=profile.stream_title||"";
+    const viewers=Number(profile.viewer_count||0);
+    const details=live?(title||"ТРАНСЛЯЦИЯ В ЭФИРЕ"):status;
+    const initial=esc(login.charAt(0).toUpperCase());
+    const avatarMarkup=avatar?'<div class="channel-avatar" data-initial="'+initial+'"><img loading="lazy" src="'+esc(avatar)+'" alt="" onerror="this.parentNode.textContent=this.parentNode.dataset.initial"></div>':'<div class="channel-avatar">'+initial+'</div>';
+    return '<div class="channel-card">'+avatarMarkup+'<div><div class="channel-name">'+esc(displayName)+'　<span style="color:#7d8aa0;font-weight:500">@'+esc(login)+'</span></div><div class="channel-state '+(live?"online":loaded?"":"pending")+'">'+esc(details)+'</div>'+(live&&viewers?'<div class="channel-meta">'+viewers.toLocaleString("ru-RU")+' зрителей</div>':'')+'</div><div class="channel-spacer"></div><button class="button button-soft channel-action" data-action="edit" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Изменить">✎</button><button class="button button-danger channel-action" data-action="remove" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Удалить">×</button></div>';
   }).join("");
   $("add-channel").disabled=running;
 }
@@ -82,10 +102,14 @@ function updateReward(){
 
 function appendLogRows(rows){
   if(!rows||!rows.length) return;
+  if(logsLoading){
+    pendingLogRows.push(...rows);
+    return;
+  }
   const box=$("log-view");
   for(const row of rows){
     if(row.id>lastLogId){
-      if(box.textContent.length>55000) box.textContent=box.textContent.slice(-40000);
+      if(box.textContent.length>42000) box.textContent=box.textContent.slice(-30000);
       box.textContent+=(box.textContent?"\n":"")+row.line;
       lastLogId=row.id;
     }
@@ -95,24 +119,33 @@ function appendLogRows(rows){
 
 function applyState(state,initial){
   appState=state;
+  const authenticated=Boolean(state.authenticated);
+  $("login-gate").classList.toggle("visible",!authenticated);
+  $("app-shell").classList.toggle("auth-hidden",!authenticated);
   $("sidebar-status").textContent=state.status_text.replace(/^●\s*/,"");
   $("sidebar-status").style.color=state.status_color;
   document.querySelector(".status-dot").style.background=state.status_color;
   $("auth-status").textContent=state.auth_status;
-  $("auth-status").style.color=state.authenticated?"#42d6a4":state.auth_status.includes("НЕ УДАЛАСЬ")?"#ff7b89":"#8792a8";
+  $("auth-status").style.color=authenticated?"#42d6a4":state.auth_status.includes("НЕ УДАЛАСЬ")?"#ff7b89":"#8792a8";
   $("auth-code").textContent=state.auth_code?("Код авторизации: "+state.auth_code):"Код авторизации: —";
-  $("login-button").textContent=state.authenticated?"Подключено":state.auth_status.includes("ПОДКЛЮЧЕНИЕ")||state.auth_status.includes("ПРОВЕРКА")?"Подключение…":"Войти через Twitch";
+  $("login-button").textContent=authenticated?"Подключено":state.auth_status.includes("ПОДКЛЮЧЕНИЕ")||state.auth_status.includes("ПРОВЕРКА")?"Подключение…":"Войти через Twitch";
   $("login-button").disabled=state.auth_status.includes("ПОДКЛЮЧЕНИЕ")||state.auth_status.includes("ПРОВЕРКА");
+  $("gate-login-button").disabled=state.auth_status.includes("ПОДКЛЮЧЕНИЕ")||state.auth_status.includes("ПРОВЕРКА")||state.auth_status.includes("ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ");
+  if(document.activeElement!==$("gate-username")) $("gate-username").value=state.username||"";
+  if(document.activeElement!==$("username")) $("username").value=state.username||"";
+  if(!authenticated){
+    const waiting=state.auth_status.includes("ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ");
+    $("gate-status").textContent=state.auth_code&&!state.auth_code.includes("Сессия")?"Код Twitch: "+state.auth_code+". Подтверди вход в открывшемся браузере.":waiting?"Ожидается подтверждение входа в браузере Twitch…":state.auth_status.includes("ПОДКЛЮЧЕНИЕ")?"Выполняется подключение к Twitch…":state.auth_status.includes("ПРОВЕРКА")?"Проверяю сохранённую сессию Twitch…":state.auth_status.includes("НЕ УДАЛАСЬ")?"Не удалось подключиться. Проверь браузер и попробуй ещё раз.":"Введи логин и подключи аккаунт, чтобы открыть приложение.";
+  }
   $("start-button").disabled=state.session_running;
   $("stop-button").disabled=!state.session_running;
   $("start-button").textContent=state.session_running?"▶　Работает":"▶　Запустить";
   $("points-value").textContent=Number(state.gained_total||0).toLocaleString("ru-RU");
   $("online-value").textContent=String((state.online_channels||[]).length);
   $("events-value").textContent=String(state.event_total||0);
-  renderChannels(state.channels||[],state.online_channels||[],state.session_running);
+  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{});
   renderEvents(state.events||[]);
   if(initial){
-    $("username").value=state.username||"";
     const options=state.options||{};
     Object.keys(options).forEach(key=>{
       const checkbox=$("opt-"+key);
@@ -120,6 +153,8 @@ function applyState(state,initial){
     });
     fillPreset(state.selected_preset,state.bet_settings,state.custom_presets);
   }
+  if(authenticated&&!state.tutorial_done&&!tutorialShown) showTutorial();
+  if(state.tutorial_done&&tutorialShown) hideTutorial(false);
   appendLogRows(state.logs||[]);
   updateReward();
 }
@@ -135,14 +170,32 @@ async function poll(){
 }
 
 async function loadLogs(){
+  if(logsLoaded||logsLoading) return;
+  logsLoading=true;
+  const box=$("log-view");
+  box.textContent="Загружаю журнал…";
   try{
-    const lines=await api().get_log_snapshot();
-    $("log-view").textContent=(lines||[]).join("\n");
-    $("log-view").scrollTop=$("log-view").scrollHeight;
-    const state=await api().get_state(lastLogId);
-    if(state.logs&&state.logs.length) lastLogId=Math.max(lastLogId,...state.logs.map(row=>row.id));
+    const result=await api().get_log_snapshot();
+    const lines=result.lines||[];
+    box.textContent="";
+    for(let index=0;index<lines.length;index+=35){
+      box.textContent+=(box.textContent?"\n":"")+lines.slice(index,index+35).join("\n");
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+    }
+    lastLogId=Math.max(lastLogId,Number(result.last_log_id||0));
+    logsLoaded=true;
+    box.scrollTop=box.scrollHeight;
+    await poll();
   }catch(error){
+    box.textContent="Не удалось загрузить журнал.";
     notify("Не удалось загрузить журнал.");
+  }finally{
+    logsLoading=false;
+    if(pendingLogRows.length){
+      const queued=pendingLogRows;
+      pendingLogRows=[];
+      appendLogRows(queued);
+    }
   }
 }
 
@@ -211,19 +264,30 @@ async function startFarm(){
   }
 }
 
-async function login(){
-  const username=$("username").value.trim().toLowerCase();
-  if(!username){notify("Укажи логин Twitch.");return;}
+async function loginUser(username){
+  username=String(username||"").trim().toLowerCase();
+  if(!username){$("gate-status").textContent="Сначала введи логин Twitch.";return;}
   try{
+    $("gate-status").textContent="Подключение к Twitch…";
+    $("gate-login-button").disabled=true;
     const payload=collectPayload();
     payload.username=username;
     await api().save_settings(payload);
     const result=await api().login(username);
-    notify(result.message||"");
+    $("gate-status").textContent=result.message||"Ожидается авторизация Twitch.";
     await poll();
   }catch(error){
-    notify(error.message||"Ошибка авторизации.");
+    $("gate-status").textContent=error.message||"Ошибка авторизации.";
+    $("gate-login-button").disabled=false;
   }
+}
+
+async function login(){
+  return loginUser($("username").value);
+}
+
+async function gateLogin(){
+  return loginUser($("gate-username").value);
 }
 
 async function stopFarm(){
@@ -390,6 +454,40 @@ async function copyLogs(){
   }
 }
 
+function showTutorial(){
+  tutorialShown=true;
+  tutorialStep=0;
+  setPage("dashboard");
+  renderTutorialStep();
+  $("tutorial-overlay").classList.add("visible");
+}
+
+function renderTutorialStep(){
+  document.querySelectorAll(".tour-highlight").forEach(node=>node.classList.remove("tour-highlight"));
+  const step=tutorialSteps[tutorialStep];
+  const target=document.querySelector(step.target);
+  if(target) target.classList.add("tour-highlight");
+  $("tutorial-step").textContent=(tutorialStep+1)+" / "+tutorialSteps.length;
+  $("tutorial-title").textContent=step.title;
+  $("tutorial-text").textContent=step.text;
+  $("tutorial-next").textContent=tutorialStep===tutorialSteps.length-1?"Готово":"Далее";
+}
+
+function hideTutorial(save){
+  $("tutorial-overlay").classList.remove("visible");
+  document.querySelectorAll(".tour-highlight").forEach(node=>node.classList.remove("tour-highlight"));
+  if(save&&window.pywebview&&window.pywebview.api) api().finish_tutorial();
+}
+
+function nextTutorial(){
+  if(tutorialStep<tutorialSteps.length-1){
+    tutorialStep++;
+    renderTutorialStep();
+  }else{
+    hideTutorial(true);
+  }
+}
+
 async function initialize(){
   await waitForBridge();
   setupBetControls();
@@ -397,7 +495,7 @@ async function initialize(){
   lastLogId=0;
   applyState(state,true);
   setPage("dashboard");
-  setInterval(poll,650);
+  setInterval(poll,900);
 }
 
 document.addEventListener("DOMContentLoaded",()=>{
@@ -413,11 +511,14 @@ document.addEventListener("DOMContentLoaded",()=>{
     if(button.dataset.action==="remove") removeChannel(channel);
   });
   $("login-button").addEventListener("click",login);
+  $("gate-login-button").addEventListener("click",gateLogin);
+  $("gate-username").addEventListener("keydown",event=>{if(event.key==="Enter")gateLogin();});
+  $("tutorial-next").addEventListener("click",nextTutorial);
+  $("tutorial-skip").addEventListener("click",()=>hideTutorial(true));
   $("start-button").addEventListener("click",startFarm);
   $("stop-button").addEventListener("click",stopFarm);
   $("save-button").addEventListener("click",saveSettings);
   $("logs-shortcut").addEventListener("click",()=>setPage("logs"));
-  $("open-journal").addEventListener("click",()=>setPage("logs"));
   $("back-from-logs").addEventListener("click",()=>setPage("dashboard"));
   $("back-from-channel").addEventListener("click",()=>setPage("dashboard"));
   $("cancel-channel").addEventListener("click",()=>setPage("dashboard"));

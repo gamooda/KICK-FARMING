@@ -106,3 +106,40 @@ button{cursor:pointer}
 .toast.visible{opacity:1;transform:translateY(0)}
 @media(max-width:1050px){.sidebar{width:195px;min-width:195px;padding-left:13px;padding-right:13px}.main-content{padding-left:18px;padding-right:18px}.account-row{grid-template-columns:minmax(140px,1fr) minmax(130px,.8fr) 160px}.button{padding-left:10px;padding-right:10px}}
 @media(max-height:720px){.main-content{padding-top:16px;padding-bottom:14px}.dashboard-grid{min-height:195px}.activity-panel{min-height:115px}.stat-card{min-height:62px;padding-top:8px;padding-bottom:8px}}
+
+
+.app-shell.auth-hidden{display:none}
+.brand-mark svg{display:block;width:28px;height:28px}
+.login-gate{position:fixed;inset:0;z-index:100;background:radial-gradient(ellipse at 50% 35%,#182039 0%,#0b0f19 65%);display:none;align-items:center;justify-content:center;padding:22px}
+.login-gate.visible{display:flex}
+.login-card{width:min(470px,100%);padding:34px 38px 30px;background:#141c2b;border:1px solid #303b55;border-radius:19px;box-shadow:0 22px 70px rgba(0,0,0,.42);text-align:center}
+.login-brand{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:29px}
+.login-logo{height:56px;width:56px;display:flex;align-items:center;justify-content:center;border-radius:15px;background:linear-gradient(145deg,#a86cff,#7137d9);color:#fff;box-shadow:0 8px 27px rgba(145,70,255,.25)}
+.login-logo svg{height:34px;width:34px}
+.login-brand-title{font-size:25px;font-weight:900;letter-spacing:1.2px;text-align:left;line-height:1}
+.login-brand-subtitle{font-size:10px;color:#a970ff;font-weight:850;margin-top:6px;text-align:left}
+.login-title{font-size:20px;font-weight:800;color:#f4f3fa;margin-bottom:8px}
+.login-description{font-size:11px;line-height:1.55;color:#929db2;margin:0 auto 22px;max-width:340px}
+.login-input{height:43px;text-align:center;font-size:13px}
+.login-submit{width:100%;height:42px;margin-top:12px;font-size:12px}
+.login-status{min-height:34px;margin-top:14px;color:#b8c2d4;font-size:10px;line-height:1.5}
+.login-security{border-top:1px solid #263249;padding-top:14px;margin-top:8px;color:#66758c;font-size:9px}
+.page-heading-group{display:flex;align-items:center;gap:14px;min-width:0}
+.back-button{flex-shrink:0}
+.channel-avatar{overflow:hidden}
+.channel-avatar img{display:block;width:100%;height:100%;border-radius:50%;object-fit:cover}
+.channel-card{transition:border-color .16s,background .16s}
+.channel-card:hover{border-color:#3a4864;background:#192437}
+.channel-state.pending{color:#e5b866}
+.channel-title{font-size:9px;line-height:1.3;color:#8797ae;margin-top:4px;max-width:540px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.channel-meta{font-size:9px;color:#6e7d94;margin-top:3px}
+.tutorial-overlay{position:fixed;inset:0;z-index:50;display:none;align-items:flex-end;justify-content:center;padding:0 20px 34px;background:rgba(3,6,13,.48);pointer-events:none}
+.tutorial-overlay.visible{display:flex}
+.tutorial-card{width:min(490px,calc(100% - 30px));padding:17px 19px 15px;background:#171f31;border:1px solid #9146ff;border-radius:14px;box-shadow:0 14px 45px rgba(0,0,0,.45);pointer-events:auto;z-index:53}
+.tutorial-step{color:#b98aff;font-size:9px;font-weight:900;letter-spacing:.8px;text-transform:uppercase}
+.tutorial-title{font-size:16px;font-weight:850;color:#f4f3fa;margin-top:5px}
+.tutorial-text{font-size:11px;line-height:1.55;color:#b6c0d2;margin-top:7px}
+.tutorial-actions{display:flex;align-items:center;justify-content:space-between;margin-top:14px}
+.tour-highlight{position:relative!important;z-index:51!important;outline:2px solid #b98aff!important;outline-offset:3px!important;box-shadow:0 0 0 7px rgba(145,70,255,.18),0 0 30px rgba(145,70,255,.28)!important}
+.logs-panel .log-view{contain:content}
+@media(max-width:760px){.login-card{padding:28px 22px}.page-heading-group{gap:9px}.page-title{font-size:21px}.back-button{padding:0 9px}.login-title{font-size:18px}}

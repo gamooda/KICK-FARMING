@@ -38,6 +38,7 @@ jobs:
       - name: Validate Python and UI files
         run: |
           python -m compileall "Twitch Farming/app.py" "Twitch Farming/webview_app.py" "Twitch Farming/engine"
+          node --check "Twitch Farming/ui/app.js"
           python -c "from pathlib import Path; root=Path('Twitch Farming'); required=[root/'ui/index.html',root/'ui/style.css',root/'ui/app.js']; missing=[str(p) for p in required if not p.is_file()]; assert not missing, 'Missing UI files: '+', '.join(missing)"
 
       - name: Build executable
