@@ -237,7 +237,8 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             data = {}
-        self.username_entry.insert(0, data.get("username", ""))
+        username = data.get("username", "")
+        self.username_entry.insert(0, username)
         saved_channels = data.get("channels", [])
         if isinstance(saved_channels, str):
             saved_channels = re.split(r"[\n,;]+", saved_channels)
@@ -245,8 +246,14 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         for key, variable in self.option_vars.items():
             if key in data.get("settings", {}):
                 variable.set(bool(data["settings"][key]))
+        self.bet_settings.update(data.get("bet_settings", {}))
+        self.custom_presets = data.get("custom_presets", {}) if isinstance(data.get("custom_presets", {}), dict) else {}
+        self.selected_preset = data.get("selected_preset", "Оптимальный")
+        self.tutorial_done = bool(data.get("tutorial_done", False))
         self._render_channels()
-        if self.username_entry.get().strip():
+        self._update_bet_button()
+        self._show_intro()
+        if username:
             self.after(350, self._restore_session)
 
     def _normalize_channel(self, value):
@@ -300,8 +307,9 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             ctk.CTkButton(card, text="×", width=27, height=27, corner_radius=7, fg_color="#3A2636", hover_color="#633247", text_color="#FF9AA8", state="disabled" if self.session_running else "normal", command=lambda name=login: self._remove_channel(name)).grid(row=0, column=3, padx=(2, 7))
 
     def _add_channel(self):
-        dialog = ctk.CTkInputDialog(text="Введи логин канала или ссылку twitch.tv/канал", title="Добавить канал")
-        value = dialog.get_input()
+        if self.session_running:
+            return
+        value = self._input_dialog("Добавить канал", "Логин канала или ссылка twitch.tv/канал")
         login = self._normalize_channel(value)
         if not login:
             if value:
@@ -316,8 +324,9 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self._refresh_channel_profiles([login])
 
     def _edit_channel(self, old_login):
-        dialog = ctk.CTkInputDialog(text="Укажи новый логин или ссылку Twitch", title=f"Изменить @{old_login}")
-        value = dialog.get_input()
+        if self.session_running:
+            return
+        value = self._input_dialog(f"Изменить @{old_login}", "Новый логин или ссылка Twitch", old_login)
         new_login = self._normalize_channel(value)
         if not new_login:
             return
@@ -333,6 +342,8 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self._refresh_channel_profiles([new_login])
 
     def _remove_channel(self, login):
+        if self.session_running:
+            return
         if login in self.channel_list:
             self.channel_list.remove(login)
             self.channel_profiles.pop(login, None)
@@ -398,6 +409,10 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             "username": self.username_entry.get().strip(),
             "channels": self._get_channels(),
             "settings": {key: variable.get() for key, variable in self.option_vars.items()},
+            "bet_settings": dict(self.bet_settings),
+            "custom_presets": self.custom_presets,
+            "selected_preset": self.selected_preset,
+            "tutorial_done": self.tutorial_done,
         }
 
     def _save_config(self):
@@ -425,6 +440,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             return
         self._save_config()
         self.stop_requested = False
+        self._set_channels_locked(True)
         self.gained_total = 0
         self.event_total = 0
         self.online_channels.clear()
@@ -438,14 +454,17 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self.stop_button.configure(state="normal")
         self._set_status("●  ЗАПУСК", "#F0B65A")
         settings = {key: variable.get() for key, variable in self.option_vars.items()}
+        settings["bet_settings"] = dict(self.bet_settings)
         self.worker = threading.Thread(target=self._run_engine, args=(username, channels, settings), daemon=True)
         self.worker.start()
 
-    def _login(self):
-        username = self.username_entry.get().strip().lower()
+    def _login(self, username_override=None):
+        username = self.username_entry.get().strip().lower() if username_override is None else str(username_override).strip().lower()
         if not username:
             messagebox.showwarning("Twitch Farming", "Укажи логин Twitch.")
             return
+        self.username_entry.delete(0, "end")
+        self.username_entry.insert(0, username)
         self._save_config()
         if self.auth_thread is not None and self.auth_thread.is_alive():
             return
@@ -457,6 +476,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         self.auth_url = ACTIVATION_URL
         self.auth_code_label.configure(text="Код авторизации: подготовка…")
         self.auth_status_label.configure(text="ПОДКЛЮЧЕНИЕ К TWITCH…", text_color="#F0B65A")
+        self._set_intro_status("Открываем авторизацию Twitch…")
         self.auth_button.configure(state="disabled", text="Подключение…")
         self.start_button.configure(state="disabled")
         self._set_status("●  АВТОРИЗАЦИЯ", "#F0B65A")
@@ -496,6 +516,25 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
         miner = None
         handler = None
         try:
+            bet_data = options.get("bet_settings", dict(DEFAULT_BET_SETTINGS))
+            filter_condition = None
+            if bet_data.get("filter_enabled"):
+                filter_condition = FilterCondition(
+                    by=getattr(OutcomeKeys, bet_data["filter_by"]),
+                    where=getattr(Condition, bet_data["filter_condition"]),
+                    value=float(bet_data["filter_value"]),
+                )
+            bet_settings = BetSettings(
+                strategy=getattr(Strategy, bet_data["strategy"]),
+                percentage=float(bet_data["percentage"]),
+                percentage_gap=float(bet_data["percentage_gap"]),
+                max_points=int(bet_data["max_points"]),
+                minimum_points=int(bet_data["minimum_points"]),
+                stealth_mode=bool(bet_data["stealth_mode"]),
+                filter_condition=filter_condition,
+                delay=float(bet_data["delay"]),
+                delay_mode=getattr(DelayMode, bet_data["delay_mode"]),
+            )
             streamer_settings = StreamerSettings(
                 make_predictions=options["make_predictions"],
                 follow_raid=options["follow_raid"],
@@ -503,6 +542,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
                 claim_moments=options["claim_moments"],
                 watch_streak=options["watch_streak"],
                 community_goals=False,
+                bet=bet_settings,
                 chat=ChatPresence.ONLINE if options["chat"] else ChatPresence.NEVER,
             )
             miner = TwitchChannelPointsMiner(
@@ -515,6 +555,7 @@ class FarmingApp(TwitchFarmingFeatures, ctk.CTk):
             )
             self.miner = miner
             handler = UIHandler(self.events)
+            handler.setLevel(logging.DEBUG)
             logging.getLogger().addHandler(handler)
             if self.stop_requested:
                 miner.request_stop()
