@@ -96,6 +96,10 @@ class Twitch(object):
                     if self.twitch_login.check_login():
                         logger.info("Restored the saved Twitch session.")
                         return True
+                    if self.twitch_login.refresh_access_token():
+                        self.twitch_login.save_cookies(self.cookies_file)
+                        logger.info("Restored the saved Twitch session with a refreshed token.")
+                        return True
             except Exception as error:
                 logger.warning(f"Saved Twitch session could not be restored: {error}")
             try:

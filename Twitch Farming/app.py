@@ -8,6 +8,7 @@ import threading
 import webbrowser
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parent / "engine"))
@@ -20,11 +21,15 @@ from TwitchChannelPointsMiner.classes.Chat import ChatPresence
 from TwitchChannelPointsMiner.classes.Settings import Priority
 from TwitchChannelPointsMiner.classes.entities.Streamer import StreamerSettings
 from TwitchChannelPointsMiner.logger import LoggerSettings
+from TwitchChannelPointsMiner.classes.Twitch import Twitch
+from TwitchChannelPointsMiner.utils import get_user_agent
 
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "Twitch Farming"
 CONFIG_FILE = APP_DIR / "config.json"
 ACTIVATION_URL = "https://www.twitch.tv/activate"
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+ICON_FILE = RESOURCE_DIR / "assets" / "twitch.ico"
 
 
 class UIHandler(logging.Handler):
@@ -45,6 +50,10 @@ class FarmingApp(ctk.CTk):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
         self.title("Twitch Farming")
+        try:
+            self.iconbitmap(str(ICON_FILE))
+        except Exception:
+            pass
         self.geometry("1120x780")
         self.minsize(980, 700)
         self.configure(fg_color="#0B0F19")
@@ -55,6 +64,11 @@ class FarmingApp(ctk.CTk):
         self.stop_requested = False
         self.auth_opened = False
         self.auth_code = ""
+        self.auth_url = ACTIVATION_URL
+        self.authenticated = False
+        self.authenticated_username = ""
+        self.auth_thread = None
+        self.auth_client = None
         self.gained_total = 0
         self.event_total = 0
         self.online_channels = set()
@@ -101,7 +115,10 @@ class FarmingApp(ctk.CTk):
         self.username_entry.grid(row=1, column=0, sticky="w", padx=(17, 10), pady=(0, 14))
         self.auth_code_label = ctk.CTkLabel(account, text="Код авторизации: —", font=("Segoe UI", 12, "bold"), text_color="#D8C7FF", anchor="w")
         self.auth_code_label.grid(row=1, column=1, sticky="w", padx=8, pady=(0, 14))
-        ctk.CTkButton(account, text="Открыть Twitch", width=132, height=35, corner_radius=9, fg_color="#29213F", hover_color="#3B2C58", command=self._open_activation).grid(row=1, column=2, padx=(8, 17), pady=(0, 14))
+        self.auth_button = ctk.CTkButton(account, text="Войти через Twitch", width=150, height=35, corner_radius=9, fg_color="#9146FF", hover_color="#7B32E8", command=self._login)
+        self.auth_button.grid(row=1, column=2, padx=(8, 17), pady=(0, 14))
+        self.auth_status_label = ctk.CTkLabel(account, text="АККАУНТ НЕ ПОДКЛЮЧЁН", font=("Segoe UI", 9, "bold"), text_color="#8792A8", anchor="w")
+        self.auth_status_label.grid(row=2, column=0, columnspan=3, sticky="w", padx=17, pady=(0, 12))
 
         content_row = ctk.CTkFrame(main, fg_color="transparent")
         content_row.grid(row=2, column=0, sticky="ew", pady=(0, 12))
@@ -207,17 +224,18 @@ class FarmingApp(ctk.CTk):
 
     def _start(self):
         username = self.username_entry.get().strip().lower()
-        channels = self._get_channels()
         if not username:
             messagebox.showwarning("Twitch Farming", "Укажи логин Twitch.")
             return
+        if not self.authenticated or self.authenticated_username != username:
+            self._login()
+            return
+        channels = self._get_channels()
         if not channels:
             messagebox.showwarning("Twitch Farming", "Добавь хотя бы один канал.")
             return
         self._save_config()
         self.stop_requested = False
-        self.auth_opened = False
-        self.auth_code = ""
         self.gained_total = 0
         self.event_total = 0
         self.online_channels.clear()
@@ -227,13 +245,60 @@ class FarmingApp(ctk.CTk):
         self.event_box.configure(state="normal")
         self.event_box.delete("1.0", "end")
         self.event_box.configure(state="disabled")
-        self.auth_code_label.configure(text="Код авторизации: ожидание…")
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
-        self._set_status("●  ПОДКЛЮЧЕНИЕ", "#F0B65A")
+        self._set_status("●  ЗАПУСК", "#F0B65A")
         settings = {key: variable.get() for key, variable in self.option_vars.items()}
         self.worker = threading.Thread(target=self._run_engine, args=(username, channels, settings), daemon=True)
         self.worker.start()
+
+    def _login(self):
+        username = self.username_entry.get().strip().lower()
+        if not username:
+            messagebox.showwarning("Twitch Farming", "Укажи логин Twitch.")
+            return
+        if self.auth_thread is not None and self.auth_thread.is_alive():
+            return
+        if self.worker is not None and self.worker.is_alive():
+            messagebox.showwarning("Twitch Farming", "Останови текущий сбор перед сменой аккаунта.")
+            return
+        self.auth_opened = False
+        self.auth_code = ""
+        self.auth_url = ACTIVATION_URL
+        self.auth_code_label.configure(text="Код авторизации: подготовка…")
+        self.auth_status_label.configure(text="ПОДКЛЮЧЕНИЕ К TWITCH…", text_color="#F0B65A")
+        self.auth_button.configure(state="disabled", text="Подключение…")
+        self.start_button.configure(state="disabled")
+        self._set_status("●  АВТОРИЗАЦИЯ", "#F0B65A")
+        self.auth_thread = threading.Thread(target=self._login_worker, args=(username,), daemon=True)
+        self.auth_thread.start()
+
+    def _login_worker(self, username):
+        handler = UIHandler(self.events)
+        root_logger = logging.getLogger()
+        previous_level = root_logger.level
+        root_logger.setLevel(logging.INFO)
+        root_logger.addHandler(handler)
+        client = None
+        try:
+            client = Twitch(username, get_user_agent("CHROME"))
+            self.auth_client = client
+            if client.login():
+                self.events.put(("auth_success", username))
+            else:
+                self.events.put(("auth_failure", "Twitch не подтвердил авторизацию. Запроси новый код и повтори вход."))
+        except Exception as error:
+            self.events.put(("auth_failure", str(error)))
+        finally:
+            root_logger.removeHandler(handler)
+            root_logger.setLevel(previous_level)
+            if client is not None:
+                try:
+                    client.twitch_login.session.close()
+                except Exception:
+                    pass
+            self.auth_client = None
+            self.events.put(("auth_finished", None))
 
     def _run_engine(self, username, channels, options):
         miner = None
@@ -299,8 +364,24 @@ class FarmingApp(ctk.CTk):
                     self._handle_log(item[1], item[2], item[3], item[4])
                 elif item[0] == "status":
                     self._set_status(item[1], item[2])
+                elif item[0] == "auth_success":
+                    self.authenticated = True
+                    self.authenticated_username = item[1]
+                    self.auth_status_label.configure(text=f"АККАУНТ ПОДКЛЮЧЁН · {item[1]}", text_color="#42D6A4")
+                    self.auth_code_label.configure(text="Код авторизации: подтверждён")
+                    self._append_event(f"Аккаунт Twitch подключён · {item[1]}")
+                    self._set_status("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
+                elif item[0] == "auth_failure":
+                    self.authenticated = False
+                    self.authenticated_username = ""
+                    self.auth_status_label.configure(text="АВТОРИЗАЦИЯ НЕ УДАЛАСЬ", text_color="#FF6B78")
+                    self._append_event("Вход не выполнен · " + str(item[1]).replace("\\n", " ")[:220])
+                    self._set_status("●  ОШИБКА АВТОРИЗАЦИИ", "#FF6B78")
+                elif item[0] == "auth_finished":
+                    self.auth_button.configure(state="normal", text="Подключено" if self.authenticated else "Войти через Twitch")
+                    self.start_button.configure(state="normal")
                 elif item[0] == "error":
-                    self._append_event("Ошибка · " + str(item[1]).replace("\n", " ")[:220])
+                    self._append_event("Ошибка · " + str(item[1]).replace("\\n", " ")[:220])
                     self._set_status("●  ОШИБКА", "#FF6B78")
                 elif item[0] == "finished":
                     self.start_button.configure(state="normal")
@@ -310,14 +391,21 @@ class FarmingApp(ctk.CTk):
         self.after(120, self._process_events)
 
     def _handle_log(self, message, level, created, event):
+        if message.startswith("DEVICE_AUTH_URL:"):
+            self.auth_url = message.split(":", 1)[1].strip()
+            return
         if "and enter this code:" in message:
             code = message.split("and enter this code:", 1)[1].strip().split()[0]
             self.auth_code = code
             self.auth_code_label.configure(text=f"Код авторизации: {code}")
+            self.auth_status_label.configure(text="ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ В TWITCH", text_color="#F0B65A")
             self._append_event(f"Код входа готов · {code}")
             if not self.auth_opened:
                 self.auth_opened = True
-                webbrowser.open(ACTIVATION_URL)
+                url = self.auth_url
+                if "device-code=" not in url:
+                    url = f"{ACTIVATION_URL}?public=true&device-code={quote(code)}"
+                webbrowser.open(url)
             return
         if "Join IRC Chat:" in message or "Leave IRC Chat:" in message:
             return
@@ -339,7 +427,11 @@ class FarmingApp(ctk.CTk):
             self.online_value.configure(text=str(len(self.online_channels)))
             self._append_event(f"{stamp}  ○  {name} · Не в эфире")
             return
-        if "Twitch session saved securely" in message or "Restored the saved Twitch session" in message:
+        if "Twitch session saved securely" in message or "Restored the saved Twitch session" in message or "Restored the saved Twitch session with a refreshed token" in message:
+            self.authenticated = True
+            self.authenticated_username = self.username_entry.get().strip().lower()
+            self.auth_status_label.configure(text=f"АККАУНТ ПОДКЛЮЧЁН · {self.authenticated_username}", text_color="#42D6A4")
+            self.auth_button.configure(text="Подключено")
             self._append_event(f"{stamp}  Аккаунт подключён")
             self._set_status("●  АККАУНТ ПОДКЛЮЧЁН", "#42D6A4")
             return
@@ -393,6 +485,11 @@ class FarmingApp(ctk.CTk):
 
     def _close(self):
         self.stop_requested = True
+        if self.auth_client is not None:
+            try:
+                self.auth_client.twitch_login.cancel()
+            except Exception:
+                pass
         if self.miner is not None:
             self.miner.request_stop()
         self.destroy()

@@ -31,9 +31,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r "Twitch Farming/requirements.txt"
 
+      - name: Create Twitch application icon
+        run: |
+          python "Twitch Farming/build_icon.py"
+
       - name: Build executable
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --paths "Twitch Farming/engine" --collect-all customtkinter --collect-all irc --collect-submodules TwitchChannelPointsMiner "Twitch Farming/app.py"
+          pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --icon "Twitch Farming/assets/twitch.ico" --add-data "Twitch Farming/assets/twitch.ico;assets" --paths "Twitch Farming/engine" --collect-all customtkinter --collect-all irc --collect-submodules TwitchChannelPointsMiner "Twitch Farming/app.py"
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4

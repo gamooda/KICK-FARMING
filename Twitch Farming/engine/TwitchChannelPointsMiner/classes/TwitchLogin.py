@@ -43,8 +43,8 @@ class TwitchLogin(object):
         "client_id",
         "device_id",
         "token",
+        "refresh_token",
         "login_check_result",
-        "session",
         "session",
         "username",
         "password",
@@ -59,6 +59,7 @@ class TwitchLogin(object):
         self.client_id = client_id
         self.device_id = device_id
         self.token = None
+        self.refresh_token = None
         self.login_check_result = False
         self.session = requests.session()
         self.session.headers.update(
@@ -76,17 +77,30 @@ class TwitchLogin(object):
 
     def login_flow(self):
         logger.info("You'll have to login to Twitch!")
+        scopes = "channel_read chat:read user_blocks_edit user_blocks_read user_follows_edit user_read"
         post_data = {
             "client_id": self.client_id,
-            "scopes": "channel_read chat:read user_blocks_edit user_blocks_read user_follows_edit user_read",
+            "scopes": scopes,
         }
         while not self.cancelled:
             logger.info("Trying the TV login method..")
-            response = self.send_oauth_request("https://id.twitch.tv/oauth2/device", post_data)
-            if response.status_code != 200:
-                logger.error(f"Twitch device authorization failed: HTTP {response.status_code}")
+            try:
+                response = self.send_oauth_request("https://id.twitch.tv/oauth2/device", post_data)
+            except requests.RequestException as error:
+                logger.error(f"Twitch device authorization request failed: {error}")
                 return False
-            payload = response.json()
+            if response.status_code != 200:
+                try:
+                    detail = response.json().get("message", response.text[:200])
+                except ValueError:
+                    detail = response.text[:200]
+                logger.error(f"Twitch device authorization failed: HTTP {response.status_code} · {detail}")
+                return False
+            try:
+                payload = response.json()
+            except ValueError:
+                logger.error("Twitch returned an invalid device authorization response.")
+                return False
             if not payload.get("user_code") or not payload.get("device_code"):
                 logger.error("Twitch did not return a device authorization code.")
                 return False
@@ -94,11 +108,13 @@ class TwitchLogin(object):
             device_code = payload["device_code"]
             interval = int(payload.get("interval", 5))
             expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(payload.get("expires_in", 1800)))
-            logger.info("Open https://www.twitch.tv/activate")
+            verification_uri = payload.get("verification_uri", "https://www.twitch.tv/activate")
+            logger.info(f"DEVICE_AUTH_URL: {verification_uri}")
             logger.info(f"and enter this code: {user_code}")
             logger.info(f"Hurry up! It will expire in {int(payload.get('expires_in', 1800) / 60)} minutes!")
             token_data = {
                 "client_id": self.client_id,
+                "scopes": scopes,
                 "device_code": device_code,
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
             }
@@ -107,15 +123,44 @@ class TwitchLogin(object):
                 if self.cancelled:
                     return False
                 if datetime.now(timezone.utc) >= expires_at:
-                    logger.error("Twitch device authorization code expired.")
+                    logger.error("Twitch authorization code expired. Requesting a new code.")
                     break
-                token_response = self.send_oauth_request("https://id.twitch.tv/oauth2/token", token_data)
-                if token_response.status_code != 200:
+                try:
+                    token_response = self.send_oauth_request("https://id.twitch.tv/oauth2/token", token_data)
+                except requests.RequestException as error:
+                    logger.warning(f"Twitch token check failed: {error}")
                     continue
-                token_payload = token_response.json()
+                if token_response.status_code != 200:
+                    try:
+                        error_payload = token_response.json()
+                        error_message = error_payload.get("message", "")
+                    except ValueError:
+                        error_message = token_response.text[:200]
+                    if error_message == "authorization_pending":
+                        continue
+                    if error_message == "slow_down":
+                        interval += 5
+                        continue
+                    if error_message in ("expired_token", "invalid device code"):
+                        logger.error("Twitch authorization code expired. Requesting a new code.")
+                        break
+                    if error_message == "access_denied":
+                        logger.error("Twitch authorization was denied.")
+                        return False
+                    logger.error(f"Twitch token request failed: HTTP {token_response.status_code} · {error_message or 'unknown error'}")
+                    return False
+                try:
+                    token_payload = token_response.json()
+                except ValueError:
+                    logger.error("Twitch returned an invalid token response.")
+                    return False
                 if token_payload.get("access_token"):
+                    self.refresh_token = token_payload.get("refresh_token")
                     self.set_token(token_payload["access_token"])
-                    return self.check_login()
+                    if self.check_login():
+                        return True
+                    logger.error("Twitch issued a token, but account verification failed.")
+                    return False
             if self.cancelled:
                 return False
         return False
@@ -125,9 +170,39 @@ class TwitchLogin(object):
 
     def set_token(self, new_token):
         self.token = new_token
+        self.login_check_result = False
         self.session.headers.update({"Authorization": f"Bearer {self.token}"})
 
     # def send_login_request(self, json_data):
+    def refresh_access_token(self):
+        if not self.refresh_token:
+            return False
+        try:
+            response = self.send_oauth_request("https://id.twitch.tv/oauth2/token", {
+                "client_id": self.client_id,
+                "grant_type": "refresh_token",
+                "refresh_token": self.refresh_token,
+            })
+        except requests.RequestException as error:
+            logger.warning(f"Twitch session refresh failed: {error}")
+            return False
+        if response.status_code != 200:
+            try:
+                detail = response.json().get("message", response.text[:200])
+            except ValueError:
+                detail = response.text[:200]
+            logger.warning(f"Twitch session refresh rejected: HTTP {response.status_code} · {detail}")
+            return False
+        try:
+            payload = response.json()
+        except ValueError:
+            return False
+        if not payload.get("access_token"):
+            return False
+        self.refresh_token = payload.get("refresh_token", self.refresh_token)
+        self.set_token(payload["access_token"])
+        return self.check_login()
+
     def send_oauth_request(self, url, json_data):
         # response = self.session.post("https://passport.twitch.tv/protected_login", json=json_data)
         """response = self.session.post("https://passport.twitch.tv/login", json=json_data, headers={
@@ -142,14 +217,14 @@ class TwitchLogin(object):
             'Accept-Encoding': 'gzip',
             'Accept-Language': 'en-US',
             "Cache-Control": "no-cache",
-            "Client-Id": CLIENT_ID,
+            "Client-Id": self.client_id,
             "Host": "id.twitch.tv",
             "Origin": "https://android.tv.twitch.tv",
             "Pragma": "no-cache",
             "Referer": "https://android.tv.twitch.tv/",
             "User-Agent": USER_AGENTS["Android"]["TV"],
             "X-Device-Id": self.device_id
-        },)
+        }, timeout=20)
         return response
 
     def login_flow_backup(self, password=None):
@@ -247,6 +322,8 @@ class TwitchLogin(object):
     def save_cookies(self, cookies_file):
         cookies_dict = self.session.cookies.get_dict()
         cookies_dict["auth-token"] = self.token
+        if self.refresh_token:
+            cookies_dict["refresh-token"] = self.refresh_token
         if "persistent" not in cookies_dict:
             cookies_dict["persistent"] = self.user_id
         self.cookies = [
@@ -267,6 +344,7 @@ class TwitchLogin(object):
             self.cookies = load_secure_json(cookies_file)
             if not isinstance(self.cookies, list):
                 raise WrongCookiesException("The saved Twitch session is invalid.")
+            self.refresh_token = self.get_cookie_value("refresh-token")
         else:
             raise WrongCookiesException("There must be a cookies file!")
 
@@ -284,7 +362,7 @@ class TwitchLogin(object):
     def __set_user_id(self):
         json_data = copy.deepcopy(GQLOperations.GetIDFromLogin)
         json_data["variables"]["login"] = self.username
-        response = self.session.post(GQLOperations.url, json=json_data)
+        response = self.session.post(GQLOperations.url, json=json_data, timeout=20)
 
         if response.status_code == 200:
             json_response = response.json()

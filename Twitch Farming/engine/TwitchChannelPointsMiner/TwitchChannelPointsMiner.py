@@ -424,7 +424,12 @@ class TwitchChannelPointsMiner:
                             )
 
     def request_stop(self):
-        self.request_stop()
+        self.running = False
+        self.twitch.running = False
+        try:
+            self.twitch.twitch_login.cancel()
+        except Exception:
+            pass
         if self.ws_pool is not None:
             self.ws_pool.end()
 
