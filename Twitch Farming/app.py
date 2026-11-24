@@ -13,6 +13,7 @@ if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parent / "engine"))
 
 import customtkinter as ctk
+import tkinter as tk
 from tkinter import messagebox
 from TwitchChannelPointsMiner import TwitchChannelPointsMiner
 from TwitchChannelPointsMiner.classes.Chat import ChatPresence
@@ -117,7 +118,7 @@ class FarmingApp(ctk.CTk):
         options.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
         ctk.CTkLabel(options, text="АВТОМАТИЗАЦИЯ", font=("Segoe UI", 10, "bold"), text_color="#A9B4C9").pack(anchor="w", padx=16, pady=(13, 5))
         self.option_vars = {
-            "claim_drops": ctk.BooleanVar(value=True),
+            "claim_drops": tk.BooleanVar(value=True),
             "watch_streak": ctk.BooleanVar(value=True),
             "claim_moments": ctk.BooleanVar(value=True),
             "follow_raid": ctk.BooleanVar(value=True),
