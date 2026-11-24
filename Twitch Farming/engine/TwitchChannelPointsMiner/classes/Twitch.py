@@ -11,6 +11,7 @@ import random
 import re
 import string
 import time
+import threading
 import requests
 import validators
 # import json
@@ -64,6 +65,7 @@ class Twitch(object):
         "client_session",
         "client_version",
         "twilight_build_id_pattern",
+        "auth_lock",
     ]
 
     def __init__(self, username, user_agent, password=None):
@@ -78,6 +80,7 @@ class Twitch(object):
             CLIENT_ID, self.device_id, username, self.user_agent, password=password
         )
         self.running = True
+        self.auth_lock = threading.Lock()
         # self.integrity = None
         # self.integrity_expire = 0
         self.client_session = token_hex(16)
@@ -96,9 +99,7 @@ class Twitch(object):
                 return False
             self.twitch_login.set_token(token)
             if self.twitch_login.check_login():
-                if self.twitch_login.expires_in <= 600 and self.twitch_login.refresh_token:
-                    if self.twitch_login.refresh_access_token():
-                        self.twitch_login.save_cookies(self.cookies_file)
+                logger.info("Restored the saved Twitch session.")
                 return True
             if self.twitch_login.refresh_token and self.twitch_login.refresh_access_token():
                 self.twitch_login.save_cookies(self.cookies_file)
@@ -121,6 +122,18 @@ class Twitch(object):
             return True
         return False
 
+    def _reauthenticate_after_expiry(self, expired_token):
+        with self.auth_lock:
+            if self.twitch_login.token != expired_token and self.twitch_login.check_login():
+                return True
+            logger.warning("Twitch session expired. A new device confirmation is required.")
+            self.twitch_login.cancelled = False
+            if not self.twitch_login.login_flow():
+                return False
+            self.twitch_login.save_cookies(self.cookies_file)
+            logger.info("Twitch session renewed after device confirmation.")
+            return True
+
     def helix_get(self, endpoint, params=None):
         token = self.twitch_login.token
         if not token:
@@ -134,6 +147,17 @@ class Twitch(object):
             params=params or {},
             timeout=7,
         )
+        if response.status_code == 401 and self._reauthenticate_after_expiry(token):
+            token = self.twitch_login.token
+            response = requests.get(
+                f"https://api.twitch.tv/helix/{endpoint}",
+                headers={
+                    "Client-ID": self.twitch_login.client_id,
+                    "Authorization": f"Bearer {token}",
+                },
+                params=params or {},
+                timeout=7,
+            )
         response.raise_for_status()
         payload = response.json()
         return payload.get("data", [])
@@ -313,13 +337,13 @@ class Twitch(object):
 
     def post_gql_request(self, json_data):
         try:
+            token = self.twitch_login.get_auth_token()
             response = requests.post(
                 GQLOperations.url,
                 json=json_data,
                 headers={
-                    "Authorization": f"OAuth {self.twitch_login.get_auth_token()}",
+                    "Authorization": f"OAuth {token}",
                     "Client-Id": CLIENT_ID,
-                    # "Client-Integrity": self.post_integrity(),
                     "Client-Session-Id": self.client_session,
                     "Client-Version": self.update_client_version(),
                     "User-Agent": self.user_agent,
@@ -327,14 +351,26 @@ class Twitch(object):
                 },
                 timeout=7,
             )
-            logger.debug(
-                f"Data: {json_data}, Status code: {response.status_code}, Content: {response.text}"
-            )
+            if response.status_code == 401 and self._reauthenticate_after_expiry(token):
+                token = self.twitch_login.get_auth_token()
+                response = requests.post(
+                    GQLOperations.url,
+                    json=json_data,
+                    headers={
+                        "Authorization": f"OAuth {token}",
+                        "Client-Id": CLIENT_ID,
+                        "Client-Session-Id": self.client_session,
+                        "Client-Version": self.update_client_version(),
+                        "User-Agent": self.user_agent,
+                        "X-Device-Id": self.device_id,
+                    },
+                    timeout=7,
+                )
+            logger.debug(f"GQLOperations {json_data.get('operationName', 'batch')} · HTTP {response.status_code}")
             return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(
-                f"Error with GQLOperations ({json_data['operationName']}): {e}"
-            )
+        except requests.exceptions.RequestException as error:
+            operation = json_data.get("operationName", "batch") if isinstance(json_data, dict) else "batch"
+            logger.error(f"Error with GQLOperations ({operation}): {error}")
             return {}
 
     # Request for Integrity Token
