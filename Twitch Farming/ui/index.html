@@ -147,7 +147,7 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
             <div><div class="page-title">События и журнал</div><div class="page-subtitle">Сообщения приложения, начисления и диагностика фарма</div></div>
           </div>
           <div class="log-filters" role="group" aria-label="Фильтр журнала">
-            <button class="log-filter active" data-log-filter="important">Только важные</button>
+            <button class="log-filter active" data-log-filter="important">Только важные (INFO/ERROR)</button>
             <button class="log-filter" data-log-filter="all">Все</button>
             <button class="log-filter" data-log-filter="points">Начисления баллов</button>
           </div>
@@ -256,7 +256,7 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
           </div>
           <div class="settings-savebar">
             <div class="settings-savebar-label"><strong>Сохранение настроек</strong><small id="settings-feedback">Изменения вступят в силу после сохранения.</small></div>
-            <div class="settings-savebar-actions"><label class="settings-preset-label" for="settings-preset-select">Пресет прогнозов</label><select class="input settings-preset-select" id="settings-preset-select"><option>Оптимальный</option></select><button class="button button-primary" id="save-button"><svg><use href="#i-save"></use></svg>Сохранить настройки</button></div>
+            <div class="settings-savebar-actions"><button class="button button-soft" id="open-bets"><svg><use href="#i-chart"></use></svg>Настроить прогнозы</button><label class="settings-preset-label" for="settings-preset-select">Пресет прогнозов</label><select class="input settings-preset-select" id="settings-preset-select"><option>Оптимальный</option></select><button class="button button-primary" id="save-button"><svg><use href="#i-save"></use></svg>Сохранить настройки</button></div>
           </div>
         </div>
       </section>
