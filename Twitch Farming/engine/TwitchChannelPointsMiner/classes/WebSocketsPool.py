@@ -3,7 +3,7 @@ import logging
 import random
 import time
 # import os
-from threading import Thread, Timer
+from threading import Event, Thread, Timer
 # from pathlib import Path
 
 from dateutil import parser
@@ -24,13 +24,15 @@ logger = logging.getLogger(__name__)
 
 
 class WebSocketsPool:
-    __slots__ = ["ws", "twitch", "streamers", "events_predictions"]
+    __slots__ = ["ws", "twitch", "streamers", "events_predictions", "threads", "stop_event"]
 
     def __init__(self, twitch, streamers, events_predictions):
         self.ws = []
         self.twitch = twitch
         self.streamers = streamers
         self.events_predictions = events_predictions
+        self.threads = []
+        self.stop_event = Event()
 
     """
     API Limits
@@ -40,6 +42,8 @@ class WebSocketsPool:
     """
 
     def submit(self, topic):
+        if self.stop_event.is_set():
+            return
         # Check if we need to create a new WebSocket instance
         if self.ws == [] or len(self.ws[-1].topics) >= 50:
             self.ws.append(self.__new(len(self.ws)))
@@ -70,29 +74,48 @@ class WebSocketsPool:
         )
 
     def __start(self, index):
+        if self.stop_event.is_set():
+            return
+        ws = self.ws[index]
         if Settings.disable_ssl_cert_verification is True:
             import ssl
 
             thread_ws = Thread(
-                target=lambda: self.ws[index].run_forever(
+                target=lambda: ws.run_forever(
                     sslopt={"cert_reqs": ssl.CERT_NONE}
                 )
             )
             logger.warn("SSL certificate verification is disabled! Be aware!")
         else:
-            thread_ws = Thread(target=lambda: self.ws[index].run_forever())
+            thread_ws = Thread(target=lambda: ws.run_forever())
         thread_ws.daemon = True
-        thread_ws.name = f"WebSocket #{self.ws[index].index}"
+        thread_ws.name = f"WebSocket #{ws.index}"
+        self.threads.append(thread_ws)
         thread_ws.start()
 
     def end(self):
-        for index in range(0, len(self.ws)):
-            self.ws[index].forced_close = True
-            self.ws[index].close()
+        self.stop_event.set()
+        for ws in list(self.ws):
+            ws.forced_close = True
+            ws.is_closed = True
+            ws.keep_running = False
+            try:
+                ws.close()
+            except Exception:
+                logger.debug("WebSocket was already closed", exc_info=True)
+
+    def join(self):
+        current = __import__("threading").current_thread()
+        for thread in list(self.threads):
+            if thread is not current and thread.is_alive():
+                thread.join()
+        self.threads = [thread for thread in self.threads if thread.is_alive()]
 
     @staticmethod
     def on_open(ws):
         def run():
+            if ws.parent_pool.stop_event.is_set():
+                return
             ws.is_opened = True
             pending_topics = list(ws.pending_topics)
             ws.pending_topics.clear()
@@ -100,17 +123,21 @@ class WebSocketsPool:
             ws.ping()
 
             for topic in pending_topics:
+                if ws.parent_pool.stop_event.is_set():
+                    return
                 ws.listen(topic, ws.twitch.twitch_login.get_auth_token())
 
             if pending_topics:
                 logger.info(f"#{ws.index} - Sent LISTEN requests for {len(pending_topics)} topics.")
 
-            while ws.is_closed is False:
-                # Else: the ws is currently in reconnecting phase, you can't do ping or other operation.
-                # Probably this ws will be closed very soon with ws.is_closed = True
+            while not ws.parent_pool.stop_event.is_set() and ws.is_closed is False:
                 if ws.is_reconnecting is False:
-                    ws.ping()  # We need ping for keep the connection alive
-                    time.sleep(random.uniform(25, 30))
+                    try:
+                        ws.ping()
+                    except Exception:
+                        break
+                    if ws.parent_pool.stop_event.wait(random.uniform(25, 30)):
+                        break
 
                     if ws.elapsed_last_pong() > 5:
                         logger.info(
@@ -120,6 +147,8 @@ class WebSocketsPool:
 
         thread_ws = Thread(target=run)
         thread_ws.daemon = True
+        thread_ws.name = f"WebSocket keepalive #{ws.index}"
+        ws.parent_pool.threads.append(thread_ws)
         thread_ws.start()
 
     @staticmethod
@@ -136,7 +165,11 @@ class WebSocketsPool:
 
     @staticmethod
     def handle_reconnection(ws):
-        # Reconnect only if ws.is_reconnecting is False to prevent more than 1 ws from being created
+        pool = ws.parent_pool
+        if pool.stop_event.is_set() or ws.forced_close:
+            ws.is_closed = True
+            ws.keep_running = False
+            return
         if ws.is_reconnecting is False:
             # Close the current WebSocket.
             ws.is_closed = True
@@ -147,26 +180,28 @@ class WebSocketsPool:
             # So the external ping check will be locked
             ws.is_reconnecting = True
 
-            if ws.forced_close is False:
+            if ws.forced_close is False and not pool.stop_event.is_set():
                 logger.info(
                     f"#{ws.index} - Reconnecting to Twitch PubSub server in ~30 seconds"
                 )
-                time.sleep(30)
+                if pool.stop_event.wait(30):
+                    return
 
-                while internet_connection_available() is False:
+                while not pool.stop_event.is_set() and internet_connection_available() is False:
                     random_sleep = random.randint(1, 3)
                     logger.warning(
                         f"#{ws.index} - No internet connection available! Retry after {random_sleep}m"
                     )
-                    time.sleep(random_sleep * 60)
+                    if pool.stop_event.wait(random_sleep * 60):
+                        return
 
-                # Why not create a new ws on the same array index? Let's try.
-                self = ws.parent_pool
-                # Create a new connection.
+                if pool.stop_event.is_set() or ws.forced_close:
+                    return
+                self = pool
                 self.ws[ws.index] = self.__new(ws.index)
-
                 self.__start(ws.index)
-
+                if pool.stop_event.is_set():
+                    return
                 for topic in ws.topics:
                     self.__submit(ws.index, topic)
 
