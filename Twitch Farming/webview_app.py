@@ -138,11 +138,12 @@ class EngineWorker(threading.Thread):
         self.options = dict(options)
         self.client = client
         self.miner = None
-        self.stop_requested = False
+        self.stop_event = threading.Event()
+        self.miner_lock = threading.RLock()
 
     def add_streamer(self, login, channel_id=None):
         deadline = time.monotonic() + 25
-        while self.is_alive() and not self.stop_requested:
+        while self.is_alive() and not self.stop_event.is_set():
             miner = self.miner
             if miner is not None:
                 try:
@@ -157,17 +158,20 @@ class EngineWorker(threading.Thread):
         return {"ok": False, "message": "Фарм ещё подключается к Twitch. Повтори добавление через несколько секунд."}
 
     def request_stop(self):
-        self.stop_requested = True
-        if self.miner is not None:
+        self.stop_event.set()
+        with self.miner_lock:
+            miner = self.miner
+        if miner is not None:
             try:
-                self.miner.request_stop()
+                miner.request_stop()
             except Exception:
-                pass
+                logging.getLogger("twitch_farming.engine").exception("Could not stop the active miner")
 
     def run(self):
         miner = None
         try:
             from TwitchChannelPointsMiner.TwitchChannelPointsMiner import TwitchChannelPointsMiner
+            from TwitchChannelPointsMiner.classes.Twitch import Twitch
             from TwitchChannelPointsMiner.classes.Chat import ChatPresence
             from TwitchChannelPointsMiner.classes.Settings import Priority
             from TwitchChannelPointsMiner.classes.entities.Streamer import Streamer, StreamerSettings
@@ -204,17 +208,31 @@ class EngineWorker(threading.Thread):
             )
             if self.client is None or not self.client.twitch_login.get_auth_token():
                 raise RuntimeError("Авторизация Twitch недоступна. Подключи аккаунт заново.")
+            if self.stop_event.is_set():
+                return
+            session_client = Twitch(self.username, self.client.user_agent)
+            if self.stop_event.is_set():
+                try:
+                    session_client.twitch_login.session.close()
+                except Exception:
+                    pass
+                return
             miner = TwitchChannelPointsMiner(
                 username=self.username,
                 claim_drops_startup=False,
                 enable_analytics=False,
-                priority=[Priority.STREAK, Priority.DROPS, Priority.ORDER],
+                priority=[Priority.ORDER],
                 logger_settings=LoggerSettings(save=False, less=True, console_level=logging.CRITICAL, file_level=logging.CRITICAL, emoji=False, colored=False),
                 streamer_settings=settings,
-                twitch_client=self.client,
+                twitch_client=session_client,
                 check_for_updates=False,
             )
-            self.miner = miner
+            with self.miner_lock:
+                self.miner = miner
+                stop_requested = self.stop_event.is_set()
+            if stop_requested:
+                miner.request_stop()
+                return
             with self.app.lock:
                 branding_cache = {key: dict(value) for key, value in self.app.channel_points_branding_cache.items()}
             prepared_streamers = []
@@ -226,9 +244,7 @@ class EngineWorker(threading.Thread):
                     streamer.channel_points_image = str(cached_branding.get("icon_url") or "")
                     streamer.channel_points_branding_loaded = True
                 prepared_streamers.append(streamer)
-            self.client.running = True
-            self.client.twitch_login.cancelled = False
-            if self.stop_requested:
+            if self.stop_event.is_set():
                 miner.request_stop()
                 return
             miner.mine(streamers=prepared_streamers, followers=False)
@@ -240,7 +256,8 @@ class EngineWorker(threading.Thread):
                     miner.stop()
                 except Exception as error:
                     self.app.engine_error(str(error))
-            self.miner = None
+            with self.miner_lock:
+                self.miner = None
             self.app.engine_finished(self)
 
 
@@ -503,6 +520,7 @@ class TwitchFarmingApi:
         self.engine_worker = None
         self.api_client = None
         self.session_running = False
+        self.session_started_at = 0.0
         self.status_text = "●  НЕ ЗАПУЩЕН"
         self.status_color = "#A9B2C3"
         self.gained_total = 0
@@ -1463,6 +1481,7 @@ class TwitchFarmingApi:
                 pass
             else:
                 self.session_running = True
+                self.session_started_at = time.time()
                 self.online_channels.clear()
                 self.gained_total = 0
                 self.event_total = 0
@@ -1484,6 +1503,7 @@ class TwitchFarmingApi:
             if worker is None or not worker.is_alive():
                 return {"ok": False, "message": "Сбор не запущен."}
             self._set_status_locked("●  ОСТАНОВКА", "#F0B65A")
+            self.session_started_at = 0.0
         worker.request_stop()
         return {"ok": True, "message": "Остановка запрошена."}
 
@@ -1496,6 +1516,7 @@ class TwitchFarmingApi:
         with self.lock:
             if self.engine_worker is worker:
                 self.session_running = False
+                self.session_started_at = 0.0
                 self.engine_worker = None
                 self._set_status_locked("●  НЕ ЗАПУЩЕН", "#A9B2C3")
 
@@ -1508,12 +1529,17 @@ class TwitchFarmingApi:
         self.events.append(stamp + "  " + str(message))
         self.events = self.events[-100:]
 
-    def _append_reward_locked(self, title, description, kind, created):
+    def _append_reward_locked(self, title, description, kind, created, channel_login=""):
+        login = str(channel_login or "").strip().lower()
+        branding = self.channel_points_branding_cache.get(login, {}) if login else {}
         self.rewards.append({
             "title": str(title)[:100],
             "description": str(description)[:140],
             "kind": str(kind),
             "timestamp": float(created),
+            "channel_login": login,
+            "currency_name": str(branding.get("name") or "")[:80],
+            "currency_icon": str(branding.get("icon_url") or "") if str(branding.get("icon_url") or "").startswith("https://") else "",
         })
         self.rewards = self.rewards[-60:]
 
@@ -1632,7 +1658,11 @@ class TwitchFarmingApi:
                 self.gained_total += amount
                 self.event_total += 1
                 self._append_event_locked("+" + str(amount) + "  ·  " + channel + "  ·  " + label)
-                self._append_reward_locked(channel, "+" + str(amount) + " Channel Points", "gem", created)
+                channel_login = channel.lower()
+                branding = self.channel_points_branding_cache.get(channel_login, {})
+                currency_name = str(branding.get("name") or "").strip()
+                reward_description = "+" + str(amount) + " " + (currency_name or "Channel Points")
+                self._append_reward_locked(channel, reward_description, "gem", created, channel_login)
                 self.reward = {"text": "@" + channel + "  ·  +" + str(amount) + " очков  ·  " + label, "until": time.time() + 5}
             return
         if "Twitch Drop received:" in message:
@@ -1876,6 +1906,7 @@ class TwitchFarmingApi:
                 "auth_error": self.auth_error,
                 "auth_worker_state": self.auth_worker_state,
                 "session_running": self.session_running,
+                "session_started_at": float(self.session_started_at or 0),
                 "status_text": self.status_text,
                 "status_color": self.status_color,
                 "gained_total": self.gained_total,
