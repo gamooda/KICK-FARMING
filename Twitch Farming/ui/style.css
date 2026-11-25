@@ -669,14 +669,15 @@ select.input option{background:#171622;color:#e8e4ef}
 .preset-toolbar .preset-actions{margin:0;flex-wrap:nowrap}
 .preset-toolbar .preset-name{min-width:125px}
 .channel-card{transition:background .18s,border-color .18s,transform .18s,box-shadow .18s,opacity .18s}
-.channel-card.is-dragging{opacity:.38;transform:scale(.97);border:1px dashed #b17af0;box-shadow:0 0 0 2px rgba(153,94,220,.18)}
-.channel-card.drop-target{border-color:#a66be4;box-shadow:0 0 0 2px rgba(157,103,224,.18),0 8px 22px rgba(0,0,0,.2)}
-.channel-drag-handle{position:absolute;z-index:3;top:7px;right:8px;width:25px;height:25px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid #59456f;border-radius:6px;background:#282039;color:#c8a6ef;font-size:15px;font-weight:900;letter-spacing:-3px;cursor:grab;opacity:0;pointer-events:none;transition:opacity .15s,background .15s,border-color .15s,transform .15s}
-.channel-card:hover .channel-drag-handle,.channel-drag-handle:focus-visible{opacity:1;pointer-events:auto}
-.channel-drag-handle:hover{background:#493064;border-color:#a875e4;transform:scale(1.05)}
-.channel-drag-handle:active{cursor:grabbing}
-.channel-drag-handle:disabled{display:none}
-.channel-card-top{padding-right:29px}
+.channel-card.move-selected{border-color:#b17af0;background:linear-gradient(145deg,#30213f,#211a30);box-shadow:0 0 0 2px rgba(177,122,240,.35),0 0 22px rgba(177,122,240,.2)}
+.channel-card.move-selected:hover{border-color:#c59aff;box-shadow:0 0 0 2px rgba(177,122,240,.42),0 8px 24px rgba(0,0,0,.22)}
+.channel-list.channel-reorder-mode .channel-card.move-slot{cursor:pointer}
+.channel-list.channel-reorder-mode .channel-card.move-slot:hover{border-color:#a66be4;background:linear-gradient(145deg,#2a2038,#1d192a);box-shadow:0 0 0 2px rgba(157,103,224,.3),0 8px 22px rgba(0,0,0,.2);transform:translateY(-2px)}
+.channel-move-button{font-size:15px;font-weight:900;letter-spacing:-3px;color:#c8a6ef;cursor:pointer}
+.channel-move-button:hover{background:#493064;border-color:#a875e4}
+.channel-move-button.is-selected{background:#4b3068;border-color:#bd91f2;color:#fff;box-shadow:0 0 0 2px rgba(177,122,240,.2)}
+.channel-move-button:disabled{display:none}
+.channel-card-top{padding-right:0}
 .nav-button span{min-width:0}
 .nav-badge{flex:0 0 auto}
 @media(max-width:1050px){
