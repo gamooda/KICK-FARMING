@@ -299,12 +299,15 @@ class TwitchFarmingApi:
             APP_DIR.mkdir(parents=True, exist_ok=True)
             logger.info("[STARTUP] Чтение конфигурации...")
             self._load_config()
-            self._sanitize_existing_log()
         except Exception as error:
             self.startup_error = str(error) or error.__class__.__name__
             logger.exception("Startup configuration failed")
         logger.info("[STARTUP] Интерфейс готов за %.2f сек.", time.monotonic() - started)
         self._notify_startup_complete()
+        try:
+            self._sanitize_existing_log()
+        except Exception:
+            logger.exception("Existing log preparation failed")
         try:
             self._restore_session()
         except Exception:
