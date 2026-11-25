@@ -484,8 +484,7 @@ class TwitchFarmingApi:
             webview_started = self.webview_start_requested_at or self.startup_started_at
             api_started = self.startup_started_at
         logging.getLogger("twitch_farming.startup").info(
-            "[STARTUP] [RUN %s] %s: %.2f сек. от запуска WebView2, %.2f сек. от создания API.",
-            self.run_id,
+            "[STARTUP] %s: %.2f сек. от запуска WebView2, %.2f сек. от создания API.",
             label,
             now - webview_started,
             now - api_started,
@@ -513,8 +512,7 @@ class TwitchFarmingApi:
                 return {"ok": True}
             self.frontend_timing_logged = True
         logging.getLogger("twitch_farming.startup").info(
-            "[STARTUP] [RUN %s] Браузер: DOMContentLoaded %.0f мс, window.load %.0f мс, PyWebView API готов %.0f мс.",
-            self.run_id,
+            "[STARTUP] Браузер: DOMContentLoaded %.0f мс, window.load %.0f мс, PyWebView API готов %.0f мс.",
             number("dom_ready_ms"),
             number("load_ms"),
             number("bridge_ready_ms"),
@@ -1695,7 +1693,7 @@ def main():
     api.start_startup_worker()
     threading.Thread(target=api.watch_webview_startup, name="WebViewStartupWatchdog", daemon=True).start()
     WEBVIEW_DIR.mkdir(parents=True, exist_ok=True)
-    logging.getLogger("twitch_farming.startup").info("[STARTUP] [RUN %s] Запуск WebView2. Профиль браузера: %s", api.run_id, WEBVIEW_DIR)
+    logging.getLogger("twitch_farming.startup").info("[STARTUP] Запуск WebView2. Профиль браузера: %s", WEBVIEW_DIR)
     api.webview_start_requested_at = time.monotonic()
     try:
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(WEBVIEW_DIR), icon=str(ICON_FILE) if ICON_FILE.is_file() else None, debug=False)
