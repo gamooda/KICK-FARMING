@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="assets/logo.svg" width="92" height="92" alt="Twitch Farming">
+  <img src="assets/logo.svg" width="88" height="88" alt="Twitch Farming — анимированный логотип">
 </p>
 
 <h1 align="center">Twitch Farming</h1>
 
-<p align="center">Настольное приложение для автоматизации сбора Channel Points, Drops и других доступных наград Twitch.</p>
+<p align="center">Настольное приложение для автоматического сбора Channel Points, Twitch Drops и других доступных наград.</p>
 
 <p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11"></a>
@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gamooda/KICK-FARMING/releases/latest">Скачать последнюю версию</a>
+  <a href="https://github.com/gamooda/KICK-FARMING/releases/latest">Скачать</a>
   ·
   <a href="#установка">Установка</a>
   ·
@@ -26,26 +26,36 @@
 ## Возможности
 
 - Автоматический сбор Channel Points на выбранных каналах.
-- Отображение баланса и пользовательских иконок валют каналов.
-- Отслеживание прогресса и получение доступных Twitch Drops.
-- Автоматические ставки на прогнозы с настраиваемой стратегией.
-- Обработка рейдов, серий просмотров, моментов и IRC-чата.
-- Список каналов с ручной сортировкой и сохранением приоритета.
-- Компактный интерфейс на PyWebView.
-- Сохранение настроек и защита Twitch-сессии средствами Windows DPAPI.
+- Пользовательские иконки и названия валют каналов.
+- Отслеживание прогресса и инвентаря Twitch Drops.
+- Автоматические ставки на прогнозы с настраиваемыми стратегиями.
+- Обработка рейдов, бонусов, моментов и серий просмотров.
+- Ручная сортировка каналов с сохранением приоритета.
+- Лёгкий интерфейс на PyWebView и WebView2.
+- Локальное хранение настроек и защищённой Twitch-сессии.
 
 ## Скриншоты
 
 <table>
   <tr>
-    <th align="center">Главный экран</th>
-    <th align="center">Инвентарь Drops</th>
-    <th align="center">Настройки прогнозов</th>
+    <td width="50%" align="center">
+      <strong>Каналы</strong><br><br>
+      <img src="assets/channels.png" alt="Главный экран — каналы" width="100%">
+    </td>
+    <td width="50%" align="center">
+      <strong>Инвентарь Drops</strong><br><br>
+      <img src="assets/drops.png" alt="Инвентарь Twitch Drops" width="100%">
+    </td>
   </tr>
   <tr>
-    <td align="center"><sub>Добавить <code>assets/screenshots/main.png</code></sub></td>
-    <td align="center"><sub>Добавить <code>assets/screenshots/drops.png</code></sub></td>
-    <td align="center"><sub>Добавить <code>assets/screenshots/predictions.png</code></sub></td>
+    <td width="50%" align="center">
+      <strong>Настройки прогнозов</strong><br><br>
+      <img src="assets/prognosis.png" alt="Настройки прогнозов" width="100%">
+    </td>
+    <td width="50%" align="center">
+      <strong>Настройки приложения</strong><br><br>
+      <img src="assets/settings.png" alt="Настройки приложения" width="100%">
+    </td>
   </tr>
 </table>
 
@@ -54,9 +64,9 @@
 ### Готовая версия
 
 1. Откройте [последний релиз](https://github.com/gamooda/KICK-FARMING/releases/latest).
-2. Скачайте `Twitch.Farming.exe`.
-3. Запустите файл на Windows 10/11.
-4. При первом подключении введите логин Twitch и подтвердите авторизацию одноразовым кодом на официальной странице Twitch.
+2. Скачайте `Twitch Farming.exe`.
+3. Запустите файл на Windows 10 или 11.
+4. При первом подключении введите логин Twitch и подтвердите авторизацию на официальной странице.
 
 Для работы приложения требуется [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
 
@@ -75,16 +85,16 @@ py -3.11 -m venv .venv
 
 Пароль Twitch приложение не запрашивает. Авторизация выполняется через официальный механизм Twitch.
 
-## Структура проекта
+## Структура
 
-- `Twitch Farming/` — основное Windows-приложение, интерфейс, Python-обвязка и движок Twitch.
-- `assets/logo.svg` — анимированный SVG-логотип для README.
-- `Kick Farming/` — отдельная консольная утилита KICK Watch Companion; она не входит в Twitch Farming EXE. Инструкция находится в [Kick Farming/README.md](Kick%20Farming/README.md).
+- `Twitch Farming/` — Python-приложение, интерфейс и движок Twitch.
+- `Twitch Farming/ui/` — HTML, CSS и JavaScript интерфейса.
+- `assets/` — логотип и скриншоты README.
 
 ## Сборка
 
-Windows EXE собирается через GitHub Actions при изменениях в `Twitch Farming/`. Готовые сборки публикуются в [Releases](https://github.com/gamooda/KICK-FARMING/releases).
+Windows EXE собирается через GitHub Actions при изменениях в `Twitch Farming/`. Готовые версии публикуются в [Releases](https://github.com/gamooda/KICK-FARMING/releases).
 
 ## Лицензия
 
-Движок Twitch основан на [Twitch-Channel-Points-Miner-v2](https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2). Условия GPL-3.0 и сведения об изменениях находятся в [Twitch Farming/LICENSE](Twitch%20Farming/LICENSE) и [Twitch Farming/UPSTREAM.md](Twitch%20Farming/UPSTREAM.md).
+Движок основан на [Twitch-Channel-Points-Miner-v2](https://github.com/rdavydov/Twitch-Channel-Points-Miner-v2). Лицензия GPL-3.0 и сведения об изменениях находятся в [LICENSE](Twitch%20Farming/LICENSE) и [UPSTREAM.md](Twitch%20Farming/UPSTREAM.md).
