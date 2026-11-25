@@ -125,35 +125,39 @@ class Streamer(object):
         )
 
     def set_offline(self):
-        if self.is_online is True:
+        changed = self.is_online is True
+        if changed:
             self.offline_at = time.time()
             self.is_online = False
 
         self.toggle_chat()
 
-        logger.info(
-            f"{self} is Offline!",
-            extra={
-                "emoji": ":sleeping:",
-                "event": Events.STREAMER_OFFLINE,
-            },
-        )
+        if changed:
+            logger.info(
+                f"{self} is Offline!",
+                extra={
+                    "emoji": ":sleeping:",
+                    "event": Events.STREAMER_OFFLINE,
+                },
+            )
 
     def set_online(self):
-        if self.is_online is False:
+        changed = self.is_online is False
+        if changed:
             self.online_at = time.time()
             self.is_online = True
             self.stream.init_watch_streak()
 
         self.toggle_chat()
 
-        logger.info(
-            f"{self} is Online!",
-            extra={
-                "emoji": ":partying_face:",
-                "event": Events.STREAMER_ONLINE,
-            },
-        )
+        if changed:
+            logger.info(
+                f"{self} is Online!",
+                extra={
+                    "emoji": ":partying_face:",
+                    "event": Events.STREAMER_ONLINE,
+                },
+            )
 
     def print_history(self):
         return "; ".join(

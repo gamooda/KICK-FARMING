@@ -94,10 +94,16 @@ class WebSocketsPool:
     def on_open(ws):
         def run():
             ws.is_opened = True
+            pending_topics = list(ws.pending_topics)
+            ws.pending_topics.clear()
+            logger.info(f"#{ws.index} - Twitch PubSub WebSocket connected. Subscribing to {len(pending_topics)} topics.")
             ws.ping()
 
-            for topic in ws.pending_topics:
+            for topic in pending_topics:
                 ws.listen(topic, ws.twitch.twitch_login.get_auth_token())
+
+            if pending_topics:
+                logger.info(f"#{ws.index} - Sent LISTEN requests for {len(pending_topics)} topics.")
 
             while ws.is_closed is False:
                 # Else: the ws is currently in reconnecting phase, you can't do ping or other operation.
@@ -124,8 +130,8 @@ class WebSocketsPool:
 
     @staticmethod
     def on_close(ws, close_status_code, close_reason):
-        logger.info(f"#{ws.index} - WebSocket closed")
-        # On close please reconnect automatically
+        reason = str(close_reason or "").replace("\n", " ")[:180]
+        logger.info(f"#{ws.index} - WebSocket closed. Code: {close_status_code}; reason: {reason or 'not provided'}.")
         WebSocketsPool.handle_reconnection(ws)
 
     @staticmethod
@@ -143,7 +149,7 @@ class WebSocketsPool:
 
             if ws.forced_close is False:
                 logger.info(
-                    f"#{ws.index} - Reconnecting to Twitch PubSub server in ~60 seconds"
+                    f"#{ws.index} - Reconnecting to Twitch PubSub server in ~30 seconds"
                 )
                 time.sleep(30)
 
@@ -159,11 +165,12 @@ class WebSocketsPool:
                 # Create a new connection.
                 self.ws[ws.index] = self.__new(ws.index)
 
-                self.__start(ws.index)  # Start a new thread.
-                time.sleep(30)
+                self.__start(ws.index)
 
                 for topic in ws.topics:
                     self.__submit(ws.index, topic)
+
+                logger.info(f"#{ws.index} - Reconnection started; queued {len(ws.topics)} previous topic subscriptions for restoration.")
 
     @staticmethod
     def on_message(ws, message):

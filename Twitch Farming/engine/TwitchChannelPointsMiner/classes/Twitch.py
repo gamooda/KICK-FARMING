@@ -550,13 +550,22 @@ class Twitch(object):
                         )
                         streamers_watching.update(streamers_with_multiplier[:remaining_watch_amount()])
 
+                selected_streamers = set(streamers_watching)
+                for index in streamers_index:
+                    if index not in selected_streamers:
+                        username = streamers[index].username
+                        logger.info(f"WATCH_STATUS: {username}|waiting|Ожидает очереди. Одновременно доступны два канала.")
+
                 streamers_watching = list(streamers_watching)[:max_watch_amount]
 
                 for index in streamers_watching:
-                    # next_iteration = time.time() + 60 / len(streamers_watching)
+                    username = streamers[index].username
+                    logger.info(f"WATCH_STATUS: {username}|selected|Канал выбран для просмотра минут.")
                     next_iteration = time.time() + 20 / len(streamers_watching)
 
                     try:
+                        logger.info(f"WATCH_STATUS: {username}|request|Получение токена просмотра.")
+                        logger.debug(f"[WATCH] @{username}: запрос PlaybackAccessToken.")
                         ####################################
                         # Start of fix for 2024/5 API Change
                         # Create the JSON data for the GraphQL request
@@ -576,12 +585,11 @@ class Twitch(object):
                         try:
                             responsePlaybackAccessToken = self.post_gql_request(
                                 json_data)
-                            logger.debug(
-                                f"Sent PlaybackAccessToken request for {streamers[index]}")
+                            logger.debug(f"[WATCH] @{username}: ответ PlaybackAccessToken получен.")
 
                             if 'data' not in responsePlaybackAccessToken:
-                                logger.error(
-                                    f"Invalid response from Twitch: {responsePlaybackAccessToken}")
+                                logger.warning(f"WATCH_STATUS: {username}|error|Twitch не вернул данные PlaybackAccessToken.")
+                                logger.error(f"Invalid PlaybackAccessToken response for @{username}.")
                                 continue
 
                             streamPlaybackAccessToken = responsePlaybackAccessToken["data"].get(
@@ -591,13 +599,13 @@ class Twitch(object):
                             value = streamPlaybackAccessToken.get("value")
 
                             if not signature or not value:
-                                logger.error(
-                                    f"Missing signature or value in Twitch response: {responsePlaybackAccessToken}")
+                                logger.warning(f"WATCH_STATUS: {username}|error|В ответе Twitch отсутствует PlaybackAccessToken.")
+                                logger.error(f"Missing PlaybackAccessToken signature or value for @{username}.")
                                 continue
 
                         except Exception as e:
-                            logger.error(
-                                f"Error fetching PlaybackAccessToken for {streamers[index]}: {str(e)}")
+                            logger.warning(f"WATCH_STATUS: {username}|error|Не удалось получить токен просмотра.")
+                            logger.error(f"PlaybackAccessToken request failed for @{username}: {type(e).__name__}: {e}")
                             continue
 
                         # encoded_value = quote(json.dumps(value))
@@ -610,63 +618,63 @@ class Twitch(object):
                             RequestBroadcastQualitiesURL,
                             headers={"User-Agent": self.user_agent},
                             timeout=20,
-                        )  # timeout=60
-                        logger.debug(
-                            f"Send RequestBroadcastQualitiesURL request for {streamers[index]} - Status code: {responseBroadcastQualities.status_code}"
                         )
+                        logger.debug(f"[WATCH] @{username}: HLS playlist HTTP {responseBroadcastQualities.status_code}.")
                         if responseBroadcastQualities.status_code != 200:
+                            logger.warning(f"WATCH_STATUS: {username}|error|HLS playlist вернул HTTP {responseBroadcastQualities.status_code}.")
                             continue
                         BroadcastQualities = responseBroadcastQualities.text
 
                         # Just takes the last line, which should be the URL for the lowest quality
-                        BroadcastLowestQualityURL = BroadcastQualities.split(
-                            "\n")[-1]
+                        BroadcastLowestQualityURL = BroadcastQualities.split("\n")[-1]
                         if not validators.url(BroadcastLowestQualityURL):
+                            logger.warning(f"WATCH_STATUS: {username}|error|Twitch не вернул корректный URL HLS-потока.")
                             continue
+                        logger.debug(f"[WATCH] @{username}: HLS playlist URL проверен.")
 
                         # Get list of video URLs
                         responseStreamURLList = requests.get(
                             BroadcastLowestQualityURL,
                             headers={"User-Agent": self.user_agent},
                             timeout=20,
-                        )  # timeout=60
-                        logger.debug(
-                            f"Send BroadcastLowestQualityURL request for {streamers[index]} - Status code: {responseStreamURLList.status_code}"
                         )
+                        logger.debug(f"[WATCH] @{username}: stream playlist HTTP {responseStreamURLList.status_code}.")
                         if responseStreamURLList.status_code != 200:
+                            logger.warning(f"WATCH_STATUS: {username}|error|Список видеопотоков вернул HTTP {responseStreamURLList.status_code}.")
                             continue
                         StreamURLList = responseStreamURLList.text
 
                         # Just takes the last line, which should be the URL for the lowest quality
                         StreamLowestQualityURL = StreamURLList.split("\n")[-2]
                         if not validators.url(StreamLowestQualityURL):
+                            logger.warning(f"WATCH_STATUS: {username}|error|Не найден корректный URL видеопотока.")
                             continue
+                        logger.debug(f"[WATCH] @{username}: URL видеопотока проверен.")
 
                         # Perform a HEAD request to simulate watching the stream
                         responseStreamLowestQualityURL = requests.head(
                             StreamLowestQualityURL,
                             headers={"User-Agent": self.user_agent},
                             timeout=20,
-                        )  # timeout=60
-                        logger.debug(
-                            f"Send StreamLowestQualityURL request for {streamers[index]} - Status code: {responseStreamLowestQualityURL.status_code}"
                         )
+                        logger.debug(f"[WATCH] @{username}: video HEAD HTTP {responseStreamLowestQualityURL.status_code}.")
                         if responseStreamLowestQualityURL.status_code != 200:
+                            logger.warning(f"WATCH_STATUS: {username}|error|Видеопоток не ответил на HEAD: HTTP {responseStreamLowestQualityURL.status_code}.")
                             continue
                         # End of fix for 2024/5 API Change
                         ##################################
+                        logger.debug(f"[WATCH] @{username}: отправка minute-watched.")
                         response = requests.post(
                             streamers[index].stream.spade_url,
                             data=streamers[index].stream.encode_payload(),
                             headers={"User-Agent": self.user_agent},
-                            # timeout=60,
                             timeout=20,
                         )
-                        logger.debug(
-                            f"Send minute watched request for {streamers[index]} - Status code: {response.status_code}"
-                        )
+                        logger.debug(f"[WATCH] @{username}: minute-watched HTTP {response.status_code}.")
                         if response.status_code == 204:
                             streamers[index].stream.update_minute_watched()
+                            watched = streamers[index].stream.minute_watched
+                            logger.info(f"WATCH_STATUS: {username}|accepted|Twitch принял minute-watched (HTTP 204). Накоплено минут: {watched:.2f}.")
 
                             """
                             Remember, you can only earn progress towards a time-based Drop on one participating channel at a time.  [ ! ! ! ]
@@ -721,14 +729,19 @@ class Twitch(object):
                                                 "\n".join(drop_messages),
                                                 Events.DROP_STATUS,
                                             )
+                        else:
+                            logger.warning(f"WATCH_STATUS: {username}|error|minute-watched отклонён: HTTP {response.status_code}.")
 
                     except requests.exceptions.ConnectionError as e:
-                        logger.error(
-                            f"Error while trying to send minute watched: {e}")
+                        logger.warning(f"WATCH_STATUS: {username}|error|Потеряно сетевое соединение при отправке minute-watched.")
+                        logger.error(f"Error while trying to send minute watched for @{username}: {e}")
                         self.__check_connection_handler(chunk_size)
                     except requests.exceptions.Timeout as e:
-                        logger.error(
-                            f"Error while trying to send minute watched: {e}")
+                        logger.warning(f"WATCH_STATUS: {username}|error|Тайм-аут запроса minute-watched.")
+                        logger.error(f"Timeout while sending minute watched for @{username}: {e}")
+                    except Exception as e:
+                        logger.warning(f"WATCH_STATUS: {username}|error|Ошибка обработки запроса просмотра.")
+                        logger.error(f"Unexpected minute-watched error for @{username}: {type(e).__name__}: {e}", exc_info=True)
 
                     self.__chuncked_sleep(
                         next_iteration - time.time(), chunk_size=chunk_size

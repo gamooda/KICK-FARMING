@@ -69,11 +69,13 @@ FILTER_KEYS = ["TOTAL_USERS", "DECISION_USERS", "TOTAL_POINTS", "DECISION_POINTS
 
 class AppLogHandler(logging.Handler):
     def __init__(self, app):
-        super().__init__(logging.INFO)
+        super().__init__(logging.DEBUG)
         self.app = app
 
     def emit(self, record):
         if record.name.startswith(("pywebview", "webview", "clr")):
+            return
+        if record.levelno == logging.DEBUG and not record.getMessage().startswith("[WATCH]"):
             return
         try:
             self.app.on_log(record.getMessage(), record.levelname, record.created)
@@ -251,6 +253,7 @@ class TwitchFarmingApi:
         self.account_profile = {}
         self.channel_profiles = {}
         self.online_channels = set()
+        self.watch_status = {}
         self.profile_worker = None
         self.pending_profile_logins = set()
         self.restore_started = False
@@ -680,6 +683,16 @@ class TwitchFarmingApi:
         self._handle_log(safe, level, created)
 
     def _handle_log(self, message, level, created):
+        watch_status = re.match(r"WATCH_STATUS:\s*([a-zA-Z0-9_]{1,25})\|([a-z_]+)\|?(.*)", message)
+        if watch_status:
+            channel, state, detail = watch_status.groups()
+            with self.lock:
+                self.watch_status[channel.lower()] = {
+                    "state": state,
+                    "detail": detail.strip()[:220],
+                    "updated_at": float(created),
+                }
+            return
         if message in ("Twitch session saved securely.", "Restored the saved Twitch session."):
             with self.lock:
                 worker = self.auth_worker
@@ -880,6 +893,7 @@ class TwitchFarmingApi:
                 "username": self.username,
                 "channels": list(self.channels),
                 "online_channels": sorted(self.online_channels),
+                "watch_status": {key: dict(value) for key, value in self.watch_status.items()},
                 "options": dict(self.options),
                 "bet_settings": dict(self.bet_settings),
                 "custom_presets": dict(self.custom_presets),

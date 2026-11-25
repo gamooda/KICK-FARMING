@@ -57,8 +57,8 @@ function setFeedback(id,message,error){
   node.style.color=error?"#ff8797":"#e5b866";
 }
 
-function renderChannels(channels,online,running,profiles){
-  const signature=JSON.stringify([channels,online,running,profiles]);
+function renderChannels(channels,online,running,profiles,watchStatuses){
+  const signature=JSON.stringify([channels,online,running,profiles,watchStatuses]);
   if(signature===channelCache) return;
   channelCache=signature;
   const root=$("channel-list");
@@ -77,9 +77,13 @@ function renderChannels(channels,online,running,profiles){
     const title=profile.stream_title||"";
     const viewers=Number(profile.viewer_count||0);
     const details=live?(title||"ТРАНСЛЯЦИЯ В ЭФИРЕ"):status;
+    const watch=watchStatuses&&watchStatuses[login]?watchStatuses[login]:null;
+    const watchFresh=watch&&Date.now()/1000-Number(watch.updated_at||0)<120;
+    const watchLabels={selected:"ВЫБРАН ДЛЯ ПРОСМОТРА",waiting:"ОЖИДАЕТ ОЧЕРЕДИ",request:"ОТПРАВКА ЗАПРОСА ПРОСМОТРА",accepted:"ЗАПРОС ПРИНЯТ TWITCH",error:"ОШИБКА ПРОСМОТРА"};
+    const watchMarkup=watchFresh&&watchLabels[watch.state]?'<div class="channel-watch-state '+esc(watch.state)+'" title="'+esc(watch.detail||"")+'">◉ '+watchLabels[watch.state]+(watch.detail?' · '+esc(watch.detail):'')+'</div>':'';
     const initial=esc(login.charAt(0).toUpperCase());
     const avatarMarkup=avatar?'<div class="channel-avatar" data-initial="'+initial+'"><img loading="lazy" src="'+esc(avatar)+'" alt="" onerror="this.parentNode.textContent=this.parentNode.dataset.initial"></div>':'<div class="channel-avatar">'+initial+'</div>';
-    return '<div class="channel-card">'+avatarMarkup+'<div><div class="channel-name">'+esc(displayName)+'　<span style="color:#7d8aa0;font-weight:500">@'+esc(login)+'</span></div><div class="channel-state '+(live?"online":loaded?"":"pending")+'">'+esc(details)+'</div>'+(live&&viewers?'<div class="channel-meta">'+viewers.toLocaleString("ru-RU")+' зрителей</div>':'')+'</div><div class="channel-spacer"></div><button class="button button-soft channel-action" data-action="edit" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Изменить">✎</button><button class="button button-danger channel-action" data-action="remove" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Удалить">×</button></div>';
+    return '<div class="channel-card">'+avatarMarkup+'<div><div class="channel-name">'+esc(displayName)+'　<span style="color:#7d8aa0;font-weight:500">@'+esc(login)+'</span></div><div class="channel-state '+(live?"online":loaded?"":"pending")+'">'+esc(details)+'</div>'+watchMarkup+(live&&viewers?'<div class="channel-meta">'+viewers.toLocaleString("ru-RU")+' зрителей</div>':'')+'</div><div class="channel-spacer"></div><button class="button button-soft channel-action" data-action="edit" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Изменить">✎</button><button class="button button-danger channel-action" data-action="remove" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Удалить">×</button></div>';
   }).join("");
   $("add-channel").disabled=running;
 }
@@ -126,10 +130,13 @@ function renderAccountSidebar(state){
   const initial=String(display).charAt(0).toUpperCase()||"T";
   $("account-display-name").textContent=display;
   $("account-login").textContent=username?"@"+username:"Аккаунт не подключён";
-  $("account-state").textContent=state.authenticated?"ПОДКЛЮЧЁН":"НЕ ПОДКЛЮЧЁН";
-  $("account-state").style.color=state.authenticated?"#42d6a4":"#8792a8";
-  $("account-state-dot").style.background=state.authenticated?"#42d6a4":"#8792a8";
-  $("account-connect-button").textContent=state.authenticated?"↻":"↗";
+  const farmRunning=Boolean(state.session_running);
+  const statusText=state.authenticated?(farmRunning?"РАБОТАЕТ":"TWITCH ПОДКЛЮЧЁН"):"НЕ ПОДКЛЮЧЁН";
+  const statusColor=state.authenticated?"#42d6a4":"#8792a8";
+  $("account-state").textContent=statusText;
+  $("account-state").style.color=statusColor;
+  $("account-state-dot").style.background=statusColor;
+  $("account-connect-button").textContent=state.authenticated?"⟳":"+";
   $("account-connect-button").title=state.authenticated?"Переподключить Twitch":"Подключить Twitch";
   $("account-connect-button").disabled=Boolean(state.worker_alive);
   const avatar=$("account-avatar");
@@ -173,9 +180,6 @@ function applyState(state,initial){
   appState=state;
   applyAuthState(state);
   const authenticated=Boolean(state.authenticated);
-  $("sidebar-status").textContent=state.status_text.replace(/^●\s*/,"");
-  $("sidebar-status").style.color=state.status_color;
-  document.querySelector(".status-dot").style.background=state.status_color;
   $("gate-login-button").disabled=state.auth_status.includes("ПОДКЛЮЧЕНИЕ")||state.auth_status.includes("ПРОВЕРКА")||state.auth_status.includes("ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ");
   if(document.activeElement!==$("gate-username")) $("gate-username").value=state.username||"";
   if(!authenticated){
@@ -188,7 +192,7 @@ function applyState(state,initial){
   $("points-value").textContent=Number(state.gained_total||0).toLocaleString("ru-RU");
   $("online-value").textContent=String((state.online_channels||[]).length);
   $("events-value").textContent=String(state.event_total||0);
-  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{});
+  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{});
   renderEvents(state.events||[]);
   if(initial){
     const options=state.options||{};
