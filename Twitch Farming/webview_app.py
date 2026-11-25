@@ -263,6 +263,8 @@ class TwitchFarmingApi:
         self.restore_started = False
         self.startup_worker = None
         self.startup_error = ""
+        self.startup_complete = False
+        self.restore_pending = False
         self.authenticated = False
         self.authenticated_username = ""
         self.auth_code = ""
@@ -297,34 +299,40 @@ class TwitchFarmingApi:
         started = time.monotonic()
         try:
             APP_DIR.mkdir(parents=True, exist_ok=True)
-            logger.info("[STARTUP] Чтение конфигурации...")
+            logger.info("[STARTUP] Чтение config.json...")
             self._load_config()
         except Exception as error:
             self.startup_error = str(error) or error.__class__.__name__
             logger.exception("Startup configuration failed")
-        logger.info("[STARTUP] Интерфейс готов за %.2f сек.", time.monotonic() - started)
-        self._notify_startup_complete()
+        with self.lock:
+            if self.username:
+                self.restore_pending = True
+                self.auth_status = "ПРОВЕРКА СОХРАНЁННОЙ СЕССИИ…"
+                self.auth_error = ""
+                self.auth_worker_state = "restoring"
+                self.auth_started_at = time.time()
+                self._set_status_locked("●  ПРОВЕРКА СЕССИИ", "#F0B65A")
+            self.startup_complete = True
+        logger.info("[STARTUP] Конфигурация готова за %.2f сек.", time.monotonic() - started)
+        threading.Thread(target=self._sanitize_startup_log, name="StartupLogPreparation", daemon=True).start()
+        if self.restore_pending:
+            timer = threading.Timer(0.35, self._restore_session)
+            timer.daemon = True
+            timer.start()
+
+    def _sanitize_startup_log(self):
         try:
             self._sanitize_existing_log()
         except Exception:
-            logger.exception("Existing log preparation failed")
-        try:
-            self._restore_session()
-        except Exception:
-            logger.exception("Session restore could not be started")
+            logging.getLogger("twitch_farming.startup").exception("Existing log preparation failed")
 
-    def _notify_startup_complete(self):
-        payload = json.dumps({"ok": not bool(self.startup_error), "message": self.startup_error}, ensure_ascii=False)
-        script = "if(typeof window.onPythonStartupComplete==='function'){window.onPythonStartupComplete(" + payload + ");true}else{false}"
-        for _ in range(100):
-            try:
-                window = self.window
-                if window is not None and window.evaluate_js(script) is not False:
-                    return
-            except Exception:
-                pass
-            time.sleep(0.1)
-        logging.getLogger("twitch_farming.startup").error("Could not notify JavaScript that startup is complete")
+    def get_startup_state(self):
+        with self.lock:
+            return {
+                "ready": bool(self.startup_complete),
+                "error": self.startup_error,
+                "restore_pending": bool(self.restore_pending),
+            }
 
     def _load_config(self):
         try:
@@ -522,7 +530,9 @@ class TwitchFarmingApi:
         with self.lock:
             username = self.username.strip().lower()
             if not username or (self.auth_worker is not None and self.auth_worker.is_alive()):
+                self.restore_pending = False
                 return
+            self.restore_pending = False
             self.auth_status = "ПРОВЕРКА СОХРАНЁННОЙ СЕССИИ…"
             self.auth_error = ""
             self.auth_worker_state = "restoring"
@@ -574,6 +584,7 @@ class TwitchFarmingApi:
                 not self.authenticated
                 and not worker_alive
                 and self.auth_worker_state in ("running", "restoring")
+                and not self.restore_pending
                 and elapsed > 8
             ):
                 self.auth_worker_state = "failed"
@@ -589,6 +600,7 @@ class TwitchFarmingApi:
                 "auth_error": self.auth_error,
                 "worker_alive": worker_alive,
                 "worker_state": self.auth_worker_state,
+                "restore_pending": bool(self.restore_pending),
                 "elapsed": elapsed if worker_alive else 0,
             }
 

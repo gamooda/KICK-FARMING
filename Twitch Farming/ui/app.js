@@ -4,13 +4,8 @@ let appState=null;
 let pyApi=null;
 let apiReady=false;
 let apiReadyPromise=null;
-let startupReadyResolve=null;
-const startupReadyPromise=new Promise(resolve=>{startupReadyResolve=resolve;});
-window.onPythonStartupComplete=result=>{
-  const overlay=$("startup-overlay");
-  if(overlay) overlay.classList.add("hidden");
-  if(startupReadyResolve){startupReadyResolve(result||{});startupReadyResolve=null;}
-};
+let startupCompleteUi=false;
+let farmActionPending=false;
 let currentPage="dashboard";
 let lastLogId=0;
 let channelMode="add";
@@ -32,7 +27,7 @@ let tutorialStep=0;
 const tutorialSteps=[
   {title:"Добавление каналов",text:"Нажми + и добавь Twitch-каналы по логину или ссылке. Аватары, имена и статус трансляции загрузятся автоматически.",target:".channels-panel"},
   {title:"Автоматизация",text:"Drops, бонусы, рейды, прогнозы и IRC-чат включаются в разделе «Настройки» бокового меню.",target:"#nav-settings"},
-  {title:"Запуск и логи",text:"Нажми «Запустить». Награды и изменения баланса появятся в ленте событий. Полный технический журнал открывается кнопкой «Логи».",target:"#start-button"}
+  {title:"Запуск и логи",text:"Нажми «Запустить». Во время сбора эта же кнопка станет кнопкой «Стоп». Награды и изменения баланса появятся в ленте событий.",target:"#farm-toggle"}
 ];
 
 function esc(value){
@@ -58,7 +53,7 @@ async function waitForBridge(){
   await apiReadyPromise;
   const bridge=window.pywebview&&window.pywebview.api;
   if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
-  const required=["get_auth_state","get_state","login","minimize_window","toggle_maximize_window","close_window"];
+  const required=["get_auth_state","get_state","get_startup_state","login","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
@@ -163,7 +158,12 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances)
     $("add-channel").disabled=running;
     return;
   }
-  root.innerHTML=channels.map(login=>{
+  const orderedChannels=channels.slice().sort((a,b)=>{
+    const liveA=online.includes(a)||Boolean(profiles&&profiles[a]&&profiles[a].is_live);
+    const liveB=online.includes(b)||Boolean(profiles&&profiles[b]&&profiles[b].is_live);
+    return Number(liveB)-Number(liveA);
+  });
+  root.innerHTML=orderedChannels.map(login=>{
     const profile=profiles&&profiles[login]?profiles[login]:{};
     const live=online.includes(login)||Boolean(profile.is_live);
     const loaded=Boolean(profile.loaded)||live;
@@ -261,8 +261,9 @@ function renderAccountSidebar(state){
   $("account-display-name").textContent=display;
   $("account-login").textContent=username?"@"+username:"Аккаунт не подключён";
   const farmRunning=Boolean(state.session_running||(appState&&appState.session_running));
-  const statusText=state.authenticated?(farmRunning?"РАБОТАЕТ":"TWITCH ПОДКЛЮЧЁН"):"НЕ ПОДКЛЮЧЁН";
-  const statusColor=state.authenticated?"#42d6a4":"#8792a8";
+  const restoring=!state.authenticated&&(Boolean(state.restore_pending)||state.worker_state==="restoring");
+  const statusText=state.authenticated?(farmRunning?"РАБОТАЕТ":"TWITCH ПОДКЛЮЧЁН"):restoring?"ПРОВЕРКА СЕССИИ":"НЕ ПОДКЛЮЧЁН";
+  const statusColor=state.authenticated?"#42d6a4":restoring?"#f0b65a":"#8792a8";
   $("account-state").textContent=statusText;
   $("account-state").style.color=statusColor;
   $("account-state-dot").style.background=statusColor;
@@ -290,7 +291,8 @@ function renderAccountSidebar(state){
 
 function applyAuthState(state){
   const authenticated=Boolean(state.authenticated);
-  $("login-gate").classList.toggle("visible",!authenticated);
+  const restoring=!authenticated&&(Boolean(state.restore_pending)||state.worker_state==="restoring");
+  $("login-gate").classList.toggle("visible",!authenticated&&!restoring);
   $("app-shell").classList.toggle("auth-hidden",!authenticated);
   $("gate-login-button").disabled=Boolean(state.worker_alive);
   $("gate-status").textContent=authenticated
@@ -318,9 +320,7 @@ function applyState(state,initial){
     const waiting=state.auth_status.includes("ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ");
     $("gate-status").textContent=state.auth_code&&!state.auth_code.includes("Сессия")?"Код Twitch: "+state.auth_code+". Подтверди вход в открывшемся браузере.":waiting?"Ожидается подтверждение входа в браузере Twitch…":state.auth_status.includes("ПОДКЛЮЧЕНИЕ")?"Выполняется подключение к Twitch…":state.auth_status.includes("ПРОВЕРКА")?"Проверяю сохранённую сессию Twitch…":state.auth_status.includes("НЕ УДАЛАСЬ")?"Не удалось подключиться. Проверь браузер и попробуй ещё раз.":"Введи логин и подключи аккаунт, чтобы открыть приложение.";
   }
-  $("start-button").disabled=state.session_running;
-  $("stop-button").disabled=!state.session_running;
-  $("start-button").innerHTML=state.session_running?"<svg><use href='#i-play'></use></svg>Работает":"<svg><use href='#i-play'></use></svg>Запустить";
+  updateFarmToggleButton(Boolean(state.session_running));
   $("session-label").textContent=state.session_running?"ФАРМ РАБОТАЕТ":String(state.status_text||"ОСТАНОВЛЕН").replace(/[●]/g,"").trim();
   $("session-dot").classList.toggle("is-running",Boolean(state.session_running));
   $("points-value").textContent=Number(state.gained_total||0).toLocaleString("ru-RU");
@@ -452,6 +452,7 @@ function collectPayload(){
 }
 
 async function saveSettings(){
+  if(!ensureStartupReady()) return;
   try{
     const result=await api().save_settings(collectPayload());
     notify(result.message||"Настройки сохранены.");
@@ -461,17 +462,42 @@ async function saveSettings(){
   }
 }
 
-async function startFarm(){
+function updateFarmToggleButton(running){
+  const button=$("farm-toggle");
+  if(!button) return;
+  button.classList.toggle("button-primary",!running);
+  button.classList.toggle("button-start",!running);
+  button.classList.toggle("button-stop",running);
+  button.disabled=!startupCompleteUi||farmActionPending;
+  button.innerHTML=running?"<svg><use href='#i-stop'></use></svg>Стоп":"<svg><use href='#i-play'></use></svg>Запустить";
+  button.title=running?"Остановить сбор":"Запустить сбор";
+}
+
+function ensureStartupReady(){
+  if(startupCompleteUi) return true;
+  notify("Инициализация ещё выполняется. Меню доступно, операции станут доступны после загрузки.");
+  return false;
+}
+
+async function toggleFarm(){
+  if(!ensureStartupReady()||farmActionPending) return;
+  farmActionPending=true;
+  const running=Boolean(appState&&appState.session_running);
+  updateFarmToggleButton(running);
   try{
-    const result=await api().start_farm(collectPayload());
+    const result=running?await api().stop_farm():await api().start_farm(collectPayload());
     notify(result.message||"");
     await poll();
   }catch(error){
-    notify(error.message||"Не удалось запустить фарм.");
+    notify(error.message||(running?"Не удалось остановить фарм.":"Не удалось запустить фарм."));
+  }finally{
+    farmActionPending=false;
+    updateFarmToggleButton(Boolean(appState&&appState.session_running));
   }
 }
 
 async function loginUser(username){
+  if(!ensureStartupReady()) return;
   username=String(username||"").trim().toLowerCase();
   if(!username){$("gate-status").textContent="Сначала введи логин Twitch.";return;}
   try{
@@ -491,16 +517,6 @@ async function gateLogin(){
   return loginUser($("gate-username").value);
 }
 
-async function stopFarm(){
-  try{
-    const result=await api().stop_farm();
-    notify(result.message||"");
-    await poll();
-  }catch(error){
-    notify(error.message||"Не удалось остановить фарм.");
-  }
-}
-
 function openChannelEditor(mode,oldChannel){
   channelMode=mode;
   editingChannel=oldChannel||"";
@@ -513,6 +529,7 @@ function openChannelEditor(mode,oldChannel){
 }
 
 async function saveChannel(){
+  if(!ensureStartupReady()) return;
   const raw=$("channel-input").value.trim();
   try{
     const result=await api().save_channel_editor(channelMode,editingChannel,raw);
@@ -527,6 +544,7 @@ async function saveChannel(){
 }
 
 async function removeChannel(login){
+  if(!ensureStartupReady()) return;
   if(!confirm("Удалить канал @"+login+" из списка?")) return;
   try{
     const result=await api().remove_channel(login);
@@ -591,6 +609,7 @@ function openBetSettings(){
 }
 
 async function applyBets(){
+  if(!ensureStartupReady()) return;
   try{
     const values=collectBet();
     const result=await api().apply_bet_settings(values,$("preset-select").value);
@@ -603,6 +622,7 @@ async function applyBets(){
 }
 
 async function savePreset(){
+  if(!ensureStartupReady()) return;
   try{
     const values=collectBet();
     const result=await api().save_preset($("preset-name").value,values);
@@ -618,6 +638,7 @@ async function savePreset(){
 }
 
 async function deletePreset(){
+  if(!ensureStartupReady()) return;
   try{
     const result=await api().delete_preset($("preset-select").value);
     setFeedback("bet-feedback",result.message||"",!result.ok);
@@ -689,10 +710,23 @@ function nextTutorial(){
   }
 }
 
+async function waitForStartup(){
+  while(true){
+    const result=await api().get_startup_state();
+    if(result&&result.ready){
+      startupCompleteUi=true;
+      $("startup-overlay").classList.add("hidden");
+      if(result.error) notify("Ошибка загрузки конфигурации: "+result.error);
+      updateFarmToggleButton(false);
+      return result;
+    }
+    await sleep(180);
+  }
+}
+
 async function initialize(){
   await waitForBridge();
-  const startupResult=await startupReadyPromise;
-  if(startupResult&&!startupResult.ok&&startupResult.message) notify("Ошибка инициализации: "+startupResult.message);
+  await waitForStartup();
   setupBetControls();
   const authState=await api().get_auth_state();
   applyAuthState(authState);
@@ -754,8 +788,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("gate-username").addEventListener("keydown",event=>{if(event.key==="Enter")gateLogin();});
   $("tutorial-next").addEventListener("click",nextTutorial);
   $("tutorial-skip").addEventListener("click",()=>hideTutorial(true));
-  $("start-button").addEventListener("click",startFarm);
-  $("stop-button").addEventListener("click",stopFarm);
+  $("farm-toggle").addEventListener("click",toggleFarm);
   $("save-button").addEventListener("click",saveSettings);
   $("back-from-logs").addEventListener("click",()=>setPage("dashboard"));
   $("back-from-channel").addEventListener("click",()=>setPage("dashboard"));
