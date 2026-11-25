@@ -1109,7 +1109,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("cancel-channel").addEventListener("click",()=>setPage("dashboard"));
   $("save-channel").addEventListener("click",saveChannel);
   $("channel-input").addEventListener("keydown",event=>{
-    if(event.key==="Enter"&&(channelMode==="edit"||event.ctrlKey||event.metaKey)){
+    if(channelMode==="edit"&&event.key==="Enter"){
       event.preventDefault();
       saveChannel();
     }
