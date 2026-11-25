@@ -769,6 +769,24 @@ class TwitchFarmingApi:
         ok = self._save_config()
         return {"ok": ok, "message": "Настройки сохранены." if ok else "Не удалось сохранить настройки."}
 
+    def reorder_channels(self, order):
+        if not isinstance(order, list):
+            return {"ok": False, "message": "Некорректный порядок каналов."}
+        with self.lock:
+            if self.session_running:
+                return {"ok": False, "message": "Останови сбор перед изменением приоритета каналов."}
+            normalized = []
+            for item in order:
+                login = self.normalize_channel(item)
+                if not login or login in normalized:
+                    return {"ok": False, "message": "Список каналов содержит некорректные или повторяющиеся значения."}
+                normalized.append(login)
+            if len(normalized) != len(self.channels) or set(normalized) != set(self.channels):
+                return {"ok": False, "message": "Список каналов изменился. Обнови страницу и повтори сортировку."}
+            self.channels = normalized
+        saved = self._save_config()
+        return {"ok": bool(saved), "message": "Порядок каналов сохранён." if saved else "Не удалось записать порядок каналов в конфиг."}
+
     def save_channel_editor(self, mode, old_channel, raw_value, preview_profiles=None):
         prepared_profiles = {}
         for item in (preview_profiles if isinstance(preview_profiles, list) else []):
