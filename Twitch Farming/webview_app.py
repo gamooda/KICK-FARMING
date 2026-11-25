@@ -1650,7 +1650,7 @@ class TwitchFarmingApi:
 
     def shutdown(self):
         self.on_closing()
-        for worker in (self.auth_worker, self.engine_worker, self.profile_worker):
+        for worker in (self.auth_worker, self.engine_worker, self.profile_worker, self.followed_channels_worker):
             if worker is not None and worker.is_alive():
                 worker.join(timeout=5)
         self._flush_logs()
