@@ -846,6 +846,10 @@ async function toggleFarm(){
   if(!ensureStartupReady()||farmActionPending) return;
   farmActionPending=true;
   const running=Boolean(appState&&appState.session_running);
+  if(running){
+    sessionStartedAt=0;
+    updateSessionTimer();
+  }
   updateFarmToggleButton(running);
   try{
     const result=running?await api().stop_farm():await api().start_farm(collectPayload());
