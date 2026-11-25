@@ -420,17 +420,21 @@ function updateReward(){
   if(node) node.classList.remove("visible");
 }
 
-function renderLogs(){
-  const box=$("log-view");
-  if(!box) return;
+function filteredLogEntries(){
   const query=String(logSearch||"").trim().toLowerCase();
-  const rows=logEntries.filter(item=>{
+  return logEntries.filter(item=>{
     const line=String(item.line||"");
     if(query&&!line.toLowerCase().includes(query)) return false;
-    if(logFilter==="points") return /\+\s*[\d,]+/.test(line)&&/(?:Reason:\s*(?:WATCH|CLAIM)|Channel Points|балл)/i.test(line);
+    if(logFilter==="points") return /\+\s*[\d,]+/.test(line)&&/Reason:\s*(?:WATCH|CLAIM|WATCH_STREAK|RAID|PREDICTION|REFUND)/i.test(line);
     if(logFilter==="important") return /\[(?:INFO|WARNING|ERROR|CRITICAL)\]/i.test(line);
     return true;
   });
+}
+
+function renderLogs(){
+  const box=$("log-view");
+  if(!box) return;
+  const rows=filteredLogEntries();
   $("log-count").textContent=rows.length+" / 500";
   if(!rows.length){
     box.innerHTML="<div class='log-empty'>"+(logEntries.length?"По заданным фильтрам ничего не найдено.":"Журнал пока пуст.")+"</div>";
@@ -440,7 +444,7 @@ function renderLogs(){
     const line=String(item.line||"");
     let html=esc(line);
     html=html.replace(/\[(INFO|WARNING|ERROR|CRITICAL|DEBUG)\]/g,(match,level)=>"<span class='log-level log-level-"+level.toLowerCase()+"'>["+level+"]</span>");
-    html=html.replace(/(\+\s*[\d,]+)(?=\s*(?:→|-->|\\s|$))/g,"<span class='log-points'>$1</span>");
+    html=html.replace(/(\+\s*[\d,]+)/g,"<span class='log-points'>$1</span>");
     html=html.replace(/(Reason:\s*(?:WATCH|CLAIM|WATCH_STREAK|RAID|PREDICTION|REFUND))/g,"<span class='log-reason'>$1</span>");
     return "<div class='log-line'>"+html+"</div>";
   }).join("");
@@ -603,10 +607,9 @@ async function loadLogs(){
   box.textContent="Загружаю журнал…";
   try{
     const result=await api().get_log_snapshot();
-    const lines=(result.lines||[]).slice(-500);
+    const rows=Array.isArray(result.rows)?result.rows:(result.lines||[]).map((line,index)=>({id:index+1,line}));
+    logEntries=rows.slice(-500).map(item=>({id:Number(item.id)||0,line:String(item.line||"")}));
     const last=Number(result.last_log_id||0);
-    const first=Math.max(1,last-lines.length+1);
-    logEntries=lines.map((line,index)=>({id:first+index,line:String(line)})).slice(-500);
     lastLogId=Math.max(lastLogId,last);
     logsLoaded=true;
     renderLogs();
@@ -1110,14 +1113,7 @@ async function openFolder(){
 }
 
 async function copyLogs(){
-  const query=String(logSearch||"").trim().toLowerCase();
-  const textValue=logEntries.filter(item=>{
-    const line=String(item.line||"");
-    if(query&&!line.toLowerCase().includes(query)) return false;
-    if(logFilter==="points") return /\+\s*[\d,]+/.test(line)&&/(?:Reason:\s*(?:WATCH|CLAIM)|Channel Points|балл)/i.test(line);
-    if(logFilter==="important") return /\[(?:INFO|WARNING|ERROR|CRITICAL)\]/i.test(line);
-    return true;
-  }).map(item=>item.line).join("\n");
+  const textValue=filteredLogEntries().map(item=>item.line).join("\n");
   try{
     await navigator.clipboard.writeText(textValue);
     notify("Логи скопированы.");
@@ -1260,6 +1256,8 @@ function renderDropsInventory(state){
   const watchCount=campaigns.reduce((sum,item)=>sum+(item.watch_drops||[]).length,0);
   const subCount=campaigns.reduce((sum,item)=>sum+(item.subscription_drops||[]).length,0);
   $("drops-campaign-count").textContent=String(campaigns.length);
+  $("drops-badge").textContent=String(campaigns.length);
+  $("drops-badge").classList.toggle("visible",campaigns.length>0);
   $("drops-reward-count").textContent=String(watchCount+subCount);
   $("drops-watch-count").textContent=String(watchCount);
   $("drops-sub-count").textContent=String(subCount);
