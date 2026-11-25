@@ -1426,6 +1426,86 @@ async function waitForStartup(){
   }
 }
 
+
+function initLogoAnimation(){
+  const logo=document.querySelector(".brand-mark");
+  if(!logo)return;
+  const left=logo.querySelector(".brand-eye-left");
+  const right=logo.querySelector(".brand-eye-right");
+  if(!left||!right)return;
+  let token=0;
+  let timer=null;
+  const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const setEyes=(x=0,y=0,leftScale=1,rightScale=1)=>{
+    left.style.transform="translate("+x+"px,"+y+"px) scaleY("+leftScale+")";
+    right.style.transform="translate("+x+"px,"+y+"px) scaleY("+rightScale+")";
+  };
+  const reset=()=>setEyes();
+  const schedule=()=>{
+    clearTimeout(timer);
+    timer=setTimeout(()=>runRandom(),2000+Math.random()*2000);
+  };
+  const blink=async()=>{
+    setEyes(0,0,.08,.08);
+    await pause(150);
+    reset();
+    await pause(280);
+  };
+  const doubleBlink=async()=>{
+    await blink();
+    await pause(100);
+    await blink();
+  };
+  const squint=async()=>{
+    setEyes(0,0,.45,.45);
+    await pause(1500+Math.random()*500);
+    reset();
+    await pause(280);
+  };
+  const glance=async()=>{
+    const directions=[[-2,0],[2,0],[2,-2],[0,2]];
+    for(const [x,y] of directions){
+      setEyes(x,y);
+      await pause(380);
+    }
+    await pause(1000);
+    reset();
+    await pause(280);
+  };
+  const runRandom=async()=>{
+    const current=++token;
+    const actions=[blink,doubleBlink,squint,glance];
+    const action=actions[Math.floor(Math.random()*actions.length)];
+    await action();
+    if(current===token&&!logo.matches(":hover"))schedule();
+  };
+  const hoverReaction=async()=>{
+    clearTimeout(timer);
+    const current=++token;
+    logo.classList.add("logo-hovered");
+    setEyes(0,0,.08,1.25);
+    await pause(180);
+    if(current!==token)return;
+    reset();
+    await pause(130);
+    if(current!==token)return;
+    setEyes(0,0,1.2,.08);
+    await pause(180);
+    if(current!==token)return;
+    reset();
+  };
+  logo.addEventListener("pointerenter",()=>{
+    hoverReaction();
+  });
+  logo.addEventListener("pointerleave",()=>{
+    token++;
+    reset();
+    logo.classList.remove("logo-hovered");
+    schedule();
+  });
+  runRandom();
+}
+
 async function initialize(){
   await waitForBridge();
   await waitForStartup();
@@ -1452,6 +1532,7 @@ async function initialize(){
 }
 
 document.addEventListener("DOMContentLoaded",()=>{
+  initLogoAnimation();
   $("channel-search").addEventListener("input",event=>{
     channelSearch=event.target.value||"";
     filterChannelCards();
