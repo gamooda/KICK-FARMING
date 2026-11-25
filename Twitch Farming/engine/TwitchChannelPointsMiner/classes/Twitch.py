@@ -1029,6 +1029,127 @@ class Twitch(object):
                         break
         return campaigns
 
+    def get_drop_inventory_snapshot(self):
+        inventory = self.__get_inventory() or {}
+        dashboard = self.__get_drops_dashboard(status="ACTIVE")
+        details = self.__get_campaigns_details(dashboard)
+        progress_campaigns = inventory.get("dropCampaignsInProgress") or []
+        progress_by_campaign = {
+            str(item.get("id")): item
+            for item in progress_campaigns
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+        result = []
+        for campaign in details:
+            if not isinstance(campaign, dict):
+                continue
+            campaign_id = str(campaign.get("id") or "")
+            game = campaign.get("game") or {}
+            active_progress = progress_by_campaign.get(campaign_id, {})
+            progress_by_drop = {
+                str(item.get("id")): item.get("self") or {}
+                for item in (active_progress.get("timeBasedDrops") or [])
+                if isinstance(item, dict) and item.get("id") is not None
+            }
+            drops = []
+            for drop in campaign.get("timeBasedDrops") or []:
+                if not isinstance(drop, dict):
+                    continue
+                progress = progress_by_drop.get(str(drop.get("id") or ""), {}) or drop.get("self") or {}
+                try:
+                    required = max(0, int(drop.get("requiredMinutesWatched") or 0))
+                    watched = max(0, int(progress.get("currentMinutesWatched") or 0))
+                except (TypeError, ValueError):
+                    required = 0
+                    watched = 0
+                claimed = bool(progress.get("isClaimed") or drop.get("isClaimed"))
+                benefit_edges = drop.get("benefitEdges") or []
+                benefit_names = []
+                image_url = ""
+                for edge in benefit_edges:
+                    benefit = (edge or {}).get("benefit") or {}
+                    name = str(benefit.get("name") or "").strip()
+                    if name and name not in benefit_names:
+                        benefit_names.append(name)
+                    if not image_url:
+                        for key in ("imageAssetURL", "imageUrl", "imageURL", "image_url", "url"):
+                            candidate = str(benefit.get(key) or "")
+                            if candidate.startswith("https://"):
+                                image_url = candidate
+                                break
+                if not image_url:
+                    for key in ("imageAssetURL", "imageUrl", "imageURL", "image_url", "url"):
+                        candidate = str(drop.get(key) or "")
+                        if candidate.startswith("https://"):
+                            image_url = candidate
+                            break
+                percentage = min(100, int(watched * 100 / required)) if required else (100 if claimed else 0)
+                subscription_count = 0
+                for key in ("requiredSubscriptions", "requiredSubscriptionsCount", "requiredSubs", "subscriptionCount"):
+                    try:
+                        subscription_count = max(0, int(drop.get(key) or 0))
+                    except (TypeError, ValueError):
+                        subscription_count = 0
+                    if subscription_count:
+                        break
+                drops.append({
+                    "id": str(drop.get("id") or ""),
+                    "name": str(drop.get("name") or "Награда"),
+                    "benefit": ", ".join(benefit_names),
+                    "image_url": image_url,
+                    "type": "subscription" if required == 0 else "watch",
+                    "required_minutes": required,
+                    "watched_minutes": watched,
+                    "remaining_minutes": max(0, required - watched) if required else 0,
+                    "percentage": percentage,
+                    "claimed": claimed,
+                    "claimable": bool(progress.get("dropInstanceID")) and not claimed,
+                    "required_subscriptions": subscription_count,
+                    "current_subscriptions": max(0, int(progress.get("currentSubscriptions") or progress.get("currentSubscriptionCount") or 0)),
+                    "start_at": str(drop.get("startAt") or campaign.get("startAt") or ""),
+                    "end_at": str(drop.get("endAt") or campaign.get("endAt") or ""),
+                })
+            allowed_channels = campaign.get("allow", {}).get("channels") if isinstance(campaign.get("allow"), dict) else None
+            game_image = ""
+            for key in ("boxArtURL", "boxArtUrl", "imageURL", "imageUrl"):
+                candidate = str(game.get(key) or "")
+                if candidate.startswith("https://"):
+                    game_image = candidate
+                    break
+            result.append({
+                "id": campaign_id,
+                "name": str(campaign.get("name") or "Drops"),
+                "game": str(game.get("displayName") or game.get("name") or "Игра"),
+                "game_id": str(game.get("id") or ""),
+                "game_image": game_image,
+                "start_at": str(campaign.get("startAt") or ""),
+                "end_at": str(campaign.get("endAt") or ""),
+                "allowed_channel_ids": [str(item.get("id")) for item in (allowed_channels or []) if isinstance(item, dict) and item.get("id")],
+                "drops": drops,
+            })
+        return result
+
+    def get_drop_campaign_ids_for_channels(self, channels):
+        rows = [item for item in (channels or []) if isinstance(item, dict) and item.get("channel_id")]
+        result = {}
+        for offset in range(0, len(rows), 20):
+            batch = rows[offset:offset + 20]
+            requests_data = []
+            for item in batch:
+                request_data = copy.deepcopy(GQLOperations.DropsHighlightService_AvailableDrops)
+                request_data["variables"] = {"channelID": str(item["channel_id"])}
+                requests_data.append(request_data)
+            response = self.post_gql_request(requests_data)
+            if not isinstance(response, list):
+                continue
+            for item, payload in zip(batch, response):
+                try:
+                    available = payload["data"]["channel"]["viewerDropCampaigns"] or []
+                    result[str(item.get("login") or "").lower()] = [str(campaign["id"]) for campaign in available if campaign.get("id")]
+                except (KeyError, TypeError):
+                    result[str(item.get("login") or "").lower()] = []
+        return result
+
     def claim_drop(self, drop):
         logger.info(
             f"Claim {drop}", extra={"emoji": ":package:", "event": Events.DROP_CLAIM}
