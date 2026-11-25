@@ -82,7 +82,7 @@ async function waitForBridge(){
   await withTimeout(apiReadyPromise,120000,"WebView2 не запустился за 120 секунд. Проверь Microsoft Edge WebView2 Runtime.");
   const bridge=window.pywebview&&window.pywebview.api;
   if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
-  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","minimize_window","toggle_maximize_window","close_window"];
+  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","get_app_version","open_url","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
@@ -170,6 +170,27 @@ async function toggleMaximizeWindow(){
 }
 async function closeWindow(){
   try{await api().close_window();}catch(error){notify(error.message||"Не удалось закрыть окно.");}
+}
+
+async function openAboutModal(){
+  const overlay=$("about-modal-overlay");
+  overlay.classList.add("visible");
+  overlay.setAttribute("aria-hidden","false");
+  try{
+    const version=await api().get_app_version();
+    if(version) $("about-version").textContent="v"+String(version).replace(/^v/i,"");
+  }catch(error){
+    console.warn("App version is unavailable:",error);
+  }
+  $("about-close-button").focus();
+}
+
+function closeAboutModal(){
+  const overlay=$("about-modal-overlay");
+  if(!overlay.classList.contains("visible")) return;
+  overlay.classList.remove("visible");
+  overlay.setAttribute("aria-hidden","true");
+  if(overlay.contains(document.activeElement)) $("nav-about").focus();
 }
 
 function setFeedback(id,message,error){
@@ -1636,6 +1657,11 @@ document.addEventListener("DOMContentLoaded",()=>{
       $("channel-search").focus();
       $("channel-search").select();
     }
+    if(event.key==="Escape"&&$("about-modal-overlay").classList.contains("visible")){
+      closeAboutModal();
+      event.preventDefault();
+      return;
+    }
     if(event.key==="Escape"&&$("delete-confirm-overlay").classList.contains("visible")){
       closeDeleteConfirmation();
       event.preventDefault();
@@ -1668,6 +1694,18 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("nav-followers").addEventListener("click",()=>setPage("followers"));
   $("nav-drops-inventory").addEventListener("click",()=>setPage("drops"));
   $("nav-settings").addEventListener("click",()=>setPage("settings"));
+  $("nav-about").addEventListener("click",openAboutModal);
+  $("about-modal-close").addEventListener("click",closeAboutModal);
+  $("about-close-button").addEventListener("click",closeAboutModal);
+  $("about-modal-overlay").addEventListener("click",event=>{if(event.target===$("about-modal-overlay"))closeAboutModal();});
+  $("about-github-button").addEventListener("click",async()=>{
+    try{
+      const result=await api().open_url("https://github.com/gamooda/KICK-FARMING");
+      if(result&&result.ok===false) notify("Не удалось открыть репозиторий GitHub.");
+    }catch(error){
+      notify(error.message||"Не удалось открыть репозиторий GitHub.");
+    }
+  });
   $("refresh-drops").addEventListener("click",()=>loadDropsInventory(true));
   $("page-drops").addEventListener("click",event=>{
     const button=event.target.closest("[data-drop-action='add']");
