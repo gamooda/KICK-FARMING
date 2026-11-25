@@ -1104,7 +1104,7 @@ def main():
     window.events.maximized += lambda: api.sync_window_maximized(True)
     window.events.restored += lambda: api.sync_window_maximized(False)
     try:
-        webview.start(gui="edgechromium", private_mode=False, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None)
+        webview.start(gui="edgechromium", private_mode=False, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None, debug=False)
     except Exception as error:
         if os.name == "nt":
             try:
