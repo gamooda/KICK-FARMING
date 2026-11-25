@@ -70,7 +70,7 @@ async function waitForBridge(){
   setStartupMessage("Подключение встроенного браузера...");
   if(!apiReadyPromise) apiReadyPromise=window.__twitchPywebviewReadyPromise;
   if(!apiReadyPromise) throw new Error("Событие готовности PyWebView не зарегистрировано.");
-  await withTimeout(apiReadyPromise,45000,"Встроенный браузер не ответил за 45 секунд. Перезапусти приложение.");
+  await withTimeout(apiReadyPromise,120000,"WebView2 не запустился за 120 секунд. Проверь Microsoft Edge WebView2 Runtime.");
   const bridge=window.pywebview&&window.pywebview.api;
   if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
   const required=["get_auth_state","get_state","get_startup_state","begin_session_restore","login","minimize_window","toggle_maximize_window","close_window"];
@@ -715,6 +715,18 @@ async function saveChannel(){
   const tokens=channelMode==="add"?[...new Set([...channelDraftTokens,...channelTokens(raw)])]:[];
   if(channelMode==="add"&&!tokens.length){setFeedback("channel-feedback","Добавь хотя бы один ник в список.",true);return;}
   try{
+    if(channelMode==="edit"){
+      const newLogin=normalizeChannelToken(raw);
+      const currentLogin=normalizeChannelToken(editingChannel);
+      if(!newLogin){
+        setFeedback("channel-feedback","Укажи корректный логин или ссылку Twitch.",true);
+        return;
+      }
+      if(newLogin===currentLogin){
+        setPage("dashboard");
+        return;
+      }
+    }
     if(channelMode==="add") await requestChannelPreviews(tokens);
     const previews=channelMode==="add"?tokens.map(login=>channelPreviewCache[login]).filter(Boolean):[];
     const result=await api().save_channel_editor(channelMode,editingChannel,channelMode==="add"?tokens.join("\n"):raw,previews);
@@ -989,11 +1001,6 @@ async function initialize(){
   applyState(state,true);
   appInitialized=Boolean(authState.authenticated);
   $("startup-overlay").classList.add("hidden");
-  try{
-    await withTimeout(api().begin_session_restore(),4000,"Проверка сохранённой сессии не запустилась вовремя.");
-  }catch(error){
-    notify("Не удалось запустить проверку сессии: "+(error.message||String(error)));
-  }
   initialStateReady=true;
   updateFarmToggleButton(Boolean(state.session_running));
   setInterval(poll,900);
