@@ -419,8 +419,9 @@ select.input option{background:#171622;color:#e8e4ef}
 }
 
 
-.brand-eye-blink{transform-box:fill-box;transform-origin:center;animation:brand-eye-blink 5.2s infinite}
-@keyframes brand-eye-blink{0%,88%,100%{transform:scaleY(1)}89%,91%{transform:scaleY(.07)}90%,92%{transform:scaleY(1)}}
+.brand-eye{transform-box:fill-box;transform-origin:center;transition:transform .25s ease;will-change:transform}
+.brand-mark{cursor:default}
+.brand-mark.logo-hovered{filter:drop-shadow(0 3px 10px rgba(164,94,255,.55))}
 .followers-panel{display:flex;flex-direction:column;flex:1;min-height:0;padding:14px;background:#14141f;border:1px solid #2b2738;border-radius:10px;overflow:hidden}
 .followers-toolbar{height:30px;min-height:30px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid #302a3e;padding:0 2px 8px}
 .followers-updated{color:#837b91;font-size:9px;white-space:nowrap}
