@@ -252,6 +252,9 @@ class TwitchFarmingApi:
         self.tutorial_done = False
         self.account_profile = {}
         self.channel_profiles = {}
+        self.channel_balances = {}
+        self.window = None
+        self.window_maximized = False
         self.online_channels = set()
         self.watch_status = {}
         self.profile_worker = None
@@ -882,12 +885,47 @@ class TwitchFarmingApi:
         while not self.log_stop.wait(0.4):
             self._flush_logs()
 
+    def _refresh_channel_balances_locked(self):
+        worker = self.engine_worker
+        miner = getattr(worker, "miner", None) if worker is not None else None
+        if miner is not None:
+            for streamer in list(getattr(miner, "streamers", []) or []):
+                login = str(getattr(streamer, "username", "") or "").lower()
+                if not login:
+                    continue
+                try:
+                    points = max(0, int(getattr(streamer, "channel_points", 0) or 0))
+                except (TypeError, ValueError):
+                    points = 0
+                profile = self.channel_profiles.get(login, {})
+                self.channel_balances[login] = {
+                    "login": login,
+                    "points": points,
+                    "display_name": str(profile.get("display_name") or login),
+                    "avatar_url": str(profile.get("avatar_url") or ""),
+                }
+        valid = set(self.channels)
+        self.channel_balances = {
+            login: item for login, item in self.channel_balances.items()
+            if login in valid
+        }
+        ranked = sorted(
+            self.channel_balances.values(),
+            key=lambda item: (int(item.get("points", 0)), item.get("login", "")),
+            reverse=True,
+        )
+        return ranked[:3], {
+            login: int(item.get("points", 0))
+            for login, item in self.channel_balances.items()
+        }
+
     def get_state(self, after_log_id=0):
         try:
             after = int(after_log_id)
         except (TypeError, ValueError):
             after = 0
         with self.lock:
+            top_channels, channel_balances = self._refresh_channel_balances_locked()
             logs = [dict(item) for item in self.log_records if item["id"] > after]
             return {
                 "username": self.username,
@@ -901,6 +939,8 @@ class TwitchFarmingApi:
                 "tutorial_done": self.tutorial_done,
                 "account_profile": dict(self.account_profile),
                 "channel_profiles": {key: dict(value) for key, value in self.channel_profiles.items()},
+                "channel_balances": channel_balances,
+                "top_channels": top_channels,
                 "authenticated": self.authenticated,
                 "authenticated_username": self.authenticated_username,
                 "auth_status": self.auth_status,
@@ -961,6 +1001,37 @@ class TwitchFarmingApi:
             return {"ok": True}
         return {"ok": False}
 
+
+    def minimize_window(self):
+        if self.window is None:
+            return {"ok": False, "message": "Окно ещё не готово."}
+        self.window.minimize()
+        return {"ok": True}
+
+    def toggle_maximize_window(self):
+        if self.window is None:
+            return {"ok": False, "message": "Окно ещё не готово."}
+        self.window_maximized = not self.window_maximized
+        if self.window_maximized:
+            self.window.maximize()
+        else:
+            self.window.restore()
+        return {"ok": True, "maximized": self.window_maximized}
+
+    def close_window(self):
+        if self.window is not None:
+            self.window.destroy()
+        return {"ok": True}
+
+    def sync_window_maximized(self, maximized):
+        self.window_maximized = bool(maximized)
+        window = self.window
+        if window is not None:
+            try:
+                window.evaluate_js("window.setWindowMaximized(" + ("true" if self.window_maximized else "false") + ")")
+            except Exception:
+                pass
+
     def on_loaded(self):
         with self.lock:
             if self.restore_started:
@@ -1004,15 +1075,21 @@ def main():
         "Twitch Farming",
         url=str(UI_DIR / "index.html"),
         js_api=api,
-        width=1120,
-        height=760,
+        width=1180,
+        height=800,
         min_size=(960, 660),
         resizable=True,
-        background_color="#0B0F19",
+        frameless=True,
+        easy_drag=False,
+        shadow=True,
+        background_color="#090D18",
         text_select=True,
     )
+    api.window = window
     window.events.loaded += api.on_loaded
     window.events.closing += api.on_closing
+    window.events.maximized += lambda: api.sync_window_maximized(True)
+    window.events.restored += lambda: api.sync_window_maximized(False)
     try:
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None)
     except Exception as error:

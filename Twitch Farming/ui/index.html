@@ -8,6 +8,23 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<header class="window-bar">
+  <div class="window-brand pywebview-drag-region" id="window-drag-region">
+    <div class="window-brand-mark"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><path fill="#24183d" d="M17 13h5v13h-5zm11 0h5v13h-5z"/></svg></div>
+    <div class="window-brand-copy"><strong>TWITCH FARMING</strong><span>CHANNEL POINTS CONTROL</span></div>
+    <span class="window-brand-live"><i></i> LIVE DESK</span>
+  </div>
+  <label class="window-search">
+    <span class="ui-icon icon-search"></span>
+    <input id="channel-search" type="search" placeholder="Поиск каналов..." autocomplete="off" spellcheck="false">
+    <kbd>CTRL K</kbd>
+  </label>
+  <div class="window-controls">
+    <button id="window-minimize" class="window-control" type="button" title="Свернуть" aria-label="Свернуть"><svg viewBox="0 0 16 16"><path d="M3 8h10"/></svg></button>
+    <button id="window-maximize" class="window-control" type="button" title="Развернуть" aria-label="Развернуть"><svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="1.6"/></svg></button>
+    <button id="window-close" class="window-control window-close" type="button" title="Закрыть" aria-label="Закрыть"><svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>
+  </div>
+</header>
 <section class="login-gate visible" id="login-gate">
   <div class="login-card">
     <div class="login-brand">
@@ -54,6 +71,13 @@
       <div><div class="page-title">Панель управления</div><div class="page-subtitle">Просмотр трансляций и автоматический сбор наград</div></div>
       <button class="button button-soft header-folder" id="open-folder">Папка с данными</button>
     </header>
+    <section class="ranking-panel panel">
+      <div class="ranking-heading">
+        <div><div class="ranking-title">ТОП КАНАЛОВ ПО БАЛАНСУ</div><div class="ranking-subtitle">Текущие Channel Points на каналах</div></div>
+        <span class="ranking-live"><i></i> ОБНОВЛЯЕТСЯ С ФАРМОМ</span>
+      </div>
+      <div class="top-channel-list" id="top-channel-list"><div class="ranking-empty">Баланс появится после загрузки каналов</div></div>
+    </section>
     <div class="dashboard-grid">
       <section class="panel channels-panel">
         <div class="panel-heading">

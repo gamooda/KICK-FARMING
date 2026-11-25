@@ -6,6 +6,8 @@ let lastLogId=0;
 let channelMode="add";
 let editingChannel="";
 let channelCache="";
+let channelSearch="";
+let windowMaximized=false;
 let polling=false;
 let toastTimer=null;
 let logsLoaded=false;
@@ -51,14 +53,76 @@ function setPage(page){
   if(page==="logs") loadLogs();
 }
 
+
+function setWindowMaximized(value){
+  windowMaximized=Boolean(value);
+  const button=$("window-maximize");
+  if(button){
+    button.classList.toggle("is-maximized",windowMaximized);
+    button.title=windowMaximized?"Восстановить":"Развернуть";
+    button.innerHTML=windowMaximized?'<svg viewBox="0 0 16 16"><rect x="5" y="3" width="8" height="9" rx="1.4"/><path d="M3 6v7h7"/></svg>':'<svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="1.6"/></svg>';
+  }
+}
+window.setWindowMaximized=setWindowMaximized;
+
+async function minimizeWindow(){
+  try{await api().minimize_window();}catch(error){notify(error.message||"Не удалось свернуть окно.");}
+}
+async function toggleMaximizeWindow(){
+  try{
+    const result=await api().toggle_maximize_window();
+    setWindowMaximized(result.maximized);
+  }catch(error){notify(error.message||"Не удалось изменить размер окна.");}
+}
+async function closeWindow(){
+  try{await api().close_window();}catch(error){notify(error.message||"Не удалось закрыть окно.");}
+}
+
 function setFeedback(id,message,error){
   const node=$(id);
   node.textContent=message||"";
   node.style.color=error?"#ff8797":"#e5b866";
 }
 
-function renderChannels(channels,online,running,profiles,watchStatuses){
-  const signature=JSON.stringify([channels,online,running,profiles,watchStatuses]);
+function filterChannelCards(){
+  const root=$("channel-list");
+  const query=channelSearch.trim().toLowerCase();
+  const cards=root.querySelectorAll(".channel-card");
+  let visible=0;
+  cards.forEach(card=>{
+    const match=!query||String(card.dataset.search||"").includes(query);
+    card.classList.toggle("search-hidden",!match);
+    if(match) visible++;
+  });
+  let empty=root.querySelector(".channel-search-empty");
+  if(query&&cards.length&&!visible){
+    if(!empty){
+      empty=document.createElement("div");
+      empty.className="channel-search-empty";
+      empty.textContent="Каналы не найдены";
+      root.appendChild(empty);
+    }
+  }else if(empty) empty.remove();
+}
+
+function renderTopChannels(items){
+  const root=$("top-channel-list");
+  if(!Array.isArray(items)||!items.length){
+    root.innerHTML='<div class="ranking-empty">Баланс появится после загрузки каналов</div>';
+    return;
+  }
+  root.innerHTML=items.slice(0,3).map((item,index)=>{
+    const login=String(item.login||"");
+    const display=String(item.display_name||login);
+    const avatar=typeof item.avatar_url==="string"&&item.avatar_url.startsWith("https://")?item.avatar_url:"";
+    const initial=esc(display.charAt(0).toUpperCase()||"?");
+    const avatarMarkup=avatar?'<img src="'+esc(avatar)+'" alt="" loading="lazy" onerror="this.style.display=\'none\'">':"";
+    return '<div class="top-channel-card rank-'+(index+1)+'"><div class="rank-number">'+(index+1)+'</div><div class="top-channel-avatar">'+avatarMarkup+'<span>'+initial+'</span></div><div class="top-channel-info"><div class="top-channel-name">'+esc(display)+'</div><div class="top-channel-login">@'+esc(login)+'</div></div><div class="top-channel-balance"><strong>'+Number(item.points||0).toLocaleString("ru-RU")+'</strong><span>POINTS</span></div></div>';
+  }).join("");
+}
+
+function renderChannels(channels,online,running,profiles,watchStatuses,balances){
+  const signature=JSON.stringify([channels,online,running,profiles,watchStatuses,balances]);
   if(signature===channelCache) return;
   channelCache=signature;
   const root=$("channel-list");
@@ -74,18 +138,20 @@ function renderChannels(channels,online,running,profiles,watchStatuses){
     const status=live?"● В ЭФИРЕ":profile.error?"ОШИБКА ПРОВЕРКИ":loaded?"НЕ В ЭФИРЕ":"ПРОВЕРКА…";
     const displayName=profile.display_name||login;
     const avatar=typeof profile.avatar_url==="string"&&profile.avatar_url.startsWith("https://")?profile.avatar_url:"";
-    const title=profile.stream_title||"";
     const viewers=Number(profile.viewer_count||0);
-    const details=live?(title||"ТРАНСЛЯЦИЯ В ЭФИРЕ"):status;
+    const points=balances&&Object.prototype.hasOwnProperty.call(balances,login)?Number(balances[login]||0):null;
     const watch=watchStatuses&&watchStatuses[login]?watchStatuses[login]:null;
     const watchFresh=watch&&Date.now()/1000-Number(watch.updated_at||0)<120;
     const watchLabels={selected:"Выбран для просмотра",waiting:"В очереди",request:"Отправка запроса…",accepted:"Twitch принял запрос",error:"Ошибка просмотра"};
     const watchMarkup=watchFresh&&watchLabels[watch.state]?'<div class="channel-watch-state '+esc(watch.state)+'" title="'+esc(watchLabels[watch.state]+(watch.detail?" · "+watch.detail:""))+'">◉ '+watchLabels[watch.state]+'</div>':'';
     const initial=esc(login.charAt(0).toUpperCase());
     const avatarMarkup=avatar?'<div class="channel-avatar" data-initial="'+initial+'"><img loading="lazy" src="'+esc(avatar)+'" alt="" onerror="this.parentNode.textContent=this.parentNode.dataset.initial"></div>':'<div class="channel-avatar">'+initial+'</div>';
-    return '<div class="channel-card">'+avatarMarkup+'<div class="channel-info"><div class="channel-name">'+esc(displayName)+'　<span style="color:#7d8aa0;font-weight:500">@'+esc(login)+'</span></div><div class="channel-state '+(live?"online":loaded?"":"pending")+'">'+esc(details)+'</div>'+watchMarkup+(live&&viewers?'<div class="channel-meta">'+viewers.toLocaleString("ru-RU")+' зрителей</div>':'')+'</div><div class="channel-spacer"></div><button class="button button-soft channel-action" data-action="edit" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Изменить">✎</button><button class="button button-danger channel-action" data-action="remove" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Удалить">×</button></div>';
+    const balanceMarkup=points!==null?'<span class="channel-points">'+points.toLocaleString("ru-RU")+' очков</span>':"";
+    const searchKey=esc((login+" "+displayName).toLowerCase());
+    return '<div class="channel-card" data-search="'+searchKey+'">'+avatarMarkup+'<div class="channel-info"><div class="channel-name">'+esc(displayName)+' <span>@'+esc(login)+'</span></div><div class="channel-state '+(live?"online":loaded?"":"pending")+'">'+esc(status)+'</div>'+watchMarkup+'<div class="channel-meta">'+balanceMarkup+(live&&viewers?'<span>'+viewers.toLocaleString("ru-RU")+' зрителей</span>':'')+'</div></div><div class="channel-actions"><button class="button button-soft channel-action" data-action="edit" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Изменить">✎</button><button class="button button-danger channel-action" data-action="remove" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Удалить">×</button></div></div>';
   }).join("");
   $("add-channel").disabled=running;
+  filterChannelCards();
 }
 
 function renderEvents(events){
@@ -194,7 +260,8 @@ function applyState(state,initial){
   $("points-value").textContent=Number(state.gained_total||0).toLocaleString("ru-RU");
   $("online-value").textContent=String((state.online_channels||[]).length);
   $("events-value").textContent=String(state.event_total||0);
-  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{});
+  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{},state.channel_balances||{});
+  renderTopChannels(state.top_channels||[]);
   renderEvents(state.events||[]);
   if(initial){
     const options=state.options||{};
@@ -572,6 +639,26 @@ async function initialize(){
 }
 
 document.addEventListener("DOMContentLoaded",()=>{
+  $("window-minimize").addEventListener("click",minimizeWindow);
+  $("window-maximize").addEventListener("click",toggleMaximizeWindow);
+  $("window-close").addEventListener("click",closeWindow);
+  $("channel-search").addEventListener("input",event=>{
+    channelSearch=event.target.value||"";
+    filterChannelCards();
+  });
+  document.addEventListener("keydown",event=>{
+    if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"){
+      event.preventDefault();
+      $("channel-search").focus();
+      $("channel-search").select();
+    }
+    if(event.key==="Escape"&&document.activeElement===$("channel-search")){
+      $("channel-search").value="";
+      channelSearch="";
+      filterChannelCards();
+      $("channel-search").blur();
+    }
+  });
   $("nav-dashboard").addEventListener("click",()=>setPage("dashboard"));
   $("nav-logs").addEventListener("click",()=>setPage("logs"));
   $("open-folder").addEventListener("click",openFolder);
