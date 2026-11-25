@@ -50,6 +50,7 @@ class TwitchLogin(object):
         "username",
         "password",
         "user_id",
+        "scopes",
         "email",
         "cookies",
         "shared_cookies",
@@ -71,6 +72,7 @@ class TwitchLogin(object):
         self.username = username
         self.password = password
         self.user_id = None
+        self.scopes = ()
         self.email = None
 
         self.cookies = []
@@ -79,7 +81,7 @@ class TwitchLogin(object):
 
     def login_flow(self):
         logger.info("You'll have to login to Twitch!")
-        scopes = "channel_read chat:read user_blocks_edit user_blocks_read user_follows_edit user_read"
+        scopes = "channel_read chat:read user_blocks_edit user_blocks_read user_follows_edit user_read user:read:follows"
         post_data = {
             "client_id": self.client_id,
             "scopes": scopes,
@@ -335,6 +337,7 @@ class TwitchLogin(object):
             return False
         if payload.get("client_id") != self.client_id:
             return False
+        self.scopes = tuple(str(scope) for scope in payload.get("scopes", []) if scope)
         actual_login = str(payload.get("login") or "").lower()
         if self.username and actual_login and actual_login != self.username.lower():
             logger.error(f"The authorized Twitch account is {actual_login}, but the configured account is {self.username}.")
