@@ -148,8 +148,8 @@ function filterChannelCards(){
   }else if(empty) empty.remove();
 }
 
-function renderChannels(channels,online,running,profiles,watchStatuses,balances){
-  const signature=JSON.stringify([channels,online,running,profiles,watchStatuses,balances]);
+function renderChannels(channels,online,running,profiles,watchStatuses,balances,currencies){
+  const signature=JSON.stringify([channels,online,running,profiles,watchStatuses,balances,currencies]);
   if(signature===channelCache) return;
   channelCache=signature;
   const root=$("channel-list");
@@ -172,6 +172,10 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances)
     const displayName=profile.display_name||login;
     const avatar=typeof profile.avatar_url==="string"&&profile.avatar_url.startsWith("https://")?profile.avatar_url:"";
     const points=balances&&Object.prototype.hasOwnProperty.call(balances,login)?Number(balances[login]||0):null;
+    const currency=currencies&&currencies[login]?currencies[login]:{};
+    const pointsName=String(currency.name||"").trim()||"баллов";
+    const pointsIconUrl=String(currency.icon_url||"");
+    const pointsIcon=pointsIconUrl.startsWith("https://")?"<img class='channel-points-icon-image' loading='lazy' src='"+esc(pointsIconUrl)+"' alt='' onerror='this.remove()'>":"<svg class='channel-points-icon'><use href='#i-diamond'></use></svg>";
     const viewers=Number(profile.viewer_count||0);
     const watch=watchStatuses&&watchStatuses[login]?watchStatuses[login]:null;
     const watchFresh=watch&&Date.now()/1000-Number(watch.updated_at||0)<120;
@@ -183,7 +187,7 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances)
     const liveClass=live?"is-live":profile.error?"is-error":loaded?"is-offline":"is-pending";
     const extra=live&&viewers?"<span class='channel-viewers'>"+viewers.toLocaleString("ru-RU")+" зрителей</span>":watchMarkup;
     const searchKey=esc((login+" "+displayName).toLowerCase());
-    return "<article class='channel-card' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Изменить'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'><svg class='channel-points-icon'><use href='#i-diamond'></use></svg><strong>"+pointsText+"</strong><span>баллов</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
+    return "<article class='channel-card' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Изменить'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
   }).join("");
   $("add-channel").disabled=running;
   filterChannelCards();
@@ -327,7 +331,7 @@ function applyState(state,initial){
   $("points-value").textContent=Number(state.gained_total||0).toLocaleString("ru-RU");
   $("online-value").textContent=String((state.online_channels||[]).length);
   $("events-value").textContent=String(state.event_total||0);
-  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{},state.channel_balances||{});
+  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{},state.channel_balances||{},state.channel_currency||{});
   renderRewards(state.rewards||[]);
   renderEvents(state.events||[]);
   if(initial){
