@@ -1129,6 +1129,10 @@ class Twitch(object):
                         percentage_value = subscription_percentage
                     else:
                         percentage_value = 100 if claimed else 0
+                    if claimed:
+                        watch_percentage = 100
+                        subscription_percentage = 100
+                        percentage_value = 100
                     is_subscription = (
                         source_type == "subscription"
                         or subscription_count > 0
