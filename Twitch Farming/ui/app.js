@@ -1237,7 +1237,7 @@ function renderDropsSection(campaigns,root,isSubscription){
         ?(requirementParts.join(" · ")||"Требуется платная или подарочная подписка Twitch")
         :watched+" / "+required+" мин — осталось "+remaining+" мин";
       const progressMarkup=isSubscription
-        ?"<div class='drop-requirement'>"+esc(progressText)+"</div>"
+        ?"<div class='drop-progress-track'><span style='width:"+progress+"%'></span></div><div class='drop-progress-label'><span>"+esc(progressText)+"</span><strong>"+progress+"%</strong></div>"
         :"<div class='drop-progress-track'><span style='width:"+progress+"%'></span></div><div class='drop-progress-label'><span>"+esc(progressText)+"</span><strong>"+progress+"%</strong></div>";
       const status=claimed?"<span class='drop-claimed'>Получено</span>":"<span class='drop-active'>"+(isSubscription?"Подписка":"В процессе")+"</span>";
       return "<div class='drop-reward-row'><div class='drop-reward-image'>"+rewardThumb+"</div><div class='drop-reward-copy'><strong>"+esc(drop.name||"Награда")+"</strong><small>"+esc(drop.benefit||campaign.name||"Награда Twitch")+"</small>"+progressMarkup+"</div>"+status+"</div>";
