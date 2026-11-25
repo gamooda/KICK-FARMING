@@ -136,7 +136,9 @@ function renderAccountSidebar(state){
   $("account-state").textContent=statusText;
   $("account-state").style.color=statusColor;
   $("account-state-dot").style.background=statusColor;
-  $("account-connect-button").textContent=state.authenticated?"⟳":"+";
+  const connectButton=$("account-connect-button");
+  const connectMode=state.authenticated?"refresh":"add";
+  if(connectButton.dataset.mode!==connectMode){connectButton.dataset.mode=connectMode;connectButton.innerHTML='<span class="ui-icon icon-'+connectMode+'"></span>';}
   $("account-connect-button").title=state.authenticated?"Переподключить Twitch":"Подключить Twitch";
   $("account-connect-button").disabled=Boolean(state.worker_alive);
   const avatar=$("account-avatar");

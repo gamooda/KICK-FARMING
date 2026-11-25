@@ -30,8 +30,8 @@
   </div>
   <div class="side-caption">НАВИГАЦИЯ</div>
   <nav class="nav">
-    <button class="nav-button active" id="nav-dashboard" data-page="dashboard"><span class="nav-icon">◈</span><span>Панель управления</span></button>
-    <button class="nav-button" id="nav-logs" data-page="logs"><span class="nav-icon">▤</span><span>Журнал событий</span></button>
+    <button class="nav-button active" id="nav-dashboard" data-page="dashboard"><span class="nav-icon"><span class="ui-icon icon-dashboard"></span></span><span>Панель управления</span></button>
+    <button class="nav-button" id="nav-logs" data-page="logs"><span class="nav-icon"><span class="ui-icon icon-logs"></span></span><span>Журнал событий</span></button>
   </nav>
   <div class="sidebar-spacer"></div>
   <section class="sidebar-account" id="sidebar-account">
@@ -43,7 +43,7 @@
         <div class="sidebar-account-login" id="account-login">@—</div>
         <div class="sidebar-account-state"><span class="account-state-dot" id="account-state-dot"></span><span id="account-state">ПОДКЛЮЧЕНО</span></div>
       </div>
-      <button class="account-connect-button" id="account-connect-button" title="Переподключить Twitch">⟳</button>
+      <button class="account-connect-button" id="account-connect-button" title="Переподключить Twitch"><span class="ui-icon icon-refresh"></span></button>
     </div>
   </section>
   <div class="sidebar-footer">PyWebView · Windows</div>
@@ -58,21 +58,21 @@
       <section class="panel channels-panel">
         <div class="panel-heading">
           <div class="section-heading">КАНАЛЫ ДЛЯ ПРОСМОТРА</div>
-          <button class="button button-add" id="add-channel" title="Добавить канал">＋</button>
+          <button class="button button-add" id="add-channel" title="Добавить канал"><span class="ui-icon icon-add"></span></button>
         </div>
         <div class="channel-list" id="channel-list"></div>
       </section>
       <section class="panel automation-panel">
         <div class="section-heading">АВТОМАТИЗАЦИЯ</div>
         <div class="options-list">
-          <label class="check-row"><input type="checkbox" id="opt-claim_drops"><span class="check-box"></span><span>Twitch Drops</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-watch_streak"><span class="check-box"></span><span>Серии просмотров</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-claim_moments"><span class="check-box"></span><span>Моменты</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-follow_raid"><span class="check-box"></span><span>Рейды</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-make_predictions"><span class="check-box"></span><span>Прогнозы</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-chat"><span class="check-box"></span><span>IRC-чат</span></label>
+          <label class="check-row"><input type="checkbox" id="opt-claim_drops"><span class="check-box"></span><span class="automation-icon ui-icon icon-drops"></span><span>Twitch Drops</span></label>
+          <label class="check-row"><input type="checkbox" id="opt-watch_streak"><span class="check-box"></span><span class="automation-icon ui-icon icon-streak"></span><span>Серии просмотров</span></label>
+          <label class="check-row"><input type="checkbox" id="opt-claim_moments"><span class="check-box"></span><span class="automation-icon ui-icon icon-moments"></span><span>Моменты</span></label>
+          <label class="check-row"><input type="checkbox" id="opt-follow_raid"><span class="check-box"></span><span class="automation-icon ui-icon icon-raid"></span><span>Рейды</span></label>
+          <label class="check-row"><input type="checkbox" id="opt-make_predictions"><span class="check-box"></span><span class="automation-icon ui-icon icon-stats"></span><span>Прогнозы</span></label>
+          <label class="check-row"><input type="checkbox" id="opt-chat"><span class="check-box"></span><span class="automation-icon ui-icon icon-chat"></span><span>IRC-чат</span></label>
         </div>
-        <button class="button button-soft bet-open" id="open-bets">⚙　Прогнозы · Оптимальный</button>
+        <button class="button button-soft bet-open" id="open-bets"><span class="ui-icon icon-settings button-icon"></span><span>Прогнозы · Оптимальный</span></button>
       </section>
     </div>
     <div class="action-row">
@@ -80,17 +80,17 @@
       <button class="button button-soft action-stop" id="stop-button" disabled>■　Стоп</button>
       <button class="button button-soft" id="save-button">Сохранить</button>
       <div class="action-spacer"></div>
-      <button class="button button-soft" id="logs-shortcut">▤　Логи</button>
+      <button class="button button-soft" id="logs-shortcut"><span class="ui-icon icon-logs button-icon"></span>Логи</button>
     </div>
     <div class="stats-grid">
       <div class="stat-card"><div class="stat-title">ПОЛУЧЕНО ЗА СЕССИЮ</div><div class="stat-value purple" id="points-value">0</div></div>
       <div class="stat-card"><div class="stat-title">КАНАЛЫ В ЭФИРЕ</div><div class="stat-value green" id="online-value">0</div></div>
       <div class="stat-card"><div class="stat-title">СОБЫТИЯ</div><div class="stat-value blue" id="events-value">0</div></div>
     </div>
-    <div class="reward-banner" id="reward-banner"><div class="reward-title">НАГРАДА ПОЛУЧЕНА</div><div class="reward-text" id="reward-text"></div></div>
+    <div class="reward-banner" id="reward-banner"><span class="ui-icon icon-gift reward-icon"></span><div><div class="reward-title">НАГРАДА ПОЛУЧЕНА</div><div class="reward-text" id="reward-text"></div></div></div>
     <section class="panel activity-panel">
       <div class="panel-heading">
-        <div class="section-heading">ПОСЛЕДНИЕ НАГРАДЫ И СОБЫТИЯ</div>
+        <div class="section-heading section-heading-icon"><span class="ui-icon icon-gift"></span>ПОСЛЕДНИЕ НАГРАДЫ И СОБЫТИЯ</div>
       </div>
       <div class="event-list" id="event-list"></div>
     </section>
@@ -101,7 +101,7 @@
     </header>
     <section class="panel logs-panel">
       <div class="logs-toolbar">
-        <div class="section-heading">ЛОГИ ПРИЛОЖЕНИЯ</div>
+        <div class="section-heading section-heading-icon"><span class="ui-icon icon-logs"></span>ЛОГИ ПРИЛОЖЕНИЯ</div>
         <button class="button button-mini" id="copy-logs">Копировать</button>
       </div>
       <pre class="log-view" id="log-view"></pre>
