@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="96" height="96" role="img" aria-labelledby="title">
+  <title id="title">Twitch Farming</title>
+  <defs>
+    <linearGradient id="purple" x1="5" y1="3" x2="43" y2="46" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B36BFF"/>
+      <stop offset="1" stop-color="#7136D8"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="1.5"/>
+    </filter>
+    <style>
+      .eye{transform-box:fill-box;transform-origin:center;animation:blink 4.1s ease-in-out infinite}
+      .eye-right{animation-delay:.12s}
+      @keyframes blink{
+        0%,58%,61%,64%,67%,100%{transform:scaleY(1)}
+        59%,60%,65%,66%{transform:scaleY(.08)}
+      }
+      @media(prefers-reduced-motion:reduce){.eye{animation:none}}
+    </style>
+  </defs>
+  <path d="M6 4h38v28L30 46H21V38H10L6 34Z" fill="#7136D8" opacity=".22" filter="url(#shadow)"/>
+  <path d="M6 4h38v28L30 46H21V38H10L6 34Z" fill="url(#purple)"/>
+  <rect class="eye eye-left" x="17" y="13" width="5" height="13" rx=".7" fill="#211338"/>
+  <rect class="eye eye-right" x="28" y="13" width="5" height="13" rx=".7" fill="#211338"/>
+</svg>
