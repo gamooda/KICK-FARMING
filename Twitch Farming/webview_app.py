@@ -49,6 +49,10 @@ DEFAULT_OPTIONS = {
     "make_predictions": True,
     "chat": True,
 }
+DEFAULT_APP_SETTINGS = {
+    "minimize_to_tray": False,
+    "auto_start_farm": False,
+}
 OPTION_NAMES = [
     ("claim_drops", "Twitch Drops"),
     ("watch_streak", "Серии просмотров"),
@@ -68,8 +72,6 @@ class AppLogHandler(logging.Handler):
 
     def emit(self, record):
         if record.name.startswith(("pywebview", "webview", "clr")):
-            return
-        if record.levelno == logging.DEBUG and not record.getMessage().startswith("[WATCH]"):
             return
         try:
             self.app.on_log(record.getMessage(), record.levelname, record.created)
@@ -136,6 +138,12 @@ class EngineWorker(threading.Thread):
         self.client = client
         self.miner = None
         self.stop_requested = False
+
+    def add_streamer(self, login, channel_id=None):
+        miner = self.miner
+        if miner is None or not miner.running:
+            return {"ok": False, "message": "Фарм ещё запускается. Повтори добавление через несколько секунд."}
+        return miner.add_streamer(login, channel_id)
 
     def request_stop(self):
         self.stop_requested = True
@@ -328,8 +336,11 @@ class FollowedChannelsWorker(threading.Thread):
                     avatar = str(user.get("profile_image_url") or "")
                     channels.append({
                         "login": login,
+                        "channel_id": broadcaster_id,
                         "display_name": str(user.get("display_name") or item.get("broadcaster_name") or login)[:80],
                         "avatar_url": avatar if avatar.startswith("https://") else "",
+                        "game_name": str(stream.get("game_name") or ""),
+                        "game_id": str(stream.get("game_id") or ""),
                         "is_live": bool(stream),
                         "viewer_count": max(0, int(stream.get("viewer_count") or 0)),
                         "followed_at": str(item.get("followed_at") or ""),
@@ -347,6 +358,66 @@ class FollowedChannelsWorker(threading.Thread):
             self.app.finish_followed_channels_worker(self, self.request_id, [], error, requires_reauth)
 
 
+
+
+class DropsInventoryWorker(threading.Thread):
+    def __init__(self, app, client, request_id):
+        super().__init__(name="TwitchDropsInventory", daemon=True)
+        self.app = app
+        self.client = client
+        self.request_id = request_id
+
+    def run(self):
+        campaigns = []
+        error = ""
+        followers_error = ""
+        try:
+            with self.app.lock:
+                refresh_followers = (
+                    not self.app.followed_channels_loaded
+                    or time.time() - self.app.followed_channels_updated_at > 180
+                )
+            if refresh_followers:
+                self.app.refresh_followed_channels(force=True)
+                self.app.followed_channels_event.wait(45)
+            with self.app.lock:
+                followed = [dict(item) for item in self.app.followed_channels]
+                followers_error = self.app.followed_channels_error
+            raw_campaigns = self.client.get_drop_inventory_snapshot()
+            live_followers = [
+                item for item in followed
+                if item.get("is_live") and item.get("channel_id") and item.get("login")
+            ]
+            campaign_ids_by_login = (
+                self.client.get_drop_campaign_ids_for_channels(live_followers)
+                if live_followers else {}
+            )
+            for campaign in raw_campaigns:
+                campaign_id = str(campaign.get("id") or "")
+                allowed = set(str(item) for item in campaign.get("allowed_channel_ids") or [])
+                candidates = []
+                for streamer in live_followers:
+                    login = str(streamer.get("login") or "").lower()
+                    channel_id = str(streamer.get("channel_id") or "")
+                    if campaign_id not in set(campaign_ids_by_login.get(login, [])):
+                        continue
+                    if allowed and channel_id not in allowed:
+                        continue
+                    candidates.append({
+                        "login": login,
+                        "display_name": str(streamer.get("display_name") or login),
+                        "avatar_url": str(streamer.get("avatar_url") or ""),
+                        "viewer_count": max(0, int(streamer.get("viewer_count") or 0)),
+                        "game_name": str(streamer.get("game_name") or ""),
+                    })
+                item = dict(campaign)
+                item["streamers"] = candidates
+                item["watch_drops"] = [drop for drop in item.get("drops", []) if drop.get("type") == "watch"]
+                item["subscription_drops"] = [drop for drop in item.get("drops", []) if drop.get("type") == "subscription"]
+                campaigns.append(item)
+        except Exception as exception:
+            error = str(exception)[:500] or exception.__class__.__name__
+        self.app.finish_drops_worker(self, self.request_id, campaigns, error, followers_error)
 
 
 class TwitchFarmingApi:
@@ -396,6 +467,18 @@ class TwitchFarmingApi:
         self.followed_channels_found_count = 0
         self.followed_channels_worker = None
         self.followed_channels_request_id = 0
+        self.followed_channels_event = threading.Event()
+        self.drops_campaigns = []
+        self.drops_loading = False
+        self.drops_loaded = False
+        self.drops_error = ""
+        self.drops_followers_error = ""
+        self.drops_updated_at = 0.0
+        self.drops_worker = None
+        self.drops_request_id = 0
+        self.drops_event = threading.Event()
+        self.app_settings = dict(DEFAULT_APP_SETTINGS)
+        self.tray_icon = None
         self.authenticated = False
         self.authenticated_username = ""
         self.auth_code = ""
@@ -420,7 +503,8 @@ class TwitchFarmingApi:
         self.pending_log_lines = []
         self.log_stop = threading.Event()
         self.root_logger = logging.getLogger()
-        self.root_logger.setLevel(logging.INFO)
+        self.root_logger.setLevel(logging.DEBUG)
+        self.log_file_lock = threading.Lock()
         self.log_handler = AppLogHandler(self)
         self.root_logger.addHandler(self.log_handler)
         try:
@@ -590,6 +674,11 @@ class TwitchFarmingApi:
                     }
                 self.channel_points_branding_cache[normalized_login] = entry
         stored_options = data.get("settings", {})
+        stored_app_settings = data.get("app_settings", {})
+        if isinstance(stored_app_settings, dict):
+            self.app_settings = {key: bool(stored_app_settings.get(key, default)) for key, default in DEFAULT_APP_SETTINGS.items()}
+        else:
+            self.app_settings = dict(DEFAULT_APP_SETTINGS)
         config_version = int(data.get("ui_config_version", 0) or 0)
         self.options = {key: bool(stored_options.get(key, default)) for key, default in DEFAULT_OPTIONS.items()}
         if config_version < 2:
@@ -608,6 +697,7 @@ class TwitchFarmingApi:
             "channels": list(self.channels),
             "channel_points_branding": {key: dict(value) for key, value in self.channel_points_branding_cache.items() if key in self.channels},
             "settings": dict(self.options),
+            "app_settings": dict(self.app_settings),
             "bet_settings": dict(self.bet_settings),
             "custom_presets": self.custom_presets,
             "selected_preset": self.selected_preset,
@@ -658,6 +748,11 @@ class TwitchFarmingApi:
             self.username = username
             self.channels = normalized
             self.options = {key: bool(settings.get(key, DEFAULT_OPTIONS[key])) for key in DEFAULT_OPTIONS}
+            stored_app = payload.get("app_settings", self.app_settings)
+            self.app_settings = {
+                key: bool(stored_app.get(key, self.app_settings.get(key, default)))
+                for key, default in DEFAULT_APP_SETTINGS.items()
+            } if isinstance(stored_app, dict) else dict(DEFAULT_APP_SETTINGS)
             self.bet_settings = {**DEFAULT_BET_SETTINGS, **bets}
             self.custom_presets = presets
             selected = str(payload.get("selected_preset", self.selected_preset))
@@ -867,6 +962,17 @@ class TwitchFarmingApi:
                 self.refresh_channel_profiles()
             except BaseException:
                 logging.getLogger("twitch_farming.auth").exception("Could not start channel profile loader")
+            if restored:
+                with self.lock:
+                    auto_start = bool(self.app_settings.get("auto_start_farm")) and bool(self.channels)
+                if auto_start:
+                    threading.Thread(target=self._auto_start_after_restore, name="AutoStartFarm", daemon=True).start()
+
+    def _auto_start_after_restore(self):
+        time.sleep(1.0)
+        result = self.start_farm({})
+        if not result.get("ok"):
+            logging.getLogger("twitch_farming.startup").warning("Автозапуск фарма не выполнен: %s", result.get("message", ""))
 
     def get_auth_state(self):
         with self.lock:
@@ -930,6 +1036,7 @@ class TwitchFarmingApi:
             ):
                 return {"ok": True, "cached": True}
             self.followed_channels_loading = True
+            self.followed_channels_event.clear()
             self.followed_channels_error = ""
             self.followed_channels_requires_reauth = False
             self.followed_channels_found_count = 0
@@ -956,6 +1063,172 @@ class TwitchFarmingApi:
                 "found_count": self.followed_channels_found_count,
             }
 
+    def refresh_drops_inventory(self, force=False):
+        with self.lock:
+            if not self.authenticated or self.api_client is None:
+                return {"ok": False, "message": "Сначала подключи аккаунт Twitch."}
+            if self.drops_worker is not None and self.drops_worker.is_alive():
+                return {"ok": True, "loading": True}
+            if (
+                not force
+                and self.drops_loaded
+                and not self.drops_error
+                and time.time() - self.drops_updated_at < 150
+            ):
+                return {"ok": True, "cached": True}
+            self.drops_loading = True
+            self.drops_event.clear()
+            self.drops_error = ""
+            self.drops_followers_error = ""
+            self.drops_request_id += 1
+            request_id = self.drops_request_id
+            worker = DropsInventoryWorker(self, self.api_client, request_id)
+            self.drops_worker = worker
+        try:
+            worker.start()
+        except Exception as error:
+            self.finish_drops_worker(worker, request_id, [], str(error))
+            return {"ok": False, "message": str(error)}
+        return {"ok": True, "loading": True}
+
+    def get_drops_inventory_state(self):
+        with self.lock:
+            return {
+                "campaigns": [dict(item) for item in self.drops_campaigns],
+                "loading": bool(self.drops_loading),
+                "loaded": bool(self.drops_loaded),
+                "error": self.drops_error,
+                "followers_error": self.drops_followers_error,
+                "updated_at": self.drops_updated_at,
+                "active_campaigns": len(self.drops_campaigns),
+            }
+
+    def finish_drops_worker(self, worker, request_id, campaigns, error="", followers_error=""):
+        with self.lock:
+            if self.drops_worker is not worker or self.drops_request_id != request_id:
+                return
+            self.drops_worker = None
+            self.drops_loading = False
+            self.drops_loaded = True
+            self.drops_error = str(error or "")[:500]
+            self.drops_followers_error = str(followers_error or "")[:400]
+            if not error:
+                self.drops_campaigns = [dict(item) for item in campaigns]
+                self.drops_updated_at = time.time()
+            self.drops_event.set()
+
+    def add_drop_channel_to_farm(self, raw_login):
+        login = self.normalize_channel(raw_login)
+        if not login:
+            return {"ok": False, "message": "Некорректный логин Twitch."}
+        with self.lock:
+            follow = next((dict(item) for item in self.followed_channels if item.get("login") == login), None)
+            if follow is None:
+                return {"ok": False, "message": "Стример больше не находится в списке фолловеров. Обнови Drops."}
+            already_configured = login in self.channels
+            running = self.session_running
+            worker = self.engine_worker
+        if running:
+            if worker is None or not worker.is_alive():
+                return {"ok": False, "message": "Фарм ещё запускается. Повтори добавление через несколько секунд."}
+            result = worker.add_streamer(login, follow.get("channel_id"))
+            if not result.get("ok"):
+                return result
+            if not already_configured:
+                profile = {
+                    "loaded": True,
+                    "display_name": str(follow.get("display_name") or login),
+                    "avatar_url": str(follow.get("avatar_url") or ""),
+                    "is_live": bool(follow.get("is_live")),
+                    "viewer_count": max(0, int(follow.get("viewer_count") or 0)),
+                    "error": "",
+                }
+                with self.lock:
+                    if login not in self.channels:
+                        self.channels.append(login)
+                    self.channel_profiles[login] = profile
+                    if profile["is_live"]:
+                        self.online_channels.add(login)
+                self._save_config()
+            return {"ok": True, "message": "Канал добавлен в работающий фарм."}
+        if not already_configured:
+            profile = {
+                "login": login,
+                "loaded": True,
+                "display_name": str(follow.get("display_name") or login),
+                "avatar_url": str(follow.get("avatar_url") or ""),
+                "is_live": bool(follow.get("is_live")),
+                "viewer_count": max(0, int(follow.get("viewer_count") or 0)),
+                "error": "",
+            }
+            result = self.save_channel_editor("add", "", login, [profile])
+            if not result.get("ok"):
+                return result
+        result = self.start_farm({})
+        if result.get("ok"):
+            return {"ok": True, "message": "Канал добавлен. Автоматический сбор запущен."}
+        return result
+
+    def clear_avatar_cache(self):
+        with self.lock:
+            cleared = 0
+            for profile in self.channel_profiles.values():
+                if profile.pop("avatar_url", ""):
+                    cleared += 1
+            if self.account_profile.pop("avatar_url", ""):
+                cleared += 1
+            for item in self.followed_channels:
+                if item.pop("avatar_url", ""):
+                    cleared += 1
+        return {"ok": True, "cleared": cleared, "message": "Кэш аватарок очищен."}
+
+    def clear_currency_cache(self):
+        with self.lock:
+            cleared = sum(1 for item in self.channel_points_branding_cache.values() if item.get("icon_url"))
+            self.channel_points_branding_cache.clear()
+            for item in self.channel_balances.values():
+                item["points_name"] = ""
+                item["points_icon_url"] = ""
+        self._save_config()
+        return {"ok": True, "cleared": cleared, "message": "Кэш оформления Channel Points очищен."}
+
+    def logout(self):
+        with self.lock:
+            if self.session_running:
+                return {"ok": False, "message": "Сначала останови фарм."}
+            username = self.authenticated_username or self.username
+            client = self.api_client
+        if username:
+            cookies_file = Path(os.environ.get("APPDATA", str(Path.home()))) / "Twitch Farming" / "cookies" / (username + ".dat")
+            try:
+                cookies_file.unlink(missing_ok=True)
+            except OSError:
+                return {"ok": False, "message": "Не удалось удалить локальную сессию Twitch."}
+        with self.lock:
+            self.api_client = None
+            self.authenticated = False
+            self.authenticated_username = ""
+            self.username = ""
+            self.auth_code = ""
+            self.auth_error = ""
+            self.auth_worker_state = "idle"
+            self.auth_status = "АККАУНТ НЕ ПОДКЛЮЧЁН"
+            self.account_profile = {}
+            self.followed_channels = []
+            self.followed_channels_loaded = False
+            self.followed_channels_error = ""
+            self.drops_campaigns = []
+            self.drops_loaded = False
+            self.drops_error = ""
+            self._set_status_locked("●  НЕ ЗАПУЩЕН", "#A9B2C3")
+        if client is not None:
+            try:
+                client.twitch_login.session.close()
+            except Exception:
+                pass
+        self._save_config()
+        return {"ok": True, "message": "Аккаунт Twitch отключён."}
+
     def update_followed_channels_progress(self, worker, request_id, found_count):
         with self.lock:
             if self.followed_channels_worker is worker and self.followed_channels_request_id == request_id:
@@ -970,6 +1243,7 @@ class TwitchFarmingApi:
             self.followed_channels_loaded = True
             self.followed_channels_error = str(error or "")[:500]
             self.followed_channels_requires_reauth = bool(requires_reauth)
+            self.followed_channels_event.set()
             if not error:
                 self.followed_channels = [dict(item) for item in channels]
                 self.followed_channels_updated_at = time.time()
@@ -1395,7 +1669,7 @@ class TwitchFarmingApi:
             log_id = self.next_log_id
             self.next_log_id += 1
             self.log_records.append({"id": log_id, "line": line})
-            self.log_records = self.log_records[-3000:]
+            self.log_records = self.log_records[-500:]
             self.pending_log_lines.append(line)
 
     def _flush_logs(self):
@@ -1406,8 +1680,9 @@ class TwitchFarmingApi:
             self.pending_log_lines.clear()
         try:
             LOG_DIR.mkdir(parents=True, exist_ok=True)
-            with LOG_FILE.open("a", encoding="utf-8") as file:
-                file.write(data)
+            with self.log_file_lock:
+                with LOG_FILE.open("a", encoding="utf-8") as file:
+                    file.write(data)
         except OSError:
             with self.lock:
                 self.pending_log_lines.insert(0, data.rstrip("\n"))
@@ -1508,6 +1783,11 @@ class TwitchFarmingApi:
                 "online_channels": sorted(self.online_channels),
                 "watch_status": {key: dict(value) for key, value in self.watch_status.items()},
                 "options": dict(self.options),
+                "app_settings": dict(self.app_settings),
+                "cache_stats": {
+                    "avatars": sum(1 for item in self.channel_profiles.values() if item.get("avatar_url")) + int(bool(self.account_profile.get("avatar_url"))),
+                    "currency_icons": sum(1 for item in self.channel_points_branding_cache.values() if item.get("icon_url")),
+                },
                 "bet_settings": dict(self.bet_settings),
                 "custom_presets": dict(self.custom_presets),
                 "selected_preset": self.selected_preset,
@@ -1533,35 +1813,43 @@ class TwitchFarmingApi:
                 "reward": dict(self.reward) if self.reward else None,
                 "logs": logs[-100:],
                 "next_log_id": self.next_log_id,
+                "drops_active_campaigns": len(self.drops_campaigns),
             }
 
     def get_log_snapshot(self):
+        self._flush_logs()
         with self.lock:
-            pending = list(self.pending_log_lines)
-            self.pending_log_lines.clear()
             snapshot_id = self.next_log_id - 1
-            if pending:
-                try:
-                    LOG_DIR.mkdir(parents=True, exist_ok=True)
-                    with LOG_FILE.open("a", encoding="utf-8") as file:
-                        file.write("\n".join(pending) + "\n")
-                except OSError:
-                    self.pending_log_lines[0:0] = pending
-            try:
+            fallback = [item["line"] for item in self.log_records[-500:]]
+        try:
+            with self.log_file_lock:
                 if LOG_FILE.is_file():
                     with LOG_FILE.open("rb") as file:
                         file.seek(0, os.SEEK_END)
                         size = file.tell()
-                        file.seek(max(0, size - 18000))
-                        content = file.read(18000).decode("utf-8", errors="replace")
-                    if size > 18000:
+                        file.seek(max(0, size - 1000000))
+                        content = file.read(1000000).decode("utf-8", errors="replace")
+                    if size > 1000000:
                         content = content.split("\n", 1)[-1]
-                    lines = content.splitlines()[-250:]
+                    lines = content.splitlines()[-500:]
                 else:
-                    lines = [item["line"] for item in self.log_records[-250:]]
-            except OSError:
-                lines = [item["line"] for item in self.log_records[-250:]]
-            return {"lines": lines, "last_log_id": snapshot_id}
+                    lines = fallback
+        except OSError:
+            lines = fallback
+        return {"lines": lines, "last_log_id": snapshot_id}
+
+    def clear_logs(self):
+        try:
+            with self.log_file_lock:
+                LOG_DIR.mkdir(parents=True, exist_ok=True)
+                with self.lock:
+                    self.log_records.clear()
+                    self.pending_log_lines.clear()
+                    snapshot_id = self.next_log_id - 1
+                LOG_FILE.write_text("", encoding="utf-8")
+            return {"ok": True, "last_log_id": snapshot_id, "message": "Журнал очищен."}
+        except OSError as error:
+            return {"ok": False, "message": "Не удалось очистить журнал: " + str(error)[:180]}
 
     def open_app_folder(self):
         APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -1604,7 +1892,49 @@ class TwitchFarmingApi:
         result["maximized"] = maximized
         return result
 
+    def _ensure_tray_icon(self):
+        if self.tray_icon is not None:
+            return
+        import pystray
+        from PIL import Image
+        image = Image.open(ICON_FILE).convert("RGBA") if ICON_FILE.is_file() else Image.new("RGBA", (64, 64), "#7439c3")
+        self.tray_icon = pystray.Icon(
+            "Twitch Farming",
+            image,
+            "Twitch Farming",
+            menu=pystray.Menu(
+                pystray.MenuItem("Открыть Twitch Farming", self._tray_show, default=True),
+                pystray.MenuItem("Выход", self._tray_exit),
+            ),
+        )
+        self.tray_icon.run_detached()
+
+    def _tray_show(self, icon=None, item=None):
+        self._schedule_window_action("show", "WindowTrayShow")
+
+    def _tray_exit(self, icon=None, item=None):
+        self.exit_app()
+
+    def exit_app(self):
+        icon = self.tray_icon
+        self.tray_icon = None
+        if icon is not None:
+            try:
+                icon.stop()
+            except Exception:
+                pass
+        return self._schedule_window_action("destroy", "WindowExit")
+
     def close_window(self):
+        with self.lock:
+            minimize_to_tray = bool(self.app_settings.get("minimize_to_tray"))
+        if minimize_to_tray:
+            try:
+                self._ensure_tray_icon()
+                return self._schedule_window_action("hide", "WindowHideToTray")
+            except Exception as error:
+                logging.getLogger("twitch_farming.window").exception("Could not create tray icon")
+                return {"ok": False, "message": "Не удалось свернуть в трей: " + (str(error) or error.__class__.__name__)[:180]}
         return self._schedule_window_action("destroy", "WindowClose")
 
     def sync_window_maximized(self, maximized):
@@ -1645,10 +1975,17 @@ class TwitchFarmingApi:
                 pass
         self.log_stop.set()
         self._flush_logs()
+        icon = self.tray_icon
+        self.tray_icon = None
+        if icon is not None:
+            try:
+                icon.stop()
+            except Exception:
+                pass
 
     def shutdown(self):
         self.on_closing()
-        for worker in (self.auth_worker, self.engine_worker, self.profile_worker, self.followed_channels_worker):
+        for worker in (self.auth_worker, self.engine_worker, self.profile_worker, self.followed_channels_worker, self.drops_worker):
             if worker is not None and worker.is_alive():
                 worker.join(timeout=5)
         self._flush_logs()
