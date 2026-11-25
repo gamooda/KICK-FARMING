@@ -176,3 +176,9 @@ button{cursor:pointer}
 .channel-watch-state.request{color:#82b9ff}
 .channel-watch-state.accepted{color:#42d6a4}
 .channel-watch-state.error{color:#ff8797}
+
+.channel-info{flex:1;min-width:0;overflow:hidden}
+.channel-name,.channel-state,.channel-watch-state,.channel-title{max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.channel-watch-state{display:block;max-width:100%;line-height:1.35}
+.channel-card{min-width:0;overflow:hidden}
+.channel-spacer{min-width:0}

@@ -79,11 +79,11 @@ function renderChannels(channels,online,running,profiles,watchStatuses){
     const details=live?(title||"ТРАНСЛЯЦИЯ В ЭФИРЕ"):status;
     const watch=watchStatuses&&watchStatuses[login]?watchStatuses[login]:null;
     const watchFresh=watch&&Date.now()/1000-Number(watch.updated_at||0)<120;
-    const watchLabels={selected:"ВЫБРАН ДЛЯ ПРОСМОТРА",waiting:"ОЖИДАЕТ ОЧЕРЕДИ",request:"ОТПРАВКА ЗАПРОСА ПРОСМОТРА",accepted:"ЗАПРОС ПРИНЯТ TWITCH",error:"ОШИБКА ПРОСМОТРА"};
-    const watchMarkup=watchFresh&&watchLabels[watch.state]?'<div class="channel-watch-state '+esc(watch.state)+'" title="'+esc(watch.detail||"")+'">◉ '+watchLabels[watch.state]+(watch.detail?' · '+esc(watch.detail):'')+'</div>':'';
+    const watchLabels={selected:"Выбран для просмотра",waiting:"В очереди",request:"Отправка запроса…",accepted:"Twitch принял запрос",error:"Ошибка просмотра"};
+    const watchMarkup=watchFresh&&watchLabels[watch.state]?'<div class="channel-watch-state '+esc(watch.state)+'" title="'+esc(watchLabels[watch.state]+(watch.detail?" · "+watch.detail:""))+'">◉ '+watchLabels[watch.state]+'</div>':'';
     const initial=esc(login.charAt(0).toUpperCase());
     const avatarMarkup=avatar?'<div class="channel-avatar" data-initial="'+initial+'"><img loading="lazy" src="'+esc(avatar)+'" alt="" onerror="this.parentNode.textContent=this.parentNode.dataset.initial"></div>':'<div class="channel-avatar">'+initial+'</div>';
-    return '<div class="channel-card">'+avatarMarkup+'<div><div class="channel-name">'+esc(displayName)+'　<span style="color:#7d8aa0;font-weight:500">@'+esc(login)+'</span></div><div class="channel-state '+(live?"online":loaded?"":"pending")+'">'+esc(details)+'</div>'+watchMarkup+(live&&viewers?'<div class="channel-meta">'+viewers.toLocaleString("ru-RU")+' зрителей</div>':'')+'</div><div class="channel-spacer"></div><button class="button button-soft channel-action" data-action="edit" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Изменить">✎</button><button class="button button-danger channel-action" data-action="remove" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Удалить">×</button></div>';
+    return '<div class="channel-card">'+avatarMarkup+'<div class="channel-info"><div class="channel-name">'+esc(displayName)+'　<span style="color:#7d8aa0;font-weight:500">@'+esc(login)+'</span></div><div class="channel-state '+(live?"online":loaded?"":"pending")+'">'+esc(details)+'</div>'+watchMarkup+(live&&viewers?'<div class="channel-meta">'+viewers.toLocaleString("ru-RU")+' зрителей</div>':'')+'</div><div class="channel-spacer"></div><button class="button button-soft channel-action" data-action="edit" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Изменить">✎</button><button class="button button-danger channel-action" data-action="remove" data-channel="'+esc(login)+'" '+(running?"disabled":"")+' title="Удалить">×</button></div>';
   }).join("");
   $("add-channel").disabled=running;
 }
@@ -130,7 +130,7 @@ function renderAccountSidebar(state){
   const initial=String(display).charAt(0).toUpperCase()||"T";
   $("account-display-name").textContent=display;
   $("account-login").textContent=username?"@"+username:"Аккаунт не подключён";
-  const farmRunning=Boolean(state.session_running);
+  const farmRunning=Boolean(state.session_running||(appState&&appState.session_running));
   const statusText=state.authenticated?(farmRunning?"РАБОТАЕТ":"TWITCH ПОДКЛЮЧЁН"):"НЕ ПОДКЛЮЧЁН";
   const statusColor=state.authenticated?"#42d6a4":"#8792a8";
   $("account-state").textContent=statusText;
