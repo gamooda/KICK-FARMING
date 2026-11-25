@@ -104,8 +104,9 @@ svg{display:block}
 .channel-login{max-width:100%;font-size:10px;color:#898198;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .channel-card-bottom{display:flex;align-items:center;justify-content:center;gap:5px;margin-top:9px;white-space:nowrap}
 .channel-card-bottom strong{font-size:13px;color:#e8ddf5;font-weight:900}
-.channel-card-bottom span{font-size:10px;color:#a89bb8}
+.channel-card-bottom span{max-width:72px;overflow:hidden;text-overflow:ellipsis;font-size:10px;color:#a89bb8}
 .channel-points-icon{width:20px;height:20px;color:#b98af1}
+.channel-points-icon-image{width:20px;height:20px;flex:0 0 20px;object-fit:contain}
 .channel-extra{height:17px;min-height:17px;display:flex;align-items:center;justify-content:center;max-width:100%;margin-top:4px}
 .channel-viewers{font-size:9px;color:#a99db8;white-space:nowrap}
 .channel-watch-state{font-size:9px;font-weight:750;color:#bda3df;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
