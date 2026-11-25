@@ -78,11 +78,12 @@ class AppLogHandler(logging.Handler):
 
 
 class AuthWorker(threading.Thread):
-    def __init__(self, app, username, restoring):
+    def __init__(self, app, username, restoring, force_reauth=False):
         super().__init__(name="TwitchAuth", daemon=True)
         self.app = app
         self.username = username
         self.restoring = restoring
+        self.force_reauth = bool(force_reauth)
         self.client = None
 
     def run(self):
@@ -100,9 +101,11 @@ class AuthWorker(threading.Thread):
             if self.restoring:
                 logger.info("[STARTUP] Клиент Twitch создан за %.2f сек.", time.monotonic() - client_started)
                 logger.info("[STARTUP] Проверка сохранённой сессии Twitch...")
+                restore_started = time.monotonic()
                 success = bool(self.client.restore_session())
+                logger.info("[STARTUP] Проверка сессии завершена за %.2f сек. Результат: %s.", time.monotonic() - restore_started, "успех" if success else "неудача")
             else:
-                success = bool(self.client.login())
+                success = bool(self.client.login(force_reauth=self.force_reauth))
             self.app.auth_result(
                 self.username,
                 self.client if success else None,
@@ -266,6 +269,86 @@ class ChannelProfileWorker(threading.Thread):
             self.app.profile_worker_finished(self)
 
 
+class FollowedChannelsWorker(threading.Thread):
+    def __init__(self, app, client, request_id):
+        super().__init__(name="TwitchFollowedChannels", daemon=True)
+        self.app = app
+        self.client = client
+        self.request_id = request_id
+
+    def run(self):
+        channels = []
+        error = ""
+        requires_reauth = False
+        try:
+            scopes = set(getattr(self.client.twitch_login, "scopes", ()) or ())
+            if "user:read:follows" not in scopes:
+                raise PermissionError("MISSING_SCOPE:user:read:follows")
+            user_id = self.client.twitch_login.get_user_id()
+            if not user_id:
+                raise RuntimeError("Не удалось определить ID авторизованного аккаунта Twitch.")
+            raw_channels = []
+            cursor = ""
+            seen_cursors = set()
+            while True:
+                params = {"user_id": str(user_id), "first": 100}
+                if cursor:
+                    params["after"] = cursor
+                payload = self.client.helix_get_payload("channels/followed", params)
+                raw_channels.extend(payload.get("data", []) or [])
+                self.app.update_followed_channels_progress(self, self.request_id, len(raw_channels))
+                next_cursor = str((payload.get("pagination") or {}).get("cursor") or "")
+                if not next_cursor or next_cursor in seen_cursors:
+                    break
+                seen_cursors.add(next_cursor)
+                cursor = next_cursor
+            for offset in range(0, len(raw_channels), 100):
+                batch = raw_channels[offset:offset + 100]
+                ids = [str(item.get("broadcaster_id") or "") for item in batch if item.get("broadcaster_id")]
+                users_by_id = {}
+                streams_by_id = {}
+                if ids:
+                    try:
+                        users = self.client.helix_get("users", [("id", item) for item in ids])
+                        users_by_id = {str(item.get("id") or ""): item for item in users}
+                    except Exception:
+                        users_by_id = {}
+                    try:
+                        streams = self.client.helix_get("streams", [("user_id", item) for item in ids])
+                        streams_by_id = {str(item.get("user_id") or ""): item for item in streams}
+                    except Exception:
+                        streams_by_id = {}
+                for item in batch:
+                    login = str(item.get("broadcaster_login") or "").strip().lower()
+                    if not login:
+                        continue
+                    broadcaster_id = str(item.get("broadcaster_id") or "")
+                    user = users_by_id.get(broadcaster_id, {})
+                    stream = streams_by_id.get(broadcaster_id, {})
+                    avatar = str(user.get("profile_image_url") or "")
+                    channels.append({
+                        "login": login,
+                        "display_name": str(user.get("display_name") or item.get("broadcaster_name") or login)[:80],
+                        "avatar_url": avatar if avatar.startswith("https://") else "",
+                        "is_live": bool(stream),
+                        "viewer_count": max(0, int(stream.get("viewer_count") or 0)),
+                        "followed_at": str(item.get("followed_at") or ""),
+                    })
+            self.app.finish_followed_channels_worker(self, self.request_id, channels)
+            return
+        except Exception as exception:
+            message = str(exception)
+            status_code = getattr(getattr(exception, "response", None), "status_code", 0)
+            if message.startswith("MISSING_SCOPE:") or status_code in (401, 403):
+                error = "Для просмотра подписок требуется разрешение Twitch user:read:follows. Нажми «Переподключить Twitch» и подтверди новые разрешения."
+                requires_reauth = True
+            else:
+                error = message[:500] or exception.__class__.__name__
+            self.app.finish_followed_channels_worker(self, self.request_id, [], error, requires_reauth)
+
+
+
+
 class TwitchFarmingApi:
     def __init__(self):
         self.lock = threading.RLock()
@@ -295,8 +378,24 @@ class TwitchFarmingApi:
         self.startup_complete = False
         self.startup_phase = "Подготовка запуска..."
         self.startup_started_at = time.monotonic()
+        self.run_id = datetime.now().strftime("%H%M%S") + "-" + str(os.getpid())
+        self.webview_start_requested_at = 0.0
+        self.webview_before_show_at = 0.0
+        self.webview_before_load_at = 0.0
+        self.webview_loaded_at = 0.0
+        self.webview_shown_at = 0.0
+        self.frontend_timing_logged = False
         self.frontend_ready_event = threading.Event()
         self.restore_pending = False
+        self.followed_channels = []
+        self.followed_channels_loading = False
+        self.followed_channels_loaded = False
+        self.followed_channels_error = ""
+        self.followed_channels_requires_reauth = False
+        self.followed_channels_updated_at = 0.0
+        self.followed_channels_found_count = 0
+        self.followed_channels_worker = None
+        self.followed_channels_request_id = 0
         self.authenticated = False
         self.authenticated_username = ""
         self.auth_code = ""
@@ -324,6 +423,10 @@ class TwitchFarmingApi:
         self.root_logger.setLevel(logging.INFO)
         self.log_handler = AppLogHandler(self)
         self.root_logger.addHandler(self.log_handler)
+        try:
+            self._sanitize_existing_log()
+        except Exception:
+            pass
         self.log_writer = threading.Thread(target=self._log_writer_loop, name="LogWriter", daemon=True)
         self.log_writer.start()
     def _startup_tasks(self):
@@ -349,7 +452,6 @@ class TwitchFarmingApi:
             logger.info("[STARTUP] Конфигурация готова за %.2f сек.", time.monotonic() - started)
             if should_restore:
                 self._restore_session()
-            threading.Thread(target=self._sanitize_startup_log, name="StartupLogPreparation", daemon=True).start()
     def begin_session_restore(self):
         with self.lock:
             pending = bool(self.restore_pending)
@@ -372,6 +474,52 @@ class TwitchFarmingApi:
                 "elapsed": round(max(0.0, time.monotonic() - self.startup_started_at), 1),
                 "restore_pending": bool(self.restore_pending),
             }
+
+    def _mark_webview_checkpoint(self, attribute, label):
+        now = time.monotonic()
+        with self.lock:
+            if getattr(self, attribute):
+                return
+            setattr(self, attribute, now)
+            webview_started = self.webview_start_requested_at or self.startup_started_at
+            api_started = self.startup_started_at
+        logging.getLogger("twitch_farming.startup").info(
+            "[STARTUP] [RUN %s] %s: %.2f сек. от запуска WebView2, %.2f сек. от создания API.",
+            self.run_id,
+            label,
+            now - webview_started,
+            now - api_started,
+        )
+
+    def on_webview_before_show(self, *args):
+        self._mark_webview_checkpoint("webview_before_show_at", "WebView2: окно готово к показу")
+
+    def on_webview_before_load(self, *args):
+        self._mark_webview_checkpoint("webview_before_load_at", "WebView2: начинается загрузка HTML")
+
+    def on_webview_shown(self, *args):
+        self._mark_webview_checkpoint("webview_shown_at", "WebView2: окно показано")
+
+    def record_frontend_timing(self, timing):
+        if not isinstance(timing, dict):
+            return {"ok": False}
+        def number(key):
+            try:
+                return max(0.0, min(120000.0, float(timing.get(key) or 0)))
+            except (TypeError, ValueError):
+                return 0.0
+        with self.lock:
+            if self.frontend_timing_logged:
+                return {"ok": True}
+            self.frontend_timing_logged = True
+        logging.getLogger("twitch_farming.startup").info(
+            "[STARTUP] [RUN %s] Браузер: DOMContentLoaded %.0f мс, window.load %.0f мс, PyWebView API готов %.0f мс.",
+            self.run_id,
+            number("dom_ready_ms"),
+            number("load_ms"),
+            number("bridge_ready_ms"),
+        )
+        return {"ok": True}
 
     def mark_frontend_ready(self):
         self.frontend_ready_event.set()
@@ -666,7 +814,7 @@ class TwitchFarmingApi:
             self.auth_url = ACTIVATION_URL
             self.auth_status = "ПОДКЛЮЧЕНИЕ К TWITCH…"
             self._set_status_locked("●  АВТОРИЗАЦИЯ", "#F0B65A")
-            self.auth_worker = AuthWorker(self, username, False)
+            self.auth_worker = AuthWorker(self, username, False, force_reauth=True)
             worker = self.auth_worker
         self._save_config()
         worker.start()
@@ -769,6 +917,86 @@ class TwitchFarmingApi:
             self.profile_worker = worker
             self.last_profile_refresh_at = time.monotonic()
         worker.start()
+
+    def refresh_followed_channels(self, force=False):
+        with self.lock:
+            if not self.authenticated or self.api_client is None:
+                return {"ok": False, "message": "Сначала подключи аккаунт Twitch."}
+            if self.followed_channels_worker is not None and self.followed_channels_worker.is_alive():
+                return {"ok": True, "loading": True}
+            if (
+                not force
+                and self.followed_channels_loaded
+                and not self.followed_channels_error
+                and time.time() - self.followed_channels_updated_at < 300
+            ):
+                return {"ok": True, "cached": True}
+            self.followed_channels_loading = True
+            self.followed_channels_error = ""
+            self.followed_channels_requires_reauth = False
+            self.followed_channels_found_count = 0
+            self.followed_channels_request_id += 1
+            request_id = self.followed_channels_request_id
+            worker = FollowedChannelsWorker(self, self.api_client, request_id)
+            self.followed_channels_worker = worker
+        try:
+            worker.start()
+        except Exception as error:
+            self.finish_followed_channels_worker(worker, request_id, [], str(error), False)
+            return {"ok": False, "message": str(error)}
+        return {"ok": True, "loading": True}
+
+    def get_followed_channels_state(self):
+        with self.lock:
+            return {
+                "channels": [dict(item) for item in self.followed_channels],
+                "loading": bool(self.followed_channels_loading),
+                "loaded": bool(self.followed_channels_loaded),
+                "error": self.followed_channels_error,
+                "requires_reauth": bool(self.followed_channels_requires_reauth),
+                "updated_at": self.followed_channels_updated_at,
+                "found_count": self.followed_channels_found_count,
+            }
+
+    def update_followed_channels_progress(self, worker, request_id, found_count):
+        with self.lock:
+            if self.followed_channels_worker is worker and self.followed_channels_request_id == request_id:
+                self.followed_channels_found_count = max(0, int(found_count))
+
+    def finish_followed_channels_worker(self, worker, request_id, channels, error="", requires_reauth=False):
+        with self.lock:
+            if self.followed_channels_worker is not worker or self.followed_channels_request_id != request_id:
+                return
+            self.followed_channels_worker = None
+            self.followed_channels_loading = False
+            self.followed_channels_loaded = True
+            self.followed_channels_error = str(error or "")[:500]
+            self.followed_channels_requires_reauth = bool(requires_reauth)
+            if not error:
+                self.followed_channels = [dict(item) for item in channels]
+                self.followed_channels_updated_at = time.time()
+                self.followed_channels_found_count = len(self.followed_channels)
+
+    def add_followed_channel(self, raw_login):
+        login = self.normalize_channel(raw_login)
+        if not login:
+            return {"ok": False, "message": "Некорректный логин Twitch."}
+        with self.lock:
+            if login in self.channels:
+                return {"ok": True, "message": "Канал уже добавлен.", "unchanged": True}
+            item = next((dict(row) for row in self.followed_channels if row.get("login") == login), None)
+            if item is None:
+                return {"ok": False, "message": "Канал не найден в списке фолловеров. Обнови список."}
+        profile = {
+            "login": login,
+            "loaded": True,
+            "display_name": item.get("display_name") or login,
+            "avatar_url": item.get("avatar_url") or "",
+            "is_live": bool(item.get("is_live")),
+            "viewer_count": int(item.get("viewer_count") or 0),
+            "error": "",
+        }
+        return self.save_channel_editor("add", "", login, [profile])
 
     def update_channel_profile(self, login, profile):
         with self.lock:
@@ -1164,7 +1392,7 @@ class TwitchFarmingApi:
 
     def _append_log(self, message, level, created):
         stamp = datetime.fromtimestamp(created).strftime("%d.%m.%Y %H:%M:%S")
-        line = stamp + "  [" + str(level) + "]  " + self._redact(message)
+        line = stamp + "  [" + str(level) + "]  [RUN " + self.run_id + "] " + self._redact(message)
         with self.lock:
             log_id = self.next_log_id
             self.next_log_id += 1
@@ -1404,9 +1632,8 @@ class TwitchFarmingApi:
                 self.startup_complete = True
             logging.getLogger("twitch_farming.startup").exception("Could not start startup worker")
 
-    def on_loaded(self):
-        elapsed = max(0.0, time.monotonic() - self.startup_started_at)
-        logging.getLogger("twitch_farming.startup").info("[STARTUP] Страница интерфейса загружена за %.2f сек.", elapsed)
+    def on_loaded(self, *args):
+        self._mark_webview_checkpoint("webview_loaded_at", "WebView2: DOM загружен")
         self.start_startup_worker()
 
     def on_closing(self):
@@ -1458,6 +1685,9 @@ def main():
     )
     api.window = window
 
+    window.events.before_show += lambda *args: api.on_webview_before_show()
+    window.events.before_load += lambda *args: api.on_webview_before_load()
+    window.events.shown += lambda *args: api.on_webview_shown()
     window.events.loaded += lambda *args: api.on_loaded()
     window.events.closing += api.on_closing
     window.events.maximized += lambda: api.sync_window_maximized(True)
@@ -1465,7 +1695,8 @@ def main():
     api.start_startup_worker()
     threading.Thread(target=api.watch_webview_startup, name="WebViewStartupWatchdog", daemon=True).start()
     WEBVIEW_DIR.mkdir(parents=True, exist_ok=True)
-    logging.getLogger("twitch_farming.startup").info("[STARTUP] Запуск WebView2. Профиль браузера: %s", WEBVIEW_DIR)
+    logging.getLogger("twitch_farming.startup").info("[STARTUP] [RUN %s] Запуск WebView2. Профиль браузера: %s", api.run_id, WEBVIEW_DIR)
+    api.webview_start_requested_at = time.monotonic()
     try:
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(WEBVIEW_DIR), icon=str(ICON_FILE) if ICON_FILE.is_file() else None, debug=False)
     except Exception as error:
