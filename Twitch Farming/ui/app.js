@@ -153,7 +153,7 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances)
     const profile=profiles&&profiles[login]?profiles[login]:{};
     const live=online.includes(login)||Boolean(profile.is_live);
     const loaded=Boolean(profile.loaded)||live;
-    const status=live?"В эфире":profile.error?"Ошибка проверки":loaded?"Оффлайн":"Проверка…";
+    const status=live?"В ЭФИРЕ":profile.error?"ОШИБКА":loaded?"ОФФЛАЙН":"ПРОВЕРКА";
     const displayName=profile.display_name||login;
     const avatar=typeof profile.avatar_url==="string"&&profile.avatar_url.startsWith("https://")?profile.avatar_url:"";
     const points=balances&&Object.prototype.hasOwnProperty.call(balances,login)?Number(balances[login]||0):null;
@@ -161,13 +161,14 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances)
     const watch=watchStatuses&&watchStatuses[login]?watchStatuses[login]:null;
     const watchFresh=watch&&Date.now()/1000-Number(watch.updated_at||0)<120;
     const watchLabels={selected:"Выбран",waiting:"В очереди",request:"Запрос…",accepted:"Принят",error:"Ошибка"};
-    const watchMarkup=watchFresh&&watchLabels[watch.state]?"<span class='channel-watch-state "+esc(watch.state)+"' title='"+esc(watchLabels[watch.state]+(watch.detail?" · "+watch.detail:""))+"'>"+watchLabels[watch.state]+"</span>":"";
+    const watchMarkup=watchFresh&&watchLabels[watch.state]?"<span class='channel-watch-state "+esc(watch.state)+"'>"+esc(watchLabels[watch.state]+(watch.detail?" · "+watch.detail:""))+"</span>":"";
     const initial=esc(displayName.charAt(0).toUpperCase()||"?");
-    const avatarMarkup=avatar?"<div class='channel-avatar'><img loading='lazy' src='"+esc(avatar)+"' alt=''></div>":"<div class='channel-avatar avatar-fallback'>"+initial+"</div>";
+    const avatarMarkup="<div class='channel-avatar "+(avatar?"":"avatar-fallback")+"'>"+(avatar?"<img loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.parentElement.classList.add(\"avatar-fallback\");this.remove()'>":"")+"<span class='avatar-initial'>"+initial+"</span></div>";
     const pointsText=points===null?"—":points.toLocaleString("ru-RU");
-    const statusMarkup="<span class='channel-status-dot "+(live?"is-live":"")+"'></span><span>"+status+"</span>";
+    const liveClass=live?"is-live":profile.error?"is-error":loaded?"is-offline":"is-pending";
+    const extra=live&&viewers?"<span class='channel-viewers'>"+viewers.toLocaleString("ru-RU")+" зрителей</span>":watchMarkup;
     const searchKey=esc((login+" "+displayName).toLowerCase());
-    return "<article class='channel-card' data-search='"+searchKey+"'>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-status "+(live?"online":loaded?"":"pending")+"'>"+statusMarkup+"</div><div class='channel-card-bottom'><strong>"+pointsText+"</strong><span>очков</span>"+(live&&viewers?"<em>"+viewers.toLocaleString("ru-RU")+" зр.</em>":watchMarkup)+"</div></div><div class='channel-actions'><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Изменить'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></article>";
+    return "<article class='channel-card' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Изменить'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'><svg class='channel-points-icon'><use href='#i-diamond'></use></svg><strong>"+pointsText+"</strong><span>баллов</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
   }).join("");
   $("add-channel").disabled=running;
   filterChannelCards();
@@ -188,24 +189,32 @@ function renderRewards(rewards){
   const items=Array.isArray(rewards)?rewards.slice(-30).reverse():[];
   $("reward-count").textContent=String(items.length);
   const icons={gem:"i-diamond",gift:"i-gift",star:"i-star"};
-  root.innerHTML=items.length?items.map(item=>{
+  const html=items.length?items.map(item=>{
     const icon=icons[item.kind]||"i-diamond";
     return "<div class='feed-item'><div class='feed-item-icon reward-"+esc(item.kind||"gem")+"'><svg><use href='#"+icon+"'></use></svg></div><div class='feed-item-copy'><strong>"+esc(item.title||"Награда")+"</strong><span>"+esc(item.description||"Награда Twitch")+"</span></div><time>"+timeAgo(item.timestamp)+"</time></div>";
   }).join(""):"<div class='feed-empty'>Награды появятся после начисления Channel Points.</div>";
+  if(root.dataset.signature!==html){
+    root.dataset.signature=html;
+    root.innerHTML=html;
+  }
 }
 
 function renderEvents(events){
   const root=$("event-list");
   const items=Array.isArray(events)?events.slice(-40).reverse():[];
   $("event-count").textContent=String(items.length);
-  root.innerHTML=items.length?items.map(line=>{
-    const match=String(line).match(/^(\d{2}:\d{2}:\d{2})\s+(.+)$/);
+  const html=items.length?items.map(line=>{
+    const match=String(line).match(/^(\\d{2}:\\d{2}:\\d{2})\\s+(.+)$/);
     const stamp=match?match[1]:"";
     const message=match?match[2]:String(line);
     const type=/ошиб|предупрежд/i.test(message)?"event-warning":/эфире|online/i.test(message)?"event-live":"event-normal";
     const icon=type==="event-warning"?"i-settings":type==="event-live"?"i-channel":"i-star";
     return "<div class='feed-item'><div class='feed-item-icon "+type+"'><svg><use href='#"+icon+"'></use></svg></div><div class='feed-item-copy'><strong>"+esc(message)+"</strong><span>Событие Twitch</span></div><time>"+esc(stamp)+"</time></div>";
   }).join(""):"<div class='feed-empty'>События появятся после запуска фарма.</div>";
+  if(root.dataset.signature!==html){
+    root.dataset.signature=html;
+    root.innerHTML=html;
+  }
 }
 
 function updateReward(){

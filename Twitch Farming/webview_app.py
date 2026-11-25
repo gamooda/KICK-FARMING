@@ -1081,6 +1081,7 @@ class TwitchFarmingApi:
 
 
 def main():
+    webview.settings['DRAG_REGION_DIRECT_TARGET_ONLY'] = True
     APP_DIR.mkdir(parents=True, exist_ok=True)
     api = TwitchFarmingApi()
     window = webview.create_window(
