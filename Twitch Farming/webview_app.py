@@ -5,6 +5,7 @@ import re
 import sys
 import threading
 import time
+import traceback
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,38 @@ APP_VERSION = "1.0.0"
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 UI_DIR = RESOURCE_DIR / "ui"
 ICON_FILE = RESOURCE_DIR / "assets" / "twitch.ico"
+BOOT_LOG_LOCK = threading.Lock()
+
+
+def write_boot_log(level, message):
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+        line = f"{stamp}  [{str(level).upper()}]  [RUN {os.getpid()}]  [PYTHON STARTUP] {str(message)}\n"
+        with BOOT_LOG_LOCK:
+            with LOG_FILE.open("a", encoding="utf-8") as file:
+                file.write(line)
+    except BaseException:
+        pass
+
+
+_ORIGINAL_SYS_EXCEPTHOOK = sys.excepthook
+_ORIGINAL_THREAD_EXCEPTHOOK = threading.excepthook
+
+
+def _startup_sys_excepthook(exc_type, exc_value, exc_traceback):
+    write_boot_log("ERROR", "".join(traceback.format_exception(exc_type, exc_value, exc_traceback)).rstrip())
+    _ORIGINAL_SYS_EXCEPTHOOK(exc_type, exc_value, exc_traceback)
+
+
+def _startup_thread_excepthook(args):
+    write_boot_log("ERROR", "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)).rstrip())
+    _ORIGINAL_THREAD_EXCEPTHOOK(args)
+
+
+sys.excepthook = _startup_sys_excepthook
+threading.excepthook = _startup_thread_excepthook
+
 
 DEFAULT_BET_SETTINGS = {
     "strategy": "SMART",
@@ -94,19 +127,19 @@ class AuthWorker(threading.Thread):
             logger = logging.getLogger("twitch_farming.startup" if self.restoring else "twitch_farming.auth")
             import_started = time.monotonic()
             if self.restoring:
-                logger.info("[STARTUP] Загрузка модулей Twitch...")
+                self.app.startup_note("INFO", "Проверка сессии: загрузка модулей Twitch")
             from TwitchChannelPointsMiner.classes.Twitch import Twitch
             from TwitchChannelPointsMiner.utils import get_user_agent
             if self.restoring:
-                logger.info("[STARTUP] Модули Twitch загружены за %.2f сек.", time.monotonic() - import_started)
+                self.app.startup_note("INFO", "Модули Twitch загружены за %.2f сек." % (time.monotonic() - import_started))
             client_started = time.monotonic()
             self.client = Twitch(self.username, get_user_agent("CHROME"))
             if self.restoring:
-                logger.info("[STARTUP] Клиент Twitch создан за %.2f сек.", time.monotonic() - client_started)
-                logger.info("[STARTUP] Проверка сохранённой сессии Twitch...")
+                self.app.startup_note("INFO", "Клиент Twitch создан за %.2f сек." % (time.monotonic() - client_started))
+                self.app.startup_note("INFO", "Проверка сохранённой сессии Twitch начата")
                 restore_started = time.monotonic()
                 success = bool(self.client.restore_session())
-                logger.info("[STARTUP] Проверка сессии завершена за %.2f сек. Результат: %s.", time.monotonic() - restore_started, "успех" if success else "неудача")
+                self.app.startup_note("INFO", "Проверка сессии завершена за %.2f сек. Результат: %s." % (time.monotonic() - restore_started, "успех" if success else "неудача"))
             else:
                 success = bool(self.client.login(force_reauth=self.force_reauth))
             self.app.auth_result(
@@ -491,6 +524,8 @@ class TwitchFarmingApi:
         self.webview_shown_at = 0.0
         self.frontend_timing_logged = False
         self.frontend_ready_event = threading.Event()
+        self.startup_events = []
+        self.startup_event_id = 0
         self.restore_pending = False
         self.followed_channels = []
         self.followed_channels_loading = False
@@ -545,20 +580,43 @@ class TwitchFarmingApi:
         self.root_logger.addHandler(self.log_handler)
         self.log_writer = threading.Thread(target=self._log_writer_loop, name="LogWriter", daemon=True)
         self.log_writer.start()
+        self.startup_note("INFO", "Python API создан")
+
+    def startup_note(self, level, message):
+        severity = str(level or "INFO").upper()
+        text = str(message or "")[:6000]
+        with self.lock:
+            self.startup_event_id += 1
+            event = {
+                "id": self.startup_event_id,
+                "level": severity,
+                "message": text,
+                "elapsed": round(max(0.0, time.monotonic() - self.startup_started_at), 3),
+            }
+            self.startup_events.append(event)
+            self.startup_events = self.startup_events[-250:]
+        numeric_level = getattr(logging, severity, logging.INFO)
+        logging.getLogger("twitch_farming.startup").log(numeric_level, "[STARTUP] %s", text)
+        return event
+
     def _startup_tasks(self):
         logger = logging.getLogger("twitch_farming.startup")
         started = time.monotonic()
+        self.startup_note("INFO", "Поток инициализации Python запущен")
         try:
             with self.lock:
                 self.startup_phase = "Подготовка папки данных..."
             APP_DIR.mkdir(parents=True, exist_ok=True)
+            self.startup_note("INFO", "Папка AppData подготовлена")
             with self.lock:
                 self.startup_phase = "Чтение локальной конфигурации..."
-            logger.info("[STARTUP] Чтение config.json...")
+            self.startup_note("INFO", "Чтение config.json начато")
+            config_started = time.monotonic()
             self._load_config()
-        except Exception as error:
+            self.startup_note("INFO", "Конфигурация прочитана за %.3f сек.; каналов: %s" % (time.monotonic() - config_started, len(self.channels)))
+        except BaseException as error:
             self.startup_error = str(error) or error.__class__.__name__
-            logger.exception("Startup configuration failed")
+            self.startup_note("ERROR", "Ошибка подготовки Python: " + self.startup_error + "\n" + traceback.format_exc())
         finally:
             with self.lock:
                 self.restore_pending = bool(self.username)
@@ -571,7 +629,7 @@ class TwitchFarmingApi:
                         daemon=True,
                     )
                 log_worker = self.log_history_worker
-            logger.info("[STARTUP] Конфигурация готова за %.2f сек.", time.monotonic() - started)
+            self.startup_note("INFO", "Конфигурация готова за %.2f сек." % (time.monotonic() - started))
             if log_worker is not None and not log_worker.is_alive():
                 try:
                     log_worker.start()
@@ -581,7 +639,10 @@ class TwitchFarmingApi:
         with self.lock:
             pending = bool(self.restore_pending)
         if pending:
+            self.startup_note("INFO", "Проверка сохранённой сессии запущена в фоновом потоке")
             self._restore_session()
+        else:
+            self.startup_note("INFO", "Проверка сессии пропущена: сохранённый аккаунт не задан")
         return {"ok": True}
 
     def _sanitize_startup_log(self):
@@ -590,7 +651,11 @@ class TwitchFarmingApi:
         except Exception:
             logging.getLogger("twitch_farming.startup").exception("Existing log preparation failed")
 
-    def get_startup_state(self):
+    def get_startup_state(self, after_event_id=0):
+        try:
+            after_id = max(0, int(after_event_id or 0))
+        except (TypeError, ValueError):
+            after_id = 0
         with self.lock:
             return {
                 "ready": bool(self.startup_complete),
@@ -598,6 +663,7 @@ class TwitchFarmingApi:
                 "phase": self.startup_phase,
                 "elapsed": round(max(0.0, time.monotonic() - self.startup_started_at), 1),
                 "restore_pending": bool(self.restore_pending),
+                "diagnostics": [dict(item) for item in self.startup_events if item["id"] > after_id],
             }
 
     def _mark_webview_checkpoint(self, attribute, label):
@@ -608,12 +674,7 @@ class TwitchFarmingApi:
             setattr(self, attribute, now)
             webview_started = self.webview_start_requested_at or self.startup_started_at
             api_started = self.startup_started_at
-        logging.getLogger("twitch_farming.startup").info(
-            "[STARTUP] %s: %.2f сек. от запуска WebView2, %.2f сек. от создания API.",
-            label,
-            now - webview_started,
-            now - api_started,
-        )
+        self.startup_note("INFO", "%s: %.2f сек. от запуска WebView2, %.2f сек. от создания API." % (label, now - webview_started, now - api_started))
 
     def on_webview_before_show(self, *args):
         self._mark_webview_checkpoint("webview_before_show_at", "WebView2: окно готово к показу")
@@ -636,15 +697,20 @@ class TwitchFarmingApi:
             if self.frontend_timing_logged:
                 return {"ok": True}
             self.frontend_timing_logged = True
-        logging.getLogger("twitch_farming.startup").info(
-            "[STARTUP] Браузер: DOMContentLoaded %.0f мс, window.load %.0f мс, PyWebView API готов %.0f мс.",
-            number("dom_ready_ms"),
-            number("load_ms"),
-            number("bridge_ready_ms"),
-        )
+        self.startup_note("INFO", "JS timing: DOMContentLoaded %.0f мс, window.load %.0f мс, Python API ready %.0f мс" % (number("dom_ready_ms"), number("load_ms"), number("bridge_ready_ms")))
+        return {"ok": True}
+
+    def record_startup_debug(self, level, message):
+        severity = str(level or "INFO").upper()
+        numeric_level = getattr(logging, severity, logging.INFO)
+        text = str(message or "")[:12000]
+        logging.getLogger("twitch_farming.startup.js").log(numeric_level, "[JS STARTUP] %s", text)
+        if numeric_level >= logging.ERROR:
+            self._flush_logs()
         return {"ok": True}
 
     def mark_frontend_ready(self):
+        self.startup_note("INFO", "JavaScript и Python API завершили стартовую инициализацию")
         self.frontend_ready_event.set()
         return {"ok": True}
 
@@ -659,23 +725,12 @@ class TwitchFarmingApi:
             return {"ok": False, "message": str(error) or error.__class__.__name__}
 
     def watch_webview_startup(self):
-        if self.frontend_ready_event.wait(60):
-            return
-        if os.name != "nt":
-            return
-        logging.getLogger("twitch_farming.startup").error("[STARTUP] WebView2 не передал управление интерфейсу за 60 секунд.")
-        try:
-            import ctypes
-            answer = ctypes.windll.user32.MessageBoxW(
-                0,
-                "Встроенный браузер не завершил запуск за 60 секунд.\n\nНажми «Да», чтобы полностью перезапустить приложение, или «Нет», чтобы продолжить ожидание.",
-                "Twitch Farming",
-                0x00000004 | 0x00000030 | 0x00010000,
-            )
-            if answer == 6:
-                self.restart_app()
-        except Exception:
-            logging.getLogger("twitch_farming.startup").exception("WebView2 startup recovery dialog failed")
+        while not self.frontend_ready_event.wait(15):
+            with self.lock:
+                phase = self.startup_phase
+                loaded = bool(self.webview_loaded_at)
+            state = "WebView2 загружен" if loaded else "ожидание события загрузки WebView2"
+            self.startup_note("WARNING", "Старт всё ещё выполняется: %s; этап Python: %s" % (state, phase))
 
     def _load_config(self):
         try:
@@ -2066,13 +2121,13 @@ class TwitchFarmingApi:
 
     def _load_startup_log_history(self):
         started = time.monotonic()
-        logger = logging.getLogger("twitch_farming.startup")
+        self.startup_note("INFO", "Загрузка истории журнала начата в фоновом потоке")
         try:
             self._sanitize_existing_log()
             self._load_existing_log_records()
-            logger.info("[STARTUP] История журнала загружена за %.2f сек.", time.monotonic() - started)
-        except Exception:
-            logger.exception("Background log history loading failed")
+            self.startup_note("INFO", "История журнала загружена за %.2f сек." % (time.monotonic() - started))
+        except BaseException as error:
+            self.startup_note("ERROR", "Ошибка загрузки истории журнала: " + str(error) + "\n" + traceback.format_exc())
 
     def start_startup_worker(self):
         with self.lock:
@@ -2081,14 +2136,15 @@ class TwitchFarmingApi:
             self.restore_started = True
             self.startup_worker = threading.Thread(target=self._startup_tasks, name="StartupTasks", daemon=True)
             worker = self.startup_worker
+        self.startup_note("INFO", "Запуск фонового потока Python-инициализации")
         try:
             worker.start()
-        except Exception as error:
+        except BaseException as error:
             with self.lock:
                 self.startup_error = str(error) or error.__class__.__name__
                 self.startup_phase = "Не удалось запустить подготовку"
                 self.startup_complete = True
-            logging.getLogger("twitch_farming.startup").exception("Could not start startup worker")
+            self.startup_note("ERROR", "Не удалось запустить поток Python: " + str(error) + "\n" + traceback.format_exc())
 
     def on_loaded(self, *args):
         self._mark_webview_checkpoint("webview_loaded_at", "WebView2: DOM загружен")
@@ -2131,9 +2187,11 @@ class TwitchFarmingApi:
 
 
 def main():
-    webview.settings['DRAG_REGION_DIRECT_TARGET_ONLY'] = True
-    api = TwitchFarmingApi()
-    window = webview.create_window(
+    write_boot_log("INFO", "Запуск Python main()")
+    try:
+        webview.settings['DRAG_REGION_DIRECT_TARGET_ONLY'] = True
+        api = TwitchFarmingApi()
+        window = webview.create_window(
         "Twitch Farming",
         url=str(UI_DIR / "index.html"),
         js_api=api,
@@ -2146,40 +2204,45 @@ def main():
         easy_drag=False,
         shadow=True,
         background_color="#0B0B12",
-        text_select=True,
-    )
-    api.window = window
+            text_select=True,
+        )
+        api.window = window
 
-    window.events.before_show += lambda *args: api.on_webview_before_show()
-    window.events.before_load += lambda *args: api.on_webview_before_load()
-    window.events.shown += lambda *args: api.on_webview_shown()
-    window.events.loaded += lambda *args: api.on_loaded()
-    window.events.closing += api.on_closing
-    window.events.maximized += lambda: api.sync_window_maximized(True)
-    window.events.restored += lambda: api.sync_window_maximized(False)
-    api.start_startup_worker()
-    threading.Thread(target=api.watch_webview_startup, name="WebViewStartupWatchdog", daemon=True).start()
-    WEBVIEW_DIR.mkdir(parents=True, exist_ok=True)
-    logging.getLogger("twitch_farming.startup").info("[STARTUP] Запуск WebView2. Профиль браузера: %s", WEBVIEW_DIR)
-    api.webview_start_requested_at = time.monotonic()
-    try:
-        webview.start(gui="edgechromium", private_mode=False, storage_path=str(WEBVIEW_DIR), icon=str(ICON_FILE) if ICON_FILE.is_file() else None, debug=False)
-    except Exception as error:
-        if os.name == "nt":
-            try:
-                import ctypes
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    "Не удалось запустить WebView2. Установи Microsoft Edge WebView2 Runtime и запусти приложение снова.\n\n" + str(error)[:700],
-                    "Twitch Farming",
-                    0x10,
-                )
-                webbrowser.open("https://developer.microsoft.com/en-us/microsoft-edge/webview2/")
-            except Exception:
-                pass
+            window.events.before_show += lambda *args: api.on_webview_before_show()
+        window.events.before_load += lambda *args: api.on_webview_before_load()
+        window.events.shown += lambda *args: api.on_webview_shown()
+        window.events.loaded += lambda *args: api.on_loaded()
+        window.events.closing += api.on_closing
+        window.events.maximized += lambda: api.sync_window_maximized(True)
+        window.events.restored += lambda: api.sync_window_maximized(False)
+        api.startup_note("INFO", "Окно WebView2 создано, JS API подключён")
+        api.start_startup_worker()
+        threading.Thread(target=api.watch_webview_startup, name="WebViewStartupWatchdog", daemon=True).start()
+        WEBVIEW_DIR.mkdir(parents=True, exist_ok=True)
+        api.startup_note("INFO", "Запуск WebView2; профиль браузера: %s" % WEBVIEW_DIR)
+        api.webview_start_requested_at = time.monotonic()
+        try:
+            webview.start(gui="edgechromium", private_mode=False, storage_path=str(WEBVIEW_DIR), icon=str(ICON_FILE) if ICON_FILE.is_file() else None, debug=False)
+        except BaseException as error:
+            write_boot_log("ERROR", "Ошибка запуска WebView2: " + str(error) + "\n" + traceback.format_exc())
+            if os.name == "nt":
+                try:
+                    import ctypes
+                    ctypes.windll.user32.MessageBoxW(
+                        0,
+                        "Не удалось запустить WebView2. Установи Microsoft Edge WebView2 Runtime и запусти приложение снова.\n\n" + str(error)[:700],
+                        "Twitch Farming",
+                        0x10,
+                    )
+                    webbrowser.open("https://developer.microsoft.com/en-us/microsoft-edge/webview2/")
+                except Exception:
+                    pass
+            raise
+        finally:
+            api.shutdown()
+    except BaseException as error:
+        write_boot_log("ERROR", "Python startup failed: " + str(error) + "\n" + traceback.format_exc())
         raise
-    finally:
-        api.shutdown()
 
 
 if __name__ == "__main__":
