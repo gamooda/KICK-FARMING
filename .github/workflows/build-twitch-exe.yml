@@ -45,14 +45,9 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean --onefile --windowed --name "Twitch Farming" --icon "Twitch Farming/assets/twitch.ico" --add-data "Twitch Farming/assets/twitch.ico;assets" --add-data "Twitch Farming/ui;ui" --paths "Twitch Farming/engine" --collect-all webview --collect-all clr_loader --collect-all irc --collect-submodules TwitchChannelPointsMiner --hidden-import=clr --hidden-import=clr_loader --hidden-import=webview.platforms.winforms --hidden-import=webview.platforms.edgechromium --hidden-import=webview.platforms.webview2core --hidden-import=System.Windows.Forms --hidden-import=System.Drawing --exclude-module PySide6 --exclude-module shiboken6 --exclude-module PyQt5 --exclude-module PyQt6 --exclude-module pandas --exclude-module numpy --exclude-module flask --exclude-module matplotlib --exclude-module scipy "Twitch Farming/app.py"
 
-      - name: Apply Windows executable icon
-        shell: pwsh
+      - name: Verify executable icon and onefile archive
         run: |
-          Invoke-WebRequest -Uri "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe" -OutFile "rcedit-x64.exe"
-          & ".\rcedit-x64.exe" "dist\Twitch Farming.exe" --set-icon "Twitch Farming\assets\twitch.ico" --set-version-string "FileDescription" "Twitch Farming" --set-version-string "ProductName" "Twitch Farming"
-          if ($LASTEXITCODE -ne 0) { throw "Failed to apply Twitch Farming icon to EXE" }
-          $productName = (& ".\rcedit-x64.exe" "dist\Twitch Farming.exe" --get-version-string "ProductName" | Out-String).Trim()
-          if ($LASTEXITCODE -ne 0 -or $productName -ne "Twitch Farming") { throw "Executable resource verification failed" }
+          python -c "from pathlib import Path; import pefile; p=Path('dist/Twitch Farming.exe'); assert p.is_file() and p.stat().st_size > 8000000, f'Unexpected EXE size: {p.stat().st_size if p.exists() else 0}'; pe=pefile.PE(str(p)); ids={entry.id for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries if entry.id is not None}; assert 14 in ids, 'RT_GROUP_ICON resource is missing'; print(f'EXE size: {p.stat().st_size:,} bytes; icon resource found')"
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
