@@ -108,7 +108,10 @@ class AppLogHandler(logging.Handler):
         if record.name.startswith(("pywebview", "webview", "clr")):
             return
         try:
-            self.app.on_log(record.getMessage(), record.levelname, record.created)
+            message = record.getMessage()
+            if record.exc_info:
+                message += "\n" + "".join(traceback.format_exception(*record.exc_info)).rstrip()
+            self.app.on_log(message, record.levelname, record.created)
         except Exception:
             pass
 
@@ -150,6 +153,8 @@ class AuthWorker(threading.Thread):
                 "" if success else "Twitch не подтвердил авторизацию.",
             )
         except BaseException as error:
+            if self.restoring:
+                self.app.startup_note("ERROR", "Ошибка проверки сохранённой сессии: " + str(error) + "\n" + traceback.format_exc())
             logging.getLogger("twitch_farming.auth").exception("Authentication worker failed")
             try:
                 self.app.auth_result(self.username, None, False, self.restoring, str(error))
@@ -1042,6 +1047,10 @@ class TwitchFarmingApi:
         worker.start()
 
     def auth_result(self, username, client, success, restored, error):
+        if restored:
+            level = "INFO" if success else "WARNING"
+            message = "Сохранённая сессия Twitch восстановлена для @" + str(username) if success else "Сохранённая сессия Twitch не восстановлена: " + str(error or "Twitch отклонил авторизацию")
+            self.startup_note(level, message)
         with self.lock:
             if success and client is not None and self.authenticated and self.api_client is client and self.auth_worker_state == "completed":
                 return
