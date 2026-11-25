@@ -1189,7 +1189,8 @@ class TwitchFarmingApi:
             for item in self.followed_channels:
                 if item.pop("avatar_url", ""):
                     cleared += 1
-        return {"ok": True, "cleared": cleared, "message": "Кэш аватарок очищен."}
+        self.refresh_channel_profiles()
+        return {"ok": True, "cleared": cleared, "message": "Кэш аватарок очищен. Профили обновляются."}
 
     def clear_currency_cache(self):
         with self.lock:
