@@ -756,6 +756,31 @@ class Twitch(object):
 
     # === CHANNEL POINTS / PREDICTION === #
     # Load the amount of current points for a channel, check if a bonus is available
+    def _load_channel_points_branding(self, streamer):
+        try:
+            request = {
+                "operationName": "ChannelPointsBranding",
+                "variables": {"channelLogin": streamer.username},
+                "query": "query ChannelPointsBranding($channelLogin: String!) { community { channel(login: $channelLogin) { communityPointsSettings { name image { url url2x url4x } } } } }",
+            }
+            response = self.post_gql_request(request)
+            data = response.get("data") if isinstance(response, dict) else None
+            community = data.get("community") if isinstance(data, dict) else None
+            channel = community.get("channel") if isinstance(community, dict) else None
+            settings = channel.get("communityPointsSettings") if isinstance(channel, dict) else None
+            if not isinstance(settings, dict):
+                return
+            image = settings.get("image") or {}
+            image_url = image.get("url2x") or image.get("url") or image.get("url4x")
+            image_url = str(image_url or "")
+            streamer.channel_points_name = str(settings.get("name") or "").strip()
+            streamer.channel_points_image = image_url if image_url.startswith("https://") else ""
+            streamer.channel_points_branding_loaded = True
+        except Exception as error:
+            logger.debug(f"Unable to load Channel Points branding for {streamer.username}: {error}")
+        finally:
+            streamer.channel_points_branding_loading = False
+
     def load_channel_points_context(self, streamer):
         json_data = copy.deepcopy(GQLOperations.ChannelPointsContext)
         json_data["variables"] = {"channelLogin": streamer.username}
@@ -771,6 +796,17 @@ class Twitch(object):
             community_points = channel["self"]["communityPoints"]
             streamer.channel_points = community_points["balance"]
             streamer.activeMultipliers = community_points["activeMultipliers"]
+            if not streamer.channel_points_branding_loaded and not streamer.channel_points_branding_loading:
+                streamer.channel_points_branding_loading = True
+                try:
+                    threading.Thread(
+                        target=self._load_channel_points_branding,
+                        args=(streamer,),
+                        name=f"PointsBranding-{streamer.username}",
+                        daemon=True,
+                    ).start()
+                except Exception:
+                    streamer.channel_points_branding_loading = False
 
             if streamer.settings.community_goals is True:
                 streamer.community_goals = {
