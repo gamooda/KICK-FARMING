@@ -510,7 +510,14 @@ class Twitch(object):
                 We'll take the first two streamers from the final list as they have the highest priority.
                 """
                 max_watch_amount = 2
-                streamers_watching = set()
+                streamers_watching = []
+
+                def add_watching(indices):
+                    for index in indices:
+                        if index not in streamers_watching:
+                            streamers_watching.append(index)
+                            if len(streamers_watching) >= max_watch_amount:
+                                break
 
                 def remaining_watch_amount():
                     return max_watch_amount - len(streamers_watching)
@@ -520,57 +527,39 @@ class Twitch(object):
                         break
 
                     if prior == Priority.ORDER:
-                        # Get the first 2 items, they are already in order
-                        streamers_watching.update(streamers_index[:remaining_watch_amount()])
+                        add_watching(streamers_index)
 
                     elif prior in [Priority.POINTS_ASCENDING, Priority.POINTS_DESCENDING]:
                         items = [
-                            {
-                                "points": streamers[index].channel_points,
-                                "index": index
-                            }
+                            {"points": streamers[index].channel_points, "index": index}
                             for index in streamers_index
                         ]
                         items = sorted(
                             items,
                             key=lambda x: x["points"],
-                            reverse=(
-                                True if prior == Priority.POINTS_DESCENDING else False
-                            ),
+                            reverse=(prior == Priority.POINTS_DESCENDING),
                         )
-                        streamers_watching.update([item["index"] for item in items][:remaining_watch_amount()])
+                        add_watching([item["index"] for item in items])
 
                     elif prior == Priority.STREAK:
-                        """
-                        Check if we need need to change priority based on watch streak
-                        Viewers receive points for returning for x consecutive streams.
-                        Each stream must be at least 10 minutes long and it must have been at least 30 minutes since the last stream ended.
-                        Watch at least 6m for get the +10
-                        """
                         for index in streamers_index:
                             if (
                                 streamers[index].settings.watch_streak is True
                                 and streamers[index].stream.watch_streak_missing is True
                                 and (
                                     streamers[index].offline_at == 0
-                                    or (
-                                        (time.time() -
-                                         streamers[index].offline_at)
-                                        // 60
-                                    )
-                                    > 30
+                                    or ((time.time() - streamers[index].offline_at) // 60) > 30
                                 )
-                                # fix #425
                                 and streamers[index].stream.minute_watched < 7
                             ):
-                                streamers_watching.add(index)
+                                add_watching([index])
                                 if remaining_watch_amount() <= 0:
                                     break
 
                     elif prior == Priority.DROPS:
                         for index in streamers_index:
                             if streamers[index].drops_condition() is True:
-                                streamers_watching.add(index)
+                                add_watching([index])
                                 if remaining_watch_amount() <= 0:
                                     break
 
@@ -582,13 +571,12 @@ class Twitch(object):
                         ]
                         streamers_with_multiplier = sorted(
                             streamers_with_multiplier,
-                            key=lambda x: streamers[x].total_points_multiplier(
-                            ),
+                            key=lambda x: streamers[x].total_points_multiplier(),
                             reverse=True,
                         )
-                        streamers_watching.update(streamers_with_multiplier[:remaining_watch_amount()])
+                        add_watching(streamers_with_multiplier)
 
-                selected_streamers = set(streamers_watching)
+                selected_streamers = set(streamers_watching)                selected_streamers = set(streamers_watching)
                 for index in streamers_index:
                     if index not in selected_streamers:
                         username = streamers[index].username
@@ -597,6 +585,8 @@ class Twitch(object):
                 streamers_watching = list(streamers_watching)[:max_watch_amount]
 
                 for index in streamers_watching:
+                    if not self.running:
+                        break
                     username = streamers[index].username
                     logger.info(f"WATCH_STATUS: {username}|selected|Канал выбран для просмотра минут.")
                     next_iteration = time.time() + 20 / len(streamers_watching)
@@ -623,6 +613,8 @@ class Twitch(object):
                         try:
                             responsePlaybackAccessToken = self.post_gql_request(
                                 json_data)
+                            if not self.running:
+                                break
                             logger.debug(f"[WATCH] @{username}: ответ PlaybackAccessToken получен.")
 
                             if 'data' not in responsePlaybackAccessToken:
@@ -661,6 +653,8 @@ class Twitch(object):
                         if responseBroadcastQualities.status_code != 200:
                             logger.warning(f"WATCH_STATUS: {username}|error|HLS playlist вернул HTTP {responseBroadcastQualities.status_code}.")
                             continue
+                        if not self.running:
+                            break
                         BroadcastQualities = responseBroadcastQualities.text
 
                         # Just takes the last line, which should be the URL for the lowest quality
@@ -680,6 +674,8 @@ class Twitch(object):
                         if responseStreamURLList.status_code != 200:
                             logger.warning(f"WATCH_STATUS: {username}|error|Список видеопотоков вернул HTTP {responseStreamURLList.status_code}.")
                             continue
+                        if not self.running:
+                            break
                         StreamURLList = responseStreamURLList.text
 
                         # Just takes the last line, which should be the URL for the lowest quality
@@ -696,11 +692,15 @@ class Twitch(object):
                             timeout=20,
                         )
                         logger.debug(f"[WATCH] @{username}: video HEAD HTTP {responseStreamLowestQualityURL.status_code}.")
+                        if not self.running:
+                            break
                         if responseStreamLowestQualityURL.status_code != 200:
                             logger.warning(f"WATCH_STATUS: {username}|error|Видеопоток не ответил на HEAD: HTTP {responseStreamLowestQualityURL.status_code}.")
                             continue
                         # End of fix for 2024/5 API Change
                         ##################################
+                        if not self.running:
+                            break
                         logger.debug(f"[WATCH] @{username}: отправка minute-watched.")
                         response = requests.post(
                             streamers[index].stream.spade_url,
