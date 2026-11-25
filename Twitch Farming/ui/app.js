@@ -21,7 +21,7 @@ let appInitialized=false;
 let tutorialStep=0;
 const tutorialSteps=[
   {title:"Добавление каналов",text:"Нажми + и добавь Twitch-каналы по логину или ссылке. Аватары, имена и статус трансляции загрузятся автоматически.",target:".channels-panel"},
-  {title:"Автоматизация",text:"Здесь включаются Drops, серии просмотров, моменты, рейды, прогнозы и IRC-чат. Настройки прогнозов открываются отдельной кнопкой.",target:".automation-panel"},
+  {title:"Автоматизация",text:"Drops, бонусы, рейды, прогнозы и IRC-чат включаются в разделе «Настройки» бокового меню.",target:"#nav-settings"},
   {title:"Запуск и логи",text:"Нажми «Запустить». Награды и изменения баланса появятся в ленте событий. Полный технический журнал открывается кнопкой «Логи».",target:"#start-button"}
 ];
 
@@ -86,6 +86,29 @@ function focusOption(key,navId){
     row.scrollIntoView({block:"center",behavior:"smooth"});
     setTimeout(()=>row.classList.remove("feature-focus"),1700);
   }
+}
+
+function setWindowMaximized(value){
+  windowMaximized=Boolean(value);
+  const button=$("window-maximize");
+  if(button){
+    button.innerHTML="<svg><use href='"+(windowMaximized?"#i-restore":"#i-maximize")+"'></use></svg>";
+    button.title=windowMaximized?"Восстановить":"Развернуть";
+  }
+}
+window.setWindowMaximized=setWindowMaximized;
+
+async function minimizeWindow(){
+  try{await api().minimize_window();}catch(error){notify(error.message||"Не удалось свернуть окно.");}
+}
+async function toggleMaximizeWindow(){
+  try{
+    const result=await api().toggle_maximize_window();
+    setWindowMaximized(Boolean(result.maximized));
+  }catch(error){notify(error.message||"Не удалось изменить размер окна.");}
+}
+async function closeWindow(){
+  try{await api().close_window();}catch(error){notify(error.message||"Не удалось закрыть окно.");}
 }
 
 function setFeedback(id,message,error){
@@ -186,10 +209,8 @@ function renderEvents(events){
 }
 
 function updateReward(){
-  const reward=appState&&appState.reward;
-  const visible=currentPage==="dashboard"&&reward&&reward.until>Date.now()/1000;
-  $("reward-banner").classList.toggle("visible",Boolean(visible));
-  if(visible) $("reward-text").textContent=reward.text;
+  const node=$("reward-banner");
+  if(node) node.classList.remove("visible");
 }
 
 function appendLogRows(rows){
@@ -276,7 +297,9 @@ function applyState(state,initial){
   }
   $("start-button").disabled=state.session_running;
   $("stop-button").disabled=!state.session_running;
-  $("start-button").textContent=state.session_running?"▶　Работает":"▶　Запустить";
+  $("start-button").innerHTML=state.session_running?"<svg><use href='#i-play'></use></svg>Работает":"<svg><use href='#i-play'></use></svg>Запустить";
+  $("session-label").textContent=state.session_running?"ФАРМ РАБОТАЕТ":String(state.status_text||"ОСТАНОВЛЕН").replace(/[●]/g,"").trim();
+  $("session-dot").classList.toggle("is-running",Boolean(state.session_running));
   $("points-value").textContent=Number(state.gained_total||0).toLocaleString("ru-RU");
   $("online-value").textContent=String((state.online_channels||[]).length);
   $("events-value").textContent=String(state.event_total||0);
@@ -676,8 +699,19 @@ document.addEventListener("DOMContentLoaded",()=>{
       $("channel-search").blur();
     }
   });
+  $("window-back").addEventListener("click",()=>navigateHistory(-1));
+  $("window-forward").addEventListener("click",()=>navigateHistory(1));
+  $("window-minimize").addEventListener("click",minimizeWindow);
+  $("window-maximize").addEventListener("click",toggleMaximizeWindow);
+  $("window-close").addEventListener("click",closeWindow);
   $("nav-dashboard").addEventListener("click",()=>setPage("dashboard"));
-  $("nav-logs").addEventListener("click",()=>setPage("logs"));
+  $("nav-drops").addEventListener("click",()=>focusOption("claim_drops","nav-drops"));
+  $("nav-bonuses").addEventListener("click",()=>focusOption("claim_moments","nav-bonuses"));
+  $("nav-raids").addEventListener("click",()=>focusOption("follow_raid","nav-raids"));
+  $("nav-predictions").addEventListener("click",openBetSettings);
+  $("nav-chat").addEventListener("click",()=>focusOption("chat","nav-chat"));
+  $("nav-events").addEventListener("click",()=>setPage("logs"));
+  $("nav-settings").addEventListener("click",()=>setPage("settings"));
   $("open-folder").addEventListener("click",openFolder);
   $("add-channel").addEventListener("click",()=>openChannelEditor("add",""));
   $("channel-list").addEventListener("click",event=>{
@@ -698,14 +732,13 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("start-button").addEventListener("click",startFarm);
   $("stop-button").addEventListener("click",stopFarm);
   $("save-button").addEventListener("click",saveSettings);
-  $("logs-shortcut").addEventListener("click",()=>setPage("logs"));
   $("back-from-logs").addEventListener("click",()=>setPage("dashboard"));
   $("back-from-channel").addEventListener("click",()=>setPage("dashboard"));
   $("cancel-channel").addEventListener("click",()=>setPage("dashboard"));
   $("save-channel").addEventListener("click",saveChannel);
   $("channel-input").addEventListener("keydown",event=>{if(event.key==="Enter")saveChannel();});
   $("open-bets").addEventListener("click",openBetSettings);
-  $("back-from-bets").addEventListener("click",()=>setPage("dashboard"));
+  $("back-from-bets").addEventListener("click",()=>setPage("settings"));
   $("preset-select").addEventListener("change",()=>fillPreset($("preset-select").value,appState&&appState.bet_settings,appState&&appState.custom_presets));
   $("load-preset").addEventListener("click",()=>fillPreset($("preset-select").value,appState&&appState.bet_settings,appState&&appState.custom_presets));
   $("apply-bets").addEventListener("click",applyBets);
