@@ -47,6 +47,7 @@ class ClientIRC(SingleServerIRCBot):
                 logger.error(
                     f"Exception raised: {e}. Thread is active: {self.__active}"
                 )
+        self.die()
 
     def die(self, msg="Bye, cruel world!"):
         self.__active = False
