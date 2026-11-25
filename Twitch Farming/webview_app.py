@@ -140,15 +140,16 @@ class EngineWorker(threading.Thread):
         self.stop_requested = False
 
     def add_streamer(self, login, channel_id=None):
-        miner = self.miner
         deadline = time.monotonic() + 25
-        while miner is not None and self.is_alive() and not self.stop_requested:
-            try:
-                ready = bool(miner.running and miner.twitch.twitch_login.get_auth_token())
-            except Exception:
-                ready = False
-            if ready:
-                return miner.add_streamer(login, channel_id)
+        while self.is_alive() and not self.stop_requested:
+            miner = self.miner
+            if miner is not None:
+                try:
+                    ready = bool(miner.running and miner.twitch.twitch_login.get_auth_token())
+                except Exception:
+                    ready = False
+                if ready:
+                    return miner.add_streamer(login, channel_id)
             if time.monotonic() >= deadline:
                 break
             time.sleep(0.15)
