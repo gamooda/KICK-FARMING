@@ -1228,8 +1228,13 @@ function renderDropsSection(campaigns,root,isSubscription){
       const watched=Number(drop.watched_minutes||0);
       const required=Number(drop.required_minutes||0);
       const remaining=Number(drop.remaining_minutes||Math.max(0,required-watched));
+      const subscriptionRequired=Number(drop.required_subscriptions||0);
+      const subscriptionCurrent=Number(drop.current_subscriptions||0);
+      const requirementParts=[];
+      if(required>0) requirementParts.push("Просмотр: "+watched+" / "+required+" мин — осталось "+remaining+" мин");
+      if(subscriptionRequired>0) requirementParts.push("Подписок: "+subscriptionCurrent+" / "+subscriptionRequired);
       const progressText=claimed?"Получено":isSubscription
-        ?(Number(drop.required_subscriptions||0)?"Подписок: "+Number(drop.current_subscriptions||0)+" / "+Number(drop.required_subscriptions):"Требуется платная или подарочная подписка Twitch")
+        ?(requirementParts.join(" · ")||"Требуется платная или подарочная подписка Twitch")
         :watched+" / "+required+" мин — осталось "+remaining+" мин";
       const progressMarkup=isSubscription
         ?"<div class='drop-requirement'>"+esc(progressText)+"</div>"
