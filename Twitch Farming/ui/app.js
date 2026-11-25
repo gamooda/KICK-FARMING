@@ -37,6 +37,11 @@ let followersPollTimer=null;
 let followersLoadSequence=0;
 let dropsPollTimer=null;
 let dropsLoadSequence=0;
+let sessionTimerInterval=null;
+let dropsAutoRefreshInterval=null;
+let mainPollInterval=null;
+let lastPythonStartupEventId=0;
+let lastStartupPhase="";
 let logEntries=[];
 let logFilter="important";
 let logSearch="";
@@ -46,6 +51,53 @@ const tutorialSteps=[
   {title:"Автоматизация",text:"Drops, бонусы, рейды, прогнозы и IRC-чат включаются в разделе «Настройки» бокового меню.",target:"#nav-settings"},
   {title:"Запуск и логи",text:"Нажми «Запустить». Во время сбора эта же кнопка станет кнопкой «Стоп». Награды и изменения баланса появятся в ленте событий.",targets:["#farm-toggle",".feed-grid .feed-panel:last-child"]}
 ];
+
+function startupLog(level,message,error){
+  const text=String(message||"");
+  const stack=error&&error.stack?String(error.stack):error?String(error):"";
+  if(window.__tfStartupDebug&&typeof window.__tfStartupDebug.log==="function"){
+    window.__tfStartupDebug.log(level||"INFO",text,stack);
+  }else{
+    const method=String(level||"INFO").toLowerCase()==="error"?"error":"log";
+    console[method]("[STARTUP] "+text,stack);
+  }
+}
+
+function displayPythonStartupEvents(result){
+  const events=Array.isArray(result&&result.diagnostics)?result.diagnostics:[];
+  events.forEach(item=>{
+    const id=Number(item&&item.id||0);
+    if(id<=lastPythonStartupEventId) return;
+    lastPythonStartupEventId=Math.max(lastPythonStartupEventId,id);
+    const elapsed=Number(item.elapsed||0).toFixed(3);
+    const line="[Python +"+elapsed+"s] ["+String(item.level||"INFO")+"] "+String(item.message||"");
+    const entry={level:String(item.level||"INFO").toUpperCase(),line};
+    if(window.__tfStartupDebug&&typeof window.__tfStartupDebug.display==="function"){
+      window.__tfStartupDebug.display(entry);
+    }else{
+      startupLog(entry.level,line);
+    }
+  });
+}
+
+function showStartupError(error,stage){
+  const message=error&&error.message?error.message:String(error||"Неизвестная ошибка запуска");
+  startupLog("ERROR",(stage?stage+": ":"")+message,error);
+  const overlay=$("startup-overlay");
+  const title=$("startup-title");
+  const description=$("startup-description");
+  const spinner=$("startup-spinner");
+  const retry=$("startup-retry");
+  if(title) title.textContent="Ошибка запуска";
+  if(description) description.textContent=message;
+  if(spinner) spinner.style.display="none";
+  if(retry) retry.style.display="inline-flex";
+  if(overlay){
+    overlay.classList.add("startup-error");
+    overlay.classList.remove("hidden");
+    overlay.style.pointerEvents="auto";
+  }
+}
 
 function esc(value){
   return String(value==null?"":value).replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
@@ -65,10 +117,13 @@ function api(){
 }
 
 function withTimeout(promise,milliseconds,message){
+  let timer=null;
   return Promise.race([
-    promise,
-    new Promise((resolve,reject)=>window.setTimeout(()=>reject(new Error(message)),milliseconds))
-  ]);
+    Promise.resolve(promise),
+    new Promise((resolve,reject)=>{timer=window.setTimeout(()=>reject(new Error(message)),milliseconds);})
+  ]).finally(()=>{
+    if(timer!==null) window.clearTimeout(timer);
+  });
 }
 
 function setStartupMessage(message){
@@ -77,34 +132,37 @@ function setStartupMessage(message){
 }
 
 async function waitForBridge(){
-  setStartupMessage("Подключение встроенного браузера...");
-  if(!apiReadyPromise) apiReadyPromise=window.__twitchPywebviewReadyPromise;
-  if(!apiReadyPromise) throw new Error("Событие готовности PyWebView не зарегистрировано.");
-  await withTimeout(apiReadyPromise,120000,"WebView2 не запустился за 120 секунд. Проверь Microsoft Edge WebView2 Runtime.");
-  const bridge=window.pywebview&&window.pywebview.api;
-  if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
-  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","get_app_version","open_url","minimize_window","toggle_maximize_window","close_window"];
+  setStartupMessage("Ожидание Python API WebView2...");
+  startupLog("INFO","Ожидание события pywebviewready и объекта window.pywebview.api");
+  const started=Date.now();
+  let lastReport=started;
+  let bridge=null;
+  while(true){
+    bridge=window.pywebview&&window.pywebview.api;
+    if(bridge&&typeof bridge==="object"&&typeof bridge.get_startup_state==="function") break;
+    await sleep(100);
+    const now=Date.now();
+    if(now-lastReport>=5000){
+      const elapsed=((now-started)/1000).toFixed(1);
+      setStartupMessage("Ожидание Python API WebView2... "+elapsed+" сек.");
+      startupLog("INFO","Python API пока недоступен; ожидание продолжается ("+elapsed+" сек.)");
+      lastReport=now;
+    }
+  }
+  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","record_startup_debug","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","get_app_version","open_url","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
   apiReady=true;
-  try{
-    const navigation=performance.getEntriesByType("navigation")[0]||{};
-    const timing=bridge.record_frontend_timing({
-      dom_ready_ms:Number(navigation.domContentLoadedEventEnd||0),
-      load_ms:Number(navigation.loadEventEnd||0),
-      bridge_ready_ms:Number(performance.now()||0)
-    });
-    if(timing&&typeof timing.catch==="function") timing.catch(error=>console.warn("Startup timing report failed:",error));
-  }catch(error){
-    console.warn("Startup timing report failed:",error);
-  }
-  try{
-    const ready=bridge.mark_frontend_ready();
-    if(ready&&typeof ready.catch==="function") ready.catch(error=>console.warn("Frontend ready signal failed:",error));
-  }catch(error){
-    console.warn("Frontend ready signal failed:",error);
-  }
+  if(window.__tfStartupDebug&&typeof window.__tfStartupDebug.flush==="function") window.__tfStartupDebug.flush();
+  startupLog("INFO","Python API подключён; проверка контракта API пройдена за "+((Date.now()-started)/1000).toFixed(2)+" сек.");
+  const navigation=performance.getEntriesByType("navigation")[0]||{};
+  await withTimeout(bridge.record_frontend_timing({
+    dom_ready_ms:Number(navigation.domContentLoadedEventEnd||0),
+    load_ms:Number(navigation.loadEventEnd||0),
+    bridge_ready_ms:Number(performance.now()||0)
+  }),10000,"Python API не ответил на record_frontend_timing.");
+  startupLog("INFO","Тайминги DOM и WebView2 переданы Python");
   return pyApi;
 }
 
@@ -1546,19 +1604,30 @@ function nextTutorial(){
 
 async function waitForStartup(){
   const started=Date.now();
+  let lastReport=started;
   while(true){
-    const result=await withTimeout(api().get_startup_state(),5000,"Python не отвечает на запрос состояния запуска.");
+    const result=await withTimeout(api().get_startup_state(lastPythonStartupEventId),15000,"Python API не ответил на get_startup_state за 15 секунд.");
+    displayPythonStartupEvents(result);
     const phase=result&&result.phase?result.phase:"Подготовка настроек...";
     const elapsed=Number(result&&result.elapsed||((Date.now()-started)/1000));
     setStartupMessage(phase+" ("+elapsed.toFixed(1)+" сек.)");
+    if(phase!==lastStartupPhase){
+      lastStartupPhase=phase;
+      startupLog("INFO","Этап Python: "+phase);
+    }
     if(result&&result.ready){
       startupCompleteUi=true;
-      if(result.error) notify("Ошибка загрузки конфигурации: "+result.error);
+      if(result.error) startupLog("ERROR","Python завершил загрузку конфигурации с ошибкой: "+result.error);
+      startupLog("INFO","Python завершил чтение конфигурации за "+elapsed.toFixed(1)+" сек.");
       updateFarmToggleButton(false);
       return result;
     }
-    if(Date.now()-started>20000) throw new Error("Подготовка приложения зависла на этапе «"+phase+"». Перезапусти приложение.");
-    await sleep(160);
+    const now=Date.now();
+    if(now-lastReport>=5000){
+      startupLog("INFO","Python всё ещё выполняет этап «"+phase+"»; прошло "+((now-started)/1000).toFixed(1)+" сек.");
+      lastReport=now;
+    }
+    await sleep(180);
   }
 }
 
@@ -1650,14 +1719,43 @@ function initLogoAnimation(){
   runRandom();
 }
 
+function initializeStartupWidgets(){
+  if(sessionTimerInterval===null){
+    startupLog("INFO","Инициализация таймера сессии");
+    updateSessionTimer();
+    sessionTimerInterval=window.setInterval(updateSessionTimer,1000);
+  }
+  if(dropsAutoRefreshInterval===null){
+    startupLog("INFO","Инициализация автообновления Drops (интервал 120 секунд)");
+    dropsAutoRefreshInterval=window.setInterval(()=>{
+      if(appState&&appState.authenticated&&appState.session_running){
+        loadDropsInventory(true);
+      }else if(currentPage==="drops"){
+        loadDropsInventory(false);
+      }
+    },120000);
+  }
+  if(mainPollInterval===null){
+    startupLog("INFO","Инициализация фонового обновления состояния приложения");
+    mainPollInterval=window.setInterval(poll,900);
+  }
+}
+
 async function initialize(){
+  startupLog("INFO","JS initialize() запущен");
   await waitForBridge();
+  startupLog("INFO","Проверка готовности Python конфигурации");
   await waitForStartup();
   setStartupMessage("Загрузка профиля и списка каналов...");
+  startupLog("INFO","Инициализация элементов управления прогнозами");
   setupBetControls();
   lastLogId=0;
-  const authState=await withTimeout(api().get_auth_state(),10000,"Не удалось получить состояние авторизации.");
-  const state=await withTimeout(api().get_state(0),10000,"Не удалось загрузить состояние приложения.");
+  startupLog("INFO","Запрос состояния авторизации Python API");
+  const authState=await withTimeout(api().get_auth_state(),15000,"Python API не ответил на get_auth_state за 15 секунд.");
+  startupLog("INFO","Состояние авторизации получено");
+  startupLog("INFO","Запрос начального состояния приложения");
+  const state=await withTimeout(api().get_state(0),15000,"Python API не ответил на get_state за 15 секунд.");
+  startupLog("INFO","Начальное состояние приложения получено; отрисовка интерфейса");
   state.authenticated=Boolean(authState.authenticated);
   state.authenticated_username=authState.username||state.authenticated_username;
   state.auth_status=authState.auth_status||state.auth_status;
@@ -1668,24 +1766,32 @@ async function initialize(){
   state.restore_pending=Boolean(authState.restore_pending);
   state.elapsed=Number(authState.elapsed||0);
   applyState(state,true);
+  startupLog("INFO","Отрисовка каналов, последних наград и событий завершена");
   appInitialized=Boolean(authState.authenticated);
-  $("startup-overlay").classList.add("hidden");
+  if(state.restore_pending){
+    startupLog("INFO","Проверка сохранённой сессии Twitch: запуск фоновой проверки");
+    await withTimeout(api().begin_session_restore(),10000,"Python API не запустил проверку сохранённой сессии за 10 секунд.");
+    await sleep(100);
+    const diagnostics=await withTimeout(api().get_startup_state(lastPythonStartupEventId),10000,"Python API не ответил после запуска проверки сессии.");
+    displayPythonStartupEvents(diagnostics);
+    startupLog("INFO","Проверка сохранённой сессии передана фоновому потоку; интерфейс не блокируется сетевым запросом");
+  }else{
+    startupLog("INFO","Проверка сессии: сохранённый аккаунт отсутствует");
+  }
+  initializeStartupWidgets();
   initialStateReady=true;
   updateFarmToggleButton(Boolean(state.session_running));
-  if(state.restore_pending){
-    try{
-      const restore=api().begin_session_restore();
-      if(restore&&typeof restore.catch==="function"){
-        restore.catch(error=>console.warn("Session restore could not be started:",error));
-      }
-    }catch(error){
-      console.warn("Session restore could not be started:",error);
-    }
-  }
-  setInterval(poll,900);
+  startupLog("INFO","Отправка Python сигнала о завершении JS-инициализации");
+  await withTimeout(api().mark_frontend_ready(),10000,"Python API не подтвердил завершение JS-инициализации.");
+  startupLog("INFO","Инициализация Python и JavaScript завершена");
+  setStartupMessage("Готово. Загружаю интерфейс...");
+  $("startup-overlay").classList.add("hidden");
+  startupLog("INFO","Экран загрузки скрыт; интерфейс готов к работе");
 }
 
 document.addEventListener("DOMContentLoaded",()=>{
+  startupLog("INFO","DOM загружен; привязка обработчиков интерфейса");
+  try{
   initLogoAnimation();
   $("channel-search").addEventListener("input",event=>{
     channelSearch=event.target.value||"";
@@ -1806,22 +1912,6 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("delete-confirm-overlay").addEventListener("click",event=>{if(event.target===$("delete-confirm-overlay"))closeDeleteConfirmation();});
   $("delete-cancel-button").addEventListener("click",closeDeleteConfirmation);
   $("delete-confirm-button").addEventListener("click",confirmDeleteChannel);
-  $("startup-retry").addEventListener("click",async()=>{
-    const button=$("startup-retry");
-    button.disabled=true;
-    button.textContent="Перезапуск...";
-    try{
-      if(apiReady&&pyApi&&typeof pyApi.restart_app==="function"){
-        const result=await pyApi.restart_app();
-        throw new Error(result&&result.message||"Не удалось перезапустить приложение.");
-      }
-      window.location.reload();
-    }catch(error){
-      button.disabled=false;
-      button.textContent="Повторить запуск";
-      setStartupMessage(error.message||"Не удалось перезапустить приложение.");
-    }
-  });
   $("refresh-channel-branding").addEventListener("click",refreshChannelBranding);
   $("channel-list").addEventListener("click",async event=>{
     const card=event.target.closest(".channel-card");
@@ -1904,22 +1994,9 @@ document.addEventListener("DOMContentLoaded",()=>{
       renderLogs();
     });
   });
-  setInterval(()=>{
-    if(appState&&appState.authenticated&&appState.session_running){
-      loadDropsInventory(true);
-    }else if(currentPage==="drops"){
-      loadDropsInventory(false);
-    }
-  },120000);
-  setInterval(updateSessionTimer,1000);
-  initialize().catch(error=>{
-    const message=error&&error.message?error.message:"Не удалось запустить интерфейс.";
-    $("startup-title").textContent="Не удалось загрузить приложение";
-    $("startup-description").textContent=message;
-    $("startup-spinner").style.display="none";
-    $("startup-retry").style.display="inline-flex";
-    $("startup-overlay").classList.remove("hidden");
-    $("startup-overlay").classList.add("startup-error");
-    $("startup-overlay").style.pointerEvents="auto";
-  });
+  startupLog("INFO","Обработчики интерфейса готовы");
+  initialize().catch(error=>showStartupError(error,"initialize"));
+  }catch(error){
+    showStartupError(error,"DOMContentLoaded");
+  }
 });
