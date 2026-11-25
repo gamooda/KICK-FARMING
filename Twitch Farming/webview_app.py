@@ -169,6 +169,7 @@ class EngineWorker(threading.Thread):
 
     def run(self):
         miner = None
+        session_client = None
         try:
             from TwitchChannelPointsMiner.TwitchChannelPointsMiner import TwitchChannelPointsMiner
             from TwitchChannelPointsMiner.classes.Twitch import Twitch
@@ -256,6 +257,11 @@ class EngineWorker(threading.Thread):
                     miner.stop()
                 except Exception as error:
                     self.app.engine_error(str(error))
+            if session_client is not None:
+                try:
+                    session_client.twitch_login.session.close()
+                except Exception:
+                    logging.getLogger("twitch_farming.engine").exception("Could not close the farming Twitch session")
             with self.miner_lock:
                 self.miner = None
             self.app.engine_finished(self)
