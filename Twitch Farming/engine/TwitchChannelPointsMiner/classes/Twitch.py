@@ -1114,6 +1114,7 @@ class Twitch(object):
                     current_subscriptions = safe_int(
                         progress.get("currentSubscriptions")
                         or progress.get("currentSubscriptionCount")
+                        or progress.get("currentSubs")
                         or progress.get("subscriptionsCount")
                     )
                     is_subscription = (
