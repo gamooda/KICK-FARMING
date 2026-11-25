@@ -24,6 +24,8 @@ let channelDraftTokens=[];
 let channelPreviewCache={};
 let channelPreviewPending=new Map();
 let pendingDeleteChannel="";
+let draggedChannelCard=null;
+let channelDropPending=false;
 let logsLoaded=false;
 let logsLoading=false;
 let pendingLogRows=[];
@@ -80,7 +82,7 @@ async function waitForBridge(){
   await withTimeout(apiReadyPromise,120000,"WebView2 не запустился за 120 секунд. Проверь Microsoft Edge WebView2 Runtime.");
   const bridge=window.pywebview&&window.pywebview.api;
   if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
-  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","mark_frontend_ready","restart_app","begin_session_restore","login","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","minimize_window","toggle_maximize_window","close_window"];
+  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
@@ -208,11 +210,7 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
     $("add-channel").disabled=running;
     return;
   }
-  const orderedChannels=channels.slice().sort((a,b)=>{
-    const liveA=online.includes(a)||Boolean(profiles&&profiles[a]&&profiles[a].is_live);
-    const liveB=online.includes(b)||Boolean(profiles&&profiles[b]&&profiles[b].is_live);
-    return Number(liveB)-Number(liveA);
-  });
+  const orderedChannels=channels.slice();
   root.innerHTML=orderedChannels.map(login=>{
     const profile=profiles&&profiles[login]?profiles[login]:{};
     const live=online.includes(login)||Boolean(profile.is_live);
@@ -236,7 +234,7 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
     const liveClass=live?"is-live":profile.error?"is-error":loaded?"is-offline":"is-pending";
     const extra=live&&viewers?"<span class='channel-viewers'>"+viewers.toLocaleString("ru-RU")+" зрителей</span>":watchMarkup;
     const searchKey=esc((login+" "+displayName).toLowerCase());
-    return "<article class='channel-card' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть канал в браузере'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Изменить'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
+    return "<article class='channel-card' data-channel='"+esc(login)+"' data-search='"+searchKey+"'><button class='channel-drag-handle' type='button' draggable='true' "+(running?"disabled":"")+" title='Перетащить канал' aria-label='Перетащить канал'>⋮⋮</button><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть канал в браузере'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Изменить'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
   }).join("");
   $("add-channel").disabled=running;
   filterChannelCards();
@@ -1573,6 +1571,59 @@ document.addEventListener("DOMContentLoaded",()=>{
     }
   });
   $("refresh-channel-branding").addEventListener("click",refreshChannelBranding);
+  $("channel-list").addEventListener("dragstart",event=>{
+    const handle=event.target.closest(".channel-drag-handle");
+    if(!handle||handle.disabled||appState&&appState.session_running){event.preventDefault();return;}
+    draggedChannelCard=handle.closest(".channel-card");
+    if(!draggedChannelCard){event.preventDefault();return;}
+    draggedChannelCard.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed="move";
+    event.dataTransfer.setData("text/plain",draggedChannelCard.dataset.channel||"");
+  });
+  $("channel-list").addEventListener("dragover",event=>{
+    if(!draggedChannelCard||channelDropPending)return;
+    const target=event.target.closest(".channel-card");
+    if(!target||target===draggedChannelCard)return;
+    event.preventDefault();
+    const rect=target.getBoundingClientRect();
+    const after=event.clientY>rect.top+rect.height/2;
+    $("channel-list").insertBefore(draggedChannelCard,after?target.nextSibling:target);
+    target.classList.add("drop-target");
+    $("channel-list").querySelectorAll(".channel-card.drop-target").forEach(card=>{if(card!==target)card.classList.remove("drop-target");});
+  });
+  $("channel-list").addEventListener("dragleave",event=>{
+    const target=event.target.closest(".channel-card");
+    if(target&&!target.contains(event.relatedTarget))target.classList.remove("drop-target");
+  });
+  $("channel-list").addEventListener("drop",async event=>{
+    if(!draggedChannelCard)return;
+    event.preventDefault();
+    const order=Array.from($("channel-list").querySelectorAll(".channel-card")).map(card=>card.dataset.channel).filter(Boolean);
+    draggedChannelCard.classList.remove("is-dragging");
+    $("channel-list").querySelectorAll(".channel-card").forEach(card=>card.classList.remove("drop-target"));
+    draggedChannelCard=null;
+    if(!appState||JSON.stringify(order)===JSON.stringify(appState.channels||[]))return;
+    channelDropPending=true;
+    try{
+      const result=await api().reorder_channels(order);
+      if(!result.ok)throw new Error(result.message||"Не удалось сохранить порядок каналов.");
+      appState.channels=order.slice();
+      channelCache="";
+      await poll();
+      notify("Порядок каналов сохранён.");
+    }catch(error){
+      channelCache="";
+      await poll();
+      notify(error.message||"Не удалось сохранить порядок каналов.");
+    }finally{
+      channelDropPending=false;
+    }
+  });
+  $("channel-list").addEventListener("dragend",()=>{
+    if(draggedChannelCard)draggedChannelCard.classList.remove("is-dragging");
+    draggedChannelCard=null;
+    $("channel-list").querySelectorAll(".channel-card").forEach(card=>card.classList.remove("drop-target"));
+  });
   $("channel-list").addEventListener("click",event=>{
     const button=event.target.closest("button[data-action]");
     if(!button) return;
