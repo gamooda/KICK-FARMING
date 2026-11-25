@@ -327,7 +327,7 @@ class Twitch(object):
     def __check_connection_handler(self, chunk_size):
         # The success rate It's very hight usually. Why we have failed?
         # Check internet connection ...
-        while internet_connection_available() is False:
+        while self.running and internet_connection_available() is False:
             random_sleep = random.randint(1, 3)
             logger.warning(
                 f"No internet connection available! Retry after {random_sleep}m"
@@ -500,6 +500,8 @@ class Twitch(object):
                 ]
 
                 for index in streamers_index:
+                    if not self.running:
+                        break
                     if (streamers[index].stream.update_elapsed() / 60) > 10:
                         # Why this user It's currently online but the last updated was more than 10minutes ago?
                         # Please perform a manually update and check if the user it's online
@@ -576,7 +578,7 @@ class Twitch(object):
                         )
                         add_watching(streamers_with_multiplier)
 
-                selected_streamers = set(streamers_watching)                selected_streamers = set(streamers_watching)
+                selected_streamers = set(streamers_watching)
                 for index in streamers_index:
                     if index not in selected_streamers:
                         username = streamers[index].username
