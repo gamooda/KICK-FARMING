@@ -827,6 +827,7 @@ function updateSessionTimer(){
 }
 
 function updateFarmToggleButton(running){
+  const button=$("farm-toggle");
   if(!button) return;
   button.classList.toggle("button-primary",!running);
   button.classList.toggle("button-start",!running);
@@ -1671,6 +1672,16 @@ async function initialize(){
   $("startup-overlay").classList.add("hidden");
   initialStateReady=true;
   updateFarmToggleButton(Boolean(state.session_running));
+  if(state.restore_pending){
+    try{
+      const restore=api().begin_session_restore();
+      if(restore&&typeof restore.catch==="function"){
+        restore.catch(error=>console.warn("Session restore could not be started:",error));
+      }
+    }catch(error){
+      console.warn("Session restore could not be started:",error);
+    }
+  }
   setInterval(poll,900);
 }
 
