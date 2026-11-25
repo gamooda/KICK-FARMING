@@ -35,7 +35,7 @@ class Drop(object):
         self.benefit = ", ".join(
             list(set([bf["benefit"]["name"] for bf in dict["benefitEdges"]]))
         )
-        self.minutes_required = dict["requiredMinutesWatched"]
+        self.minutes_required = max(0, int(dict.get("requiredMinutesWatched") or 0))
 
         self.has_preconditions_met = None  # [True, False], None we don't know
         self.current_minutes_watched = 0
