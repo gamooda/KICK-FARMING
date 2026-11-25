@@ -295,6 +295,7 @@ class TwitchFarmingApi:
         self.startup_complete = False
         self.startup_phase = "Подготовка запуска..."
         self.startup_started_at = time.monotonic()
+        self.frontend_ready_event = threading.Event()
         self.restore_pending = False
         self.authenticated = False
         self.authenticated_username = ""
@@ -371,6 +372,39 @@ class TwitchFarmingApi:
                 "elapsed": round(max(0.0, time.monotonic() - self.startup_started_at), 1),
                 "restore_pending": bool(self.restore_pending),
             }
+
+    def mark_frontend_ready(self):
+        self.frontend_ready_event.set()
+        return {"ok": True}
+
+    def restart_app(self):
+        try:
+            self.shutdown()
+            if getattr(sys, "frozen", False):
+                os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
+            os.execv(sys.executable, [sys.executable, *sys.argv])
+        except Exception as error:
+            logging.getLogger("twitch_farming.startup").exception("Application restart failed")
+            return {"ok": False, "message": str(error) or error.__class__.__name__}
+
+    def watch_webview_startup(self):
+        if self.frontend_ready_event.wait(60):
+            return
+        if os.name != "nt":
+            return
+        logging.getLogger("twitch_farming.startup").error("[STARTUP] WebView2 не передал управление интерфейсу за 60 секунд.")
+        try:
+            import ctypes
+            answer = ctypes.windll.user32.MessageBoxW(
+                0,
+                "Встроенный браузер не завершил запуск за 60 секунд.\n\nНажми «Да», чтобы полностью перезапустить приложение, или «Нет», чтобы продолжить ожидание.",
+                "Twitch Farming",
+                0x00000004 | 0x00000030 | 0x00010000,
+            )
+            if answer == 6:
+                self.restart_app()
+        except Exception:
+            logging.getLogger("twitch_farming.startup").exception("WebView2 startup recovery dialog failed")
 
     def _load_config(self):
         try:
@@ -1429,6 +1463,7 @@ def main():
     window.events.maximized += lambda: api.sync_window_maximized(True)
     window.events.restored += lambda: api.sync_window_maximized(False)
     api.start_startup_worker()
+    threading.Thread(target=api.watch_webview_startup, name="WebViewStartupWatchdog", daemon=True).start()
     WEBVIEW_DIR.mkdir(parents=True, exist_ok=True)
     logging.getLogger("twitch_farming.startup").info("[STARTUP] Запуск WebView2. Профиль браузера: %s", WEBVIEW_DIR)
     try:
