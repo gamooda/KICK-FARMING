@@ -16,7 +16,7 @@
 
 ## Сборка
 
-GitHub Actions собирает Twitch Farming.exe для Windows и публикует его в Releases после изменений в этой папке.
+GitHub Actions собирает Twitch Farming.exe для Windows и публикует его в Releases после изменений в этой папке. Версия приложения задаётся константой `APP_VERSION` в `webview_app.py` и отображается в окне «О проекте».
 
 ## Основа и лицензия
 
