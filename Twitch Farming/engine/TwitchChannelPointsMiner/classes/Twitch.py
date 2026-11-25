@@ -1105,7 +1105,6 @@ class Twitch(object):
                             if candidate.startswith("https://"):
                                 image_url = candidate
                                 break
-                    percentage_value = min(100, int(watched * 100 / required)) if required else (100 if claimed else 0)
                     subscription_count = 0
                     for key in ("requiredSubscriptions", "requiredSubscriptionsCount", "requiredSubs", "subscriptionCount"):
                         subscription_count = safe_int(drop.get(key))
@@ -1117,6 +1116,19 @@ class Twitch(object):
                         or progress.get("currentSubs")
                         or progress.get("subscriptionsCount")
                     )
+                    watch_percentage = min(100, int(watched * 100 / required)) if required else 100
+                    subscription_percentage = (
+                        min(100, int(current_subscriptions * 100 / subscription_count))
+                        if subscription_count else 100
+                    )
+                    if required and subscription_count:
+                        percentage_value = min(watch_percentage, subscription_percentage)
+                    elif required:
+                        percentage_value = watch_percentage
+                    elif subscription_count:
+                        percentage_value = subscription_percentage
+                    else:
+                        percentage_value = 100 if claimed else 0
                     is_subscription = (
                         source_type == "subscription"
                         or subscription_count > 0
@@ -1132,6 +1144,8 @@ class Twitch(object):
                         "watched_minutes": watched,
                         "remaining_minutes": max(0, required - watched) if required else 0,
                         "percentage": percentage_value,
+                        "watch_percentage": watch_percentage,
+                        "subscription_percentage": subscription_percentage,
                         "claimed": claimed,
                         "claimable": bool(progress.get("dropInstanceID") or progress.get("drop_instance_id")) and not claimed,
                         "required_subscriptions": subscription_count,
