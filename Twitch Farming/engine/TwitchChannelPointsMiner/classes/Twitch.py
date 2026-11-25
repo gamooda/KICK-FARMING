@@ -760,8 +760,8 @@ class Twitch(object):
         try:
             request = {
                 "operationName": "ChannelPointsBranding",
-                "variables": {"channelLogin": streamer.username},
-                "query": "query ChannelPointsBranding($channelLogin: String!) { community { channel(login: $channelLogin) { communityPointsSettings { isEnabled name image { url url2x url4x } defaultImage { url url2x url4x } } } } }",
+                "variables": {"channelName": streamer.username},
+                "query": "query ChannelPointsBranding($channelName: String!) { channel(name: $channelName) { communityPointsSettings { isEnabled name image { url url2x url4x } defaultImage { url url2x url4x } } } }",
             }
             response = self.post_gql_request(request)
             errors = response.get("errors") if isinstance(response, dict) else None
@@ -770,8 +770,7 @@ class Twitch(object):
                 logger.warning(f"Twitch не вернул оформление Channel Points для @{streamer.username}: {details[:220]}")
                 return
             data = response.get("data") if isinstance(response, dict) else None
-            community = data.get("community") if isinstance(data, dict) else None
-            channel = community.get("channel") if isinstance(community, dict) else None
+            channel = data.get("channel") if isinstance(data, dict) else None
             settings = channel.get("communityPointsSettings") if isinstance(channel, dict) else None
             if not isinstance(settings, dict):
                 logger.warning(f"Twitch не вернул настройки Channel Points для @{streamer.username}.")
