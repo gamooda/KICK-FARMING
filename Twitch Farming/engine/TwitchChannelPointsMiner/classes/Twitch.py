@@ -1110,6 +1110,16 @@ class Twitch(object):
                         subscription_count = safe_int(drop.get(key))
                         if subscription_count:
                             break
+                    subscription_progress_keys = (
+                        "currentSubscriptions",
+                        "currentSubscriptionCount",
+                        "currentSubs",
+                        "subscriptionsCount",
+                    )
+                    subscriptions_progress_known = any(
+                        key in progress and progress.get(key) is not None
+                        for key in subscription_progress_keys
+                    )
                     current_subscriptions = safe_int(
                         progress.get("currentSubscriptions")
                         or progress.get("currentSubscriptionCount")
@@ -1154,6 +1164,7 @@ class Twitch(object):
                         "claimable": bool(progress.get("dropInstanceID") or progress.get("drop_instance_id")) and not claimed,
                         "required_subscriptions": subscription_count,
                         "current_subscriptions": current_subscriptions,
+                        "subscriptions_progress_known": subscriptions_progress_known,
                         "start_at": str(drop.get("startAt") or campaign.get("startAt") or ""),
                         "end_at": str(drop.get("endAt") or campaign.get("endAt") or ""),
                     })
