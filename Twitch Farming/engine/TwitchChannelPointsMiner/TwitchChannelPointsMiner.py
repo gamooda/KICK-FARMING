@@ -71,6 +71,8 @@ class TwitchChannelPointsMiner:
         "streamer_topics_initialized",
         "logs_file",
         "queue_listener",
+        "stop_requested",
+        "state_lock",
     ]
 
     def __init__(
@@ -113,12 +115,8 @@ class TwitchChannelPointsMiner:
             return False
 
         # check for Twitch.tv connectivity every 5 seconds
-        error_printed = False
-        while not is_connected():
-            if not error_printed:
-                logger.error("Waiting for Twitch.tv connectivity...")
-                error_printed = True
-            time.sleep(5)
+        if not is_connected():
+            logger.warning("Twitch.tv connectivity is unavailable during miner initialization.")
 
         # Analytics switch
         Settings.enable_analytics = enable_analytics
@@ -157,6 +155,8 @@ class TwitchChannelPointsMiner:
 
         self.session_id = str(uuid.uuid4())
         self.running = False
+        self.stop_requested = False
+        self.state_lock = threading.RLock()
         self.start_datetime = None
         self.original_streamers = []
         self.streamers_lock = threading.RLock()
@@ -280,11 +280,15 @@ class TwitchChannelPointsMiner:
     ):
         if self.running:
             logger.error("You can't start multiple sessions of this instance!")
+            return
         else:
+            with self.state_lock:
+                if self.stop_requested:
+                    return
+                self.running = True
             logger.info(
                 f"Start session: '{self.session_id}'", extra={"emoji": ":bomb:"}
             )
-            self.running = True
             self.start_datetime = datetime.now()
 
             if not self.twitch.login():
@@ -491,7 +495,9 @@ class TwitchChannelPointsMiner:
             time.sleep(min(step, remaining))
 
     def request_stop(self):
-        self.running = False
+        with self.state_lock:
+            self.stop_requested = True
+            self.running = False
         self.twitch.running = False
         try:
             self.twitch.twitch_login.cancel()
@@ -501,9 +507,8 @@ class TwitchChannelPointsMiner:
             self.ws_pool.end()
 
     def stop(self):
+        self.request_stop()
         listener = self.queue_listener
-        if listener is None:
-            return
         self.queue_listener = None
         self.running = False
         self.twitch.running = False
@@ -511,7 +516,7 @@ class TwitchChannelPointsMiner:
             self.twitch.twitch_login.cancel()
         except Exception:
             pass
-        deadline = time.monotonic() + 4
+        deadline = time.monotonic() + 25
         for streamer in self.streamers:
             if streamer.irc_chat is not None and streamer.settings.chat != ChatPresence.NEVER:
                 try:
@@ -533,7 +538,11 @@ class TwitchChannelPointsMiner:
                 pass
         if self.start_datetime is not None:
             self.__print_report()
-        listener.stop()
+        if listener is not None:
+            try:
+                listener.stop()
+            except Exception:
+                logger.exception("Could not stop the miner log listener")
 
     def end(self, signum, frame):
         self.stop()
