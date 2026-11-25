@@ -310,3 +310,69 @@ select.input option{background:#171622;color:#e8e4ef}
 .startup-title{font-size:15px;font-weight:800;color:#f0eaf8}
 .startup-description{font-size:11px;color:#a49bad;margin-top:0}
 @keyframes startup-spin{to{transform:rotate(360deg)}}
+
+.button-danger{background:#351a25;border-color:#713344;color:#ff9aaa}
+.button-danger:hover:not(:disabled){background:#572433;border-color:#a74e68;color:#fff}
+.branding-settings{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:13px;padding:13px 12px;background:linear-gradient(115deg,#1e1930,#171522);border:1px solid #38304b;border-radius:9px}
+.branding-settings-copy{display:flex;flex-direction:column;gap:5px;min-width:0}
+.branding-settings-copy strong{font-size:11px;color:#eee7f8;font-weight:850}
+.branding-settings-copy span{font-size:9px;line-height:1.45;color:#9991a8}
+#page-channel.page{position:fixed;inset:50px 0 0;z-index:85;width:auto;height:auto;min-height:0;padding:24px;display:none;align-items:center;justify-content:center;gap:0;overflow-y:auto;overflow-x:hidden;background:rgba(5,5,11,.72);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+#page-channel.page.active{display:flex}
+.channel-modal{width:min(590px,100%);max-height:calc(100vh - 98px);display:flex;flex-direction:column;overflow:hidden;background:linear-gradient(145deg,#191624,#12121c 72%);border:1px solid #4b3b61;border-radius:16px;box-shadow:0 24px 80px rgba(0,0,0,.55),0 0 0 1px rgba(175,121,255,.06);animation:channel-modal-in .18s ease-out}
+@keyframes channel-modal-in{from{opacity:0;transform:translateY(9px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+.channel-modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:21px 22px 16px;border-bottom:1px solid #2c2738;background:linear-gradient(115deg,rgba(105,59,151,.12),transparent 65%)}
+.channel-modal-kicker{font-size:8px;font-weight:900;letter-spacing:1.4px;color:#b48be2;margin-bottom:7px}
+.channel-modal-header .page-title{font-size:20px}
+.channel-modal-header .page-subtitle{font-size:10px;margin-top:5px}
+.channel-modal-close{width:31px;height:31px;flex:0 0 31px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid #3c334b;border-radius:8px;background:#211c2b;color:#bcb0ce}
+.channel-modal-close svg{width:18px;height:18px}
+.channel-modal-close:hover{background:#39263f;border-color:#8052a4;color:#fff}
+.channel-modal-content{min-height:0;overflow-y:auto;padding:18px 22px 13px;scrollbar-width:thin;scrollbar-color:#59436f transparent}
+.channel-preview-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin-bottom:14px}
+.channel-preview-card{display:flex;align-items:center;gap:12px;min-width:0;padding:11px 12px;background:linear-gradient(145deg,#242033,#1b1927);border:1px solid #443753;border-radius:11px;box-shadow:inset 0 1px rgba(255,255,255,.025)}
+.channel-preview-card.edit-preview{grid-column:1/-1;padding:15px 16px;border-color:#674d84;background:linear-gradient(115deg,#28203a,#1a1927)}
+.channel-preview-avatar{width:47px;height:47px;min-width:47px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;border-radius:50%;border:2px solid #8a60b4;background:#30263d;color:#ead8ff;font-size:18px;font-weight:900;box-shadow:0 0 0 4px rgba(148,95,203,.11)}
+.channel-preview-card.edit-preview .channel-preview-avatar{width:62px;height:62px;min-width:62px;font-size:23px}
+.channel-preview-avatar img{width:100%;height:100%;display:block;object-fit:cover}
+.channel-preview-avatar span{display:none}
+.channel-preview-avatar.avatar-fallback span{display:block}
+.channel-preview-copy{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.channel-preview-copy>strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f1eaf9;font-size:12px;font-weight:850}
+.channel-preview-copy>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#9990a8;font-size:9px}
+.channel-preview-meta{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:4px}
+.channel-preview-meta .channel-live-pill{font-size:8px}
+.channel-preview-meta>small{color:#958ba3;font-size:8px}
+.channel-balance{display:inline-flex;align-items:center;gap:5px;color:#cbb0ed}
+.channel-balance .channel-points-icon,.channel-balance .channel-points-icon-image{width:17px;height:17px;min-width:17px}
+.channel-balance b{font-size:12px;color:#f0e7fb}
+.channel-balance small{font-size:9px;color:#a89ab8}
+.channel-modal-input{height:auto;min-height:42px;padding:10px 12px;resize:vertical;font-size:11px;line-height:1.45}
+.channel-modal-input[rows="1"]{height:40px;min-height:40px;resize:none}
+.channel-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:9px}
+.channel-chip{display:inline-flex;align-items:center;gap:7px;min-height:25px;padding:3px 7px 3px 10px;border:1px solid #60437d;border-radius:20px;background:#2a2039;color:#ddc5fa;font-size:9px;font-weight:750}
+.channel-chip button{width:15px;height:15px;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:50%;background:#463054;color:#e7d5fa;font-size:13px;line-height:1}
+.channel-chip button:hover{background:#81465f;color:#fff}
+.channel-modal-content .field-label{margin:0 0 7px;font-size:9px}
+.channel-modal-content .field-hint{font-size:9px;line-height:1.5;margin-top:8px}
+.channel-modal-content .feedback{margin-top:7px}
+.channel-modal-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 22px 17px;border-top:1px solid #302a3c;background:#15141f}
+.channel-modal-actions-right{display:flex;align-items:center;gap:8px;margin-left:auto}
+.channel-modal-actions .button{height:34px;padding:0 13px;font-size:10px}
+@media(max-width:650px){
+  #page-channel.page{padding:12px}
+  .channel-modal{max-height:calc(100vh - 74px);border-radius:12px}
+  .channel-modal-header{padding:17px 16px 13px}
+  .channel-modal-content{padding:14px 16px 10px}
+  .channel-modal-actions{padding:11px 16px 14px}
+  .channel-preview-list{grid-template-columns:1fr}
+  .channel-preview-card.edit-preview{grid-column:auto}
+  .branding-settings{align-items:flex-start;flex-direction:column}
+  .branding-settings .button{width:100%}
+}
+@media(max-width:420px){
+  .channel-modal-actions{align-items:stretch;flex-direction:column}
+  .channel-modal-actions-right{width:100%;margin:0}
+  .channel-modal-actions-right .button{flex:1}
+  .channel-modal-actions>#channel-remove{width:100%;justify-content:center}
+}

@@ -18,6 +18,8 @@ let pageHistoryIndex=0;
 let windowMaximized=false;
 let polling=false;
 let toastTimer=null;
+let channelPreviewTimer=null;
+let channelPreviewSequence=0;
 let logsLoaded=false;
 let logsLoading=false;
 let pendingLogRows=[];
@@ -69,7 +71,10 @@ function setPage(page,remember=true){
     pageHistoryIndex=pageHistory.length-1;
   }
   currentPage=page;
-  document.querySelectorAll(".page").forEach(item=>item.classList.toggle("active",item.id==="page-"+page));
+  document.querySelectorAll(".page").forEach(item=>{
+    const visible=item.id==="page-"+page||(page==="channel"&&item.id==="page-dashboard");
+    item.classList.toggle("active",visible);
+  });
   document.querySelectorAll(".nav-button").forEach(item=>item.classList.remove("active"));
   const navMap={dashboard:"nav-dashboard",settings:"nav-settings",bets:"nav-predictions",logs:"nav-events",channel:"nav-dashboard"};
   const active=$(navMap[page]||"nav-dashboard");
@@ -522,29 +527,130 @@ async function gateLogin(){
   return loginUser($("gate-username").value);
 }
 
+function channelTokens(value){
+  const tokens=String(value||"").split(/[\n,;]+/).map(item=>{
+    let login=String(item||"").trim();
+    login=login.replace(/^(?:https?:\/\/)?(?:www\.)?twitch\.tv\//i,"");
+    login=login.split(/[/?#]/,1)[0].replace(/^@/,"").trim().toLowerCase();
+    return /^[a-z0-9_]{1,25}$/.test(login)?login:"";
+  }).filter(Boolean);
+  return [...new Set(tokens)].slice(0,100);
+}
+
+function renderChannelChips(tokens){
+  const root=$("channel-chips");
+  if(channelMode!=="add"||!tokens.length){root.innerHTML="";return;}
+  root.innerHTML=tokens.map(login=>"<span class='channel-chip'>@"+esc(login)+"<button type='button' data-remove-channel='"+esc(login)+"' title='Убрать'>×</button></span>").join("");
+}
+
+function previewStatus(profile){
+  return profile&&profile.error?"НЕ НАЙДЕН":profile&&profile.loaded?(profile.is_live?"В ЭФИРЕ":"ОФФЛАЙН"):"ПРОВЕРКА";
+}
+
+function renderChannelPreviewCards(items){
+  const root=$("channel-preview-list");
+  if(!items||!items.length){root.innerHTML="";return;}
+  root.innerHTML=items.map(item=>{
+    const login=String(item.login||"");
+    const display=String(item.display_name||login);
+    const avatar=String(item.avatar_url||"");
+    const live=Boolean(item.is_live);
+    const status=previewStatus(item);
+    const statusClass=item.error?"is-error":item.loaded?(live?"is-live":"is-offline"):"is-pending";
+    const image=avatar?"<img src='"+esc(avatar)+"' alt='' loading='lazy' onerror='this.remove();this.parentElement.classList.add(&quot;avatar-fallback&quot;)'>":"";
+    return "<article class='channel-preview-card'><div class='channel-preview-avatar "+(avatar?"":"avatar-fallback")+"'>"+image+"<span>"+esc(display.charAt(0).toUpperCase()||"?")+"</span></div><div class='channel-preview-copy'><strong>"+esc(display)+"</strong><span>@"+esc(login)+"</span><div class='channel-preview-meta'><span class='channel-live-pill "+statusClass+"'><i class='channel-status-dot "+(live?"is-live":"") +"'></i>"+status+"</span>"+(Number(item.viewer_count||0)>0?"<small>"+Number(item.viewer_count).toLocaleString("ru-RU")+" зрителей</small>":"")+"</div></div></article>";
+  }).join("");
+}
+
+function renderEditChannelPreview(login){
+  const profile=appState&&appState.channel_profiles&&appState.channel_profiles[login]?appState.channel_profiles[login]:{};
+  const currency=appState&&appState.channel_currency&&appState.channel_currency[login]?appState.channel_currency[login]:{};
+  const balances=appState&&appState.channel_balances||{};
+  const hasBalance=Object.prototype.hasOwnProperty.call(balances,login);
+  const points=hasBalance?Number(balances[login]||0).toLocaleString("ru-RU"):"—";
+  const display=String(profile.display_name||login);
+  const avatar=String(profile.avatar_url||"");
+  const live=Boolean(profile.is_live||(appState&&Array.isArray(appState.online_channels)&&appState.online_channels.includes(login)));
+  const icon=String(currency.icon_url||"");
+  const pointsIcon=icon.startsWith("https://")?"<img class='channel-points-icon-image' src='"+esc(icon)+"' alt='' onerror='this.remove()'>":"<svg class='channel-points-icon'><use href='#i-diamond'></use></svg>";
+  const status=profile.loaded?(live?"В ЭФИРЕ":"ОФФЛАЙН"):(live?"В ЭФИРЕ":"СТАТУС НЕ ПРОВЕРЕН");
+  const statusClass=live?"is-live":"is-offline";
+  const image=avatar?"<img src='"+esc(avatar)+"' alt='' loading='lazy' onerror='this.remove();this.parentElement.classList.add(&quot;avatar-fallback&quot;)'>":"";
+  $("channel-preview-list").innerHTML="<article class='channel-preview-card edit-preview'><div class='channel-preview-avatar "+(avatar?"":"avatar-fallback")+"'>"+image+"<span>"+esc(display.charAt(0).toUpperCase()||"?")+"</span></div><div class='channel-preview-copy'><strong>"+esc(display)+"</strong><span>@"+esc(login)+"</span><div class='channel-preview-meta'><span class='channel-live-pill "+statusClass+"'><i class='channel-status-dot "+(live?"is-live":"") +"'></i>"+status+"</span><span class='channel-balance'>"+pointsIcon+"<b>"+points+"</b><small>"+esc(String(currency.name||"баллов"))+"</small></span></div></div></article>";
+}
+
+function updateChannelPreview(){
+  const raw=$("channel-input").value||"";
+  const tokens=channelTokens(raw);
+  renderChannelChips(tokens);
+  const request=++channelPreviewSequence;
+  clearTimeout(channelPreviewTimer);
+  if(!tokens.length){$("channel-preview-list").innerHTML="";return;}
+  const cached=(appState&&appState.channel_profiles)||{};
+  renderChannelPreviewCards(tokens.map(login=>({login,display_name:cached[login]&&cached[login].display_name||login,avatar_url:cached[login]&&cached[login].avatar_url||"",is_live:Boolean(cached[login]&&cached[login].is_live),loaded:Boolean(cached[login]&&cached[login].loaded)})));
+  channelPreviewTimer=setTimeout(async()=>{
+    try{
+      const result=await api().preview_channels(tokens.join("\n"));
+      if(request!==channelPreviewSequence||channelMode!=="add") return;
+      renderChannelPreviewCards(result.channels||[]);
+    }catch(error){}
+  },550);
+}
+
 function openChannelEditor(mode,oldChannel){
   channelMode=mode;
   editingChannel=oldChannel||"";
-  $("channel-page-title").textContent=mode==="add"?"Добавить канал":"Изменить @"+oldChannel;
+  $("channel-page-title").textContent=mode==="add"?"Добавить каналы":"Изменить канал";
+  $("channel-page-subtitle").textContent=mode==="add"?"Добавляй один или несколько каналов Twitch":"Настройки выбранного Twitch-канала";
   $("channel-input").value=oldChannel||"";
+  $("channel-input").rows=mode==="add"?3:1;
+  $("channel-input").placeholder=mode==="add"?"Логин, twitch.tv/channel или список через запятую / новую строку":"Логин или twitch.tv/channel";
+  $("channel-remove").style.display=mode==="edit"?"inline-flex":"none";
+  $("save-channel").textContent=mode==="add"?"Добавить каналы":"Сохранить";
+  $("channel-chips").innerHTML="";
+  $("channel-preview-list").innerHTML="";
   setFeedback("channel-feedback","");
   setPage("channel");
+  if(mode==="edit") renderEditChannelPreview(oldChannel);
+  else updateChannelPreview();
   $("channel-input").focus();
-  $("channel-input").select();
+  if(mode==="edit") $("channel-input").select();
 }
 
 async function saveChannel(){
   if(!ensureStartupReady()) return;
   const raw=$("channel-input").value.trim();
+  const tokens=channelMode==="add"?channelTokens(raw):[];
+  if(channelMode==="add"&&!tokens.length){setFeedback("channel-feedback","Укажи хотя бы один корректный логин или ссылку Twitch.",true);return;}
   try{
-    const result=await api().save_channel_editor(channelMode,editingChannel,raw);
+    const result=await api().save_channel_editor(channelMode,editingChannel,channelMode==="add"?tokens.join("\n"):raw);
     if(!result.ok){setFeedback("channel-feedback",result.message,true);return;}
     notify(result.message||"Канал сохранён.");
     channelCache="";
+    channelPreviewSequence++;
     await poll();
     setPage("dashboard");
   }catch(error){
     setFeedback("channel-feedback",error.message||"Не удалось сохранить канал.",true);
+  }
+}
+
+async function refreshChannelBranding(){
+  if(!ensureStartupReady()) return;
+  const button=$("refresh-channel-branding");
+  const original=button.innerHTML;
+  button.disabled=true;
+  button.textContent="Проверка...";
+  try{
+    const result=await api().refresh_channel_points_branding();
+    notify(result.message||"Проверка оформления запущена.");
+    if(!result.ok) setFeedback("branding-feedback",result.message,true);
+    else setFeedback("branding-feedback","Значки и названия проверяются для всех каналов.",false);
+  }catch(error){
+    setFeedback("branding-feedback",error.message||"Не удалось проверить оформление.",true);
+  }finally{
+    button.disabled=false;
+    button.innerHTML=original;
   }
 }
 
@@ -556,6 +662,7 @@ async function removeChannel(login){
     if(!result.ok){notify(result.message||"Не удалось удалить канал.");return;}
     channelCache="";
     await poll();
+    if(currentPage==="channel"&&editingChannel===login) setPage("dashboard");
     notify("Канал удалён.");
   }catch(error){
     notify(error.message||"Не удалось удалить канал.");
@@ -768,6 +875,11 @@ document.addEventListener("DOMContentLoaded",()=>{
       $("channel-search").focus();
       $("channel-search").select();
     }
+    if(event.key==="Escape"&&currentPage==="channel"){
+      setPage("dashboard");
+      event.preventDefault();
+      return;
+    }
     if(event.key==="Escape"&&document.activeElement===$("channel-search")){
       $("channel-search").value="";
       channelSearch="";
@@ -790,6 +902,18 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("nav-settings").addEventListener("click",()=>setPage("settings"));
   $("open-folder").addEventListener("click",openFolder);
   $("add-channel").addEventListener("click",()=>openChannelEditor("add",""));
+  $("page-channel").addEventListener("click",event=>{if(event.target===$("page-channel"))setPage("dashboard");});
+  $("channel-chips").addEventListener("click",event=>{
+    const button=event.target.closest("[data-remove-channel]");
+    if(!button) return;
+    const login=button.dataset.removeChannel;
+    const remaining=channelTokens($("channel-input").value).filter(item=>item!==login);
+    $("channel-input").value=remaining.join("\n");
+    updateChannelPreview();
+  });
+  $("channel-input").addEventListener("input",()=>{if(channelMode==="add") updateChannelPreview();});
+  $("channel-remove").addEventListener("click",()=>removeChannel(editingChannel));
+  $("refresh-channel-branding").addEventListener("click",refreshChannelBranding);
   $("channel-list").addEventListener("click",event=>{
     const button=event.target.closest("button[data-action]");
     if(!button) return;
@@ -815,7 +939,12 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("back-from-channel").addEventListener("click",()=>setPage("dashboard"));
   $("cancel-channel").addEventListener("click",()=>setPage("dashboard"));
   $("save-channel").addEventListener("click",saveChannel);
-  $("channel-input").addEventListener("keydown",event=>{if(event.key==="Enter")saveChannel();});
+  $("channel-input").addEventListener("keydown",event=>{
+    if(event.key==="Enter"&&(channelMode==="edit"||event.ctrlKey||event.metaKey)){
+      event.preventDefault();
+      saveChannel();
+    }
+  });
   $("open-bets").addEventListener("click",openBetSettings);
   $("back-from-bets").addEventListener("click",()=>setPage("settings"));
   $("preset-select").addEventListener("change",()=>fillPreset($("preset-select").value,appState&&appState.bet_settings,appState&&appState.custom_presets));

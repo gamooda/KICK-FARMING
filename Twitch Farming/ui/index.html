@@ -162,6 +162,11 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
             <label class="check-row option-row" id="row-make_predictions"><input type="checkbox" id="opt-make_predictions"><span class="check-box"></span><svg><use href="#i-chart"></use></svg><span>Прогнозы</span><small>Автоматическое участие</small></label>
             <label class="check-row option-row" id="row-chat"><input type="checkbox" id="opt-chat"><span class="check-box"></span><svg><use href="#i-chat"></use></svg><span>IRC-чат</span><small>Подключаться к чату эфира</small></label>
           </div>
+          <div class="branding-settings">
+            <div class="branding-settings-copy"><strong>Оформление Channel Points</strong><span>Название валюты и значок сохраняются на этом компьютере. Проверка вручную обновит их для всех каналов.</span></div>
+            <button class="button button-primary" id="refresh-channel-branding"><svg><use href="#i-refresh"></use></svg>Обновить оформление</button>
+          </div>
+          <div class="feedback" id="branding-feedback"></div>
           <div class="settings-actions">
             <button class="button button-soft" id="open-bets"><svg><use href="#i-settings"></use></svg>Настроить прогнозы</button>
             <button class="button button-primary" id="save-button"><svg><use href="#i-save"></use></svg>Сохранить настройки</button>
@@ -169,17 +174,25 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
           <div class="feedback" id="settings-feedback"></div>
         </section>
       </section>
-      <section class="page" id="page-channel">
-        <header class="subpage-header">
-          <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-channel"><svg><use href="#i-left"></use></svg>Назад</button><div><div class="page-title" id="channel-page-title">Добавить канал</div><div class="page-subtitle">Управление каналами Twitch</div></div></div>
-        </header>
-        <section class="panel editor-panel">
-          <div class="section-heading">КАНАЛ TWITCH</div>
-          <input class="input editor-input" id="channel-input" type="text" placeholder="Логин или twitch.tv/channel" autocomplete="off" spellcheck="false">
-          <div class="field-hint">Введи логин канала или ссылку Twitch.</div>
-          <div class="feedback" id="channel-feedback"></div>
-          <div class="editor-actions"><button class="button button-soft" id="cancel-channel">Отмена</button><button class="button button-primary" id="save-channel">Сохранить</button></div>
-        </section>
+      <section class="page channel-modal-overlay" id="page-channel">
+        <div class="channel-modal" role="dialog" aria-modal="true" aria-labelledby="channel-page-title">
+          <header class="channel-modal-header">
+            <div><div class="channel-modal-kicker">УПРАВЛЕНИЕ КАНАЛАМИ TWITCH</div><div class="page-title" id="channel-page-title">Добавить каналы</div><div class="page-subtitle" id="channel-page-subtitle">Добавляй один или несколько каналов Twitch</div></div>
+            <button class="channel-modal-close" id="back-from-channel" title="Закрыть"><svg><use href="#i-close"></use></svg></button>
+          </header>
+          <div class="channel-modal-content">
+            <div class="channel-preview-list" id="channel-preview-list"></div>
+            <label class="field-label" for="channel-input">ЛОГИН ИЛИ ССЫЛКА TWITCH</label>
+            <textarea class="input channel-modal-input" id="channel-input" rows="3" placeholder="Логин, twitch.tv/channel или список через запятую / новую строку" autocomplete="off" spellcheck="false"></textarea>
+            <div class="channel-chips" id="channel-chips"></div>
+            <div class="field-hint" id="channel-input-hint">Можно вставить сразу несколько каналов — через запятую или с новой строки.</div>
+            <div class="feedback" id="channel-feedback"></div>
+          </div>
+          <footer class="channel-modal-actions">
+            <button class="button button-danger" id="channel-remove"><svg><use href="#i-trash"></use></svg>Удалить канал</button>
+            <div class="channel-modal-actions-right"><button class="button button-soft" id="cancel-channel">Отмена</button><button class="button button-primary" id="save-channel">Добавить каналы</button></div>
+          </footer>
+        </div>
       </section>
       <section class="page" id="page-bets">
         <header class="subpage-header">

@@ -138,7 +138,7 @@ class EngineWorker(threading.Thread):
             from TwitchChannelPointsMiner.TwitchChannelPointsMiner import TwitchChannelPointsMiner
             from TwitchChannelPointsMiner.classes.Chat import ChatPresence
             from TwitchChannelPointsMiner.classes.Settings import Priority
-            from TwitchChannelPointsMiner.classes.entities.Streamer import StreamerSettings
+            from TwitchChannelPointsMiner.classes.entities.Streamer import Streamer, StreamerSettings
             from TwitchChannelPointsMiner.classes.entities.Bet import BetSettings, Condition, DelayMode, FilterCondition, OutcomeKeys, Strategy
             from TwitchChannelPointsMiner.logger import LoggerSettings
             data = self.options.get("bet_settings", dict(DEFAULT_BET_SETTINGS))
@@ -183,12 +183,23 @@ class EngineWorker(threading.Thread):
                 check_for_updates=False,
             )
             self.miner = miner
+            with self.app.lock:
+                branding_cache = {key: dict(value) for key, value in self.app.channel_points_branding_cache.items()}
+            prepared_streamers = []
+            for login in self.channels:
+                streamer = Streamer(login)
+                cached_branding = branding_cache.get(login)
+                if isinstance(cached_branding, dict):
+                    streamer.channel_points_name = str(cached_branding.get("name") or "")
+                    streamer.channel_points_image = str(cached_branding.get("icon_url") or "")
+                    streamer.channel_points_branding_loaded = True
+                prepared_streamers.append(streamer)
             self.client.running = True
             self.client.twitch_login.cancelled = False
             if self.stop_requested:
                 miner.request_stop()
                 return
-            miner.mine(streamers=self.channels, followers=False)
+            miner.mine(streamers=prepared_streamers, followers=False)
         except BaseException as error:
             self.app.engine_error(str(error) or error.__class__.__name__)
         finally:
@@ -258,6 +269,8 @@ class TwitchFarmingApi:
         self.account_profile = {}
         self.channel_profiles = {}
         self.channel_balances = {}
+        self.channel_points_branding_cache = {}
+        self.channel_points_branding_worker = None
         self.rewards = []
         self.window = None
         self.window_maximized = False
@@ -352,6 +365,33 @@ class TwitchFarmingApi:
         if isinstance(channels, str):
             channels = re.split(r"[\n,;]+", channels)
         self.channels = list(dict.fromkeys(self.normalize_channel(x) for x in channels if self.normalize_channel(x)))
+        stored_branding = data.get("channel_points_branding", {})
+        self.channel_points_branding_cache = {}
+        if isinstance(stored_branding, dict):
+            for login, item in stored_branding.items():
+                normalized_login = self.normalize_channel(login)
+                if normalized_login not in self.channels or not isinstance(item, dict):
+                    continue
+                icon_url = str(item.get("icon_url") or "")
+                entry = {
+                    "name": str(item.get("name") or "").strip()[:80],
+                    "icon_url": icon_url if icon_url.startswith("https://") else "",
+                }
+                try:
+                    points = max(0, int(item.get("points")))
+                except (TypeError, ValueError):
+                    points = None
+                if points is not None:
+                    entry["points"] = points
+                    self.channel_balances[normalized_login] = {
+                        "login": normalized_login,
+                        "points": points,
+                        "display_name": normalized_login,
+                        "avatar_url": "",
+                        "points_name": entry["name"],
+                        "points_icon_url": entry["icon_url"],
+                    }
+                self.channel_points_branding_cache[normalized_login] = entry
         stored_options = data.get("settings", {})
         config_version = int(data.get("ui_config_version", 0) or 0)
         self.options = {key: bool(stored_options.get(key, default)) for key, default in DEFAULT_OPTIONS.items()}
@@ -369,6 +409,7 @@ class TwitchFarmingApi:
         return {
             "username": self.username,
             "channels": list(self.channels),
+            "channel_points_branding": {key: dict(value) for key, value in self.channel_points_branding_cache.items() if key in self.channels},
             "settings": dict(self.options),
             "bet_settings": dict(self.bet_settings),
             "custom_presets": self.custom_presets,
@@ -431,11 +472,11 @@ class TwitchFarmingApi:
         with self.lock:
             if self.session_running:
                 return {"ok": False, "message": "Нельзя менять каналы во время сбора."}
-            channel = self.normalize_channel(raw_value)
-            if not channel:
-                return {"ok": False, "message": "Укажи корректный логин или ссылку Twitch."}
             old = self.normalize_channel(old_channel)
             if mode == "edit":
+                channel = self.normalize_channel(raw_value)
+                if not channel:
+                    return {"ok": False, "message": "Укажи корректный логин или ссылку Twitch."}
                 if old not in self.channels:
                     return {"ok": False, "message": "Канал больше не найден."}
                 if channel != old and channel in self.channels:
@@ -443,13 +484,26 @@ class TwitchFarmingApi:
                 self.channels[self.channels.index(old)] = channel
                 self.online_channels.discard(old)
                 self.channel_profiles.pop(old, None)
+                self.channel_balances.pop(old, None)
+                if channel != old:
+                    self.channel_points_branding_cache.pop(old, None)
+                added = [channel] if channel != old else []
             else:
-                if channel in self.channels:
-                    return {"ok": False, "message": "Этот канал уже добавлен."}
-                self.channels.append(channel)
-        self._save_config()
-        self.refresh_channel_profiles([channel])
-        return {"ok": True, "message": "Канал сохранён."}
+                tokens = re.split(r"[\n,;]+", str(raw_value or ""))
+                normalized = list(dict.fromkeys(self.normalize_channel(item) for item in tokens))
+                normalized = [item for item in normalized if item]
+                added = [item for item in normalized if item not in self.channels]
+                if not added:
+                    if normalized:
+                        return {"ok": False, "message": "Все указанные каналы уже добавлены."}
+                    return {"ok": False, "message": "Укажи корректные логины или ссылки Twitch."}
+                self.channels.extend(added)
+        if not self._save_config():
+            return {"ok": False, "message": "Не удалось сохранить список каналов."}
+        self.refresh_channel_profiles(added)
+        if mode == "add":
+            return {"ok": True, "message": "Добавлено каналов: " + str(len(added)) + ".", "added": added}
+        return {"ok": True, "message": "Канал сохранён.", "added": added}
 
     def remove_channel(self, channel):
         channel = self.normalize_channel(channel)
@@ -460,6 +514,8 @@ class TwitchFarmingApi:
                 self.channels.remove(channel)
                 self.online_channels.discard(channel)
                 self.channel_profiles.pop(channel, None)
+                self.channel_balances.pop(channel, None)
+                self.channel_points_branding_cache.pop(channel, None)
         self._save_config()
         return {"ok": True}
 
@@ -663,6 +719,105 @@ class TwitchFarmingApi:
             self.profile_worker = next_worker
             self.last_profile_refresh_at = time.monotonic()
         next_worker.start()
+
+    def preview_channels(self, raw_value):
+        tokens = re.split(r"[\n,;]+", str(raw_value or ""))
+        logins = list(dict.fromkeys(self.normalize_channel(item) for item in tokens))
+        logins = [login for login in logins if login][:100]
+        if not logins:
+            return {"channels": []}
+        with self.lock:
+            client = self.api_client if self.authenticated else None
+            cached_profiles = {login: dict(self.channel_profiles.get(login, {})) for login in logins}
+        profiles = {
+            login: {
+                "login": login,
+                "display_name": cached_profiles[login].get("display_name") or login,
+                "avatar_url": cached_profiles[login].get("avatar_url") or "",
+                "is_live": bool(cached_profiles[login].get("is_live")),
+                "loaded": bool(cached_profiles[login].get("loaded")),
+            }
+            for login in logins
+        }
+        if client is not None:
+            try:
+                users = client.helix_get("users", [("login", login) for login in logins])
+                streams = client.helix_get("streams", [("user_login", login) for login in logins])
+                users_by_login = {str(user.get("login", "")).lower(): user for user in users}
+                streams_by_login = {str(stream.get("user_login", "")).lower(): stream for stream in streams}
+                for login in logins:
+                    user = users_by_login.get(login)
+                    if not user:
+                        profiles[login].update({"loaded": True, "error": "Канал не найден"})
+                        continue
+                    stream = streams_by_login.get(login)
+                    avatar = str(user.get("profile_image_url") or "")
+                    profiles[login].update({
+                        "loaded": True,
+                        "display_name": str(user.get("display_name") or login),
+                        "avatar_url": avatar if avatar.startswith("https://") else "",
+                        "is_live": bool(stream),
+                        "viewer_count": int((stream or {}).get("viewer_count") or 0),
+                        "error": "",
+                    })
+            except Exception as error:
+                message = str(error)[:160]
+                for login in logins:
+                    profiles[login]["error"] = message
+        return {"channels": list(profiles.values())}
+
+    def refresh_channel_points_branding(self):
+        with self.lock:
+            if not self.authenticated or self.api_client is None:
+                return {"ok": False, "message": "Сначала подключи аккаунт Twitch."}
+            worker = self.channel_points_branding_worker
+            if worker is not None and worker.is_alive():
+                return {"ok": False, "message": "Проверка оформления уже выполняется."}
+            client = self.api_client
+            engine = self.engine_worker
+            miner = getattr(engine, "miner", None) if engine is not None else None
+            streamers = {
+                str(getattr(item, "username", "") or "").lower(): item
+                for item in list(getattr(miner, "streamers", []) or [])
+            }
+            logins = list(self.channels)
+
+            def refresh():
+                try:
+                    from TwitchChannelPointsMiner.classes.entities.Streamer import Streamer
+                    changed = 0
+                    for login in logins:
+                        streamer = streamers.get(login) or Streamer(login)
+                        streamer.channel_points_branding_loaded = False
+                        streamer.channel_points_branding_loading = True
+                        try:
+                            client._load_channel_points_branding(streamer)
+                        except Exception:
+                            logging.getLogger("twitch_farming.branding").exception("Channel Points branding refresh failed for @%s", login)
+                        if streamer.channel_points_branding_loaded:
+                            with self.lock:
+                                previous = self.channel_points_branding_cache.get(login, {})
+                                entry = {
+                                    "name": str(streamer.channel_points_name or "").strip()[:80],
+                                    "icon_url": str(streamer.channel_points_image or "") if str(streamer.channel_points_image or "").startswith("https://") else "",
+                                }
+                                if "points" in previous:
+                                    entry["points"] = previous["points"]
+                                if entry != previous:
+                                    self.channel_points_branding_cache[login] = entry
+                                    changed += 1
+                    if changed:
+                        self._save_config()
+                    with self.lock:
+                        self._append_event_locked("Проверено оформление Channel Points · обновлено каналов: " + str(changed))
+                finally:
+                    with self.lock:
+                        self.channel_points_branding_worker = None
+
+            worker = threading.Thread(target=refresh, name="ChannelPointsBrandingRefresh", daemon=True)
+            self.channel_points_branding_worker = worker
+        worker.start()
+        return {"ok": True, "message": "Проверка названий и значков Channel Points запущена."}
 
     def start_farm(self, payload):
         saved = self.save_settings(payload)
@@ -956,6 +1111,7 @@ class TwitchFarmingApi:
     def _refresh_channel_balances_locked(self):
         worker = self.engine_worker
         miner = getattr(worker, "miner", None) if worker is not None else None
+        branding_changed = False
         if miner is not None:
             for streamer in list(getattr(miner, "streamers", []) or []):
                 login = str(getattr(streamer, "username", "") or "").lower()
@@ -966,34 +1122,60 @@ class TwitchFarmingApi:
                 except (TypeError, ValueError):
                     points = 0
                 profile = self.channel_profiles.get(login, {})
+                points_name = str(getattr(streamer, "channel_points_name", "") or "").strip()
+                points_icon_url = str(getattr(streamer, "channel_points_image", "") or "")
                 self.channel_balances[login] = {
                     "login": login,
                     "points": points,
                     "display_name": str(profile.get("display_name") or login),
                     "avatar_url": str(profile.get("avatar_url") or ""),
-                    "points_name": str(getattr(streamer, "channel_points_name", "") or ""),
-                    "points_icon_url": str(getattr(streamer, "channel_points_image", "") or ""),
+                    "points_name": points_name,
+                    "points_icon_url": points_icon_url,
                 }
+                if bool(getattr(streamer, "channel_points_branding_loaded", False)):
+                    previous = self.channel_points_branding_cache.get(login, {})
+                    entry = {
+                        "name": points_name[:80],
+                        "icon_url": points_icon_url if points_icon_url.startswith("https://") else "",
+                        "points": points,
+                    }
+                    if entry != previous:
+                        self.channel_points_branding_cache[login] = entry
+                        branding_changed = True
         valid = set(self.channels)
         self.channel_balances = {
             login: item for login, item in self.channel_balances.items()
             if login in valid
         }
+        if branding_changed:
+            self._save_config()
         ranked = sorted(
             self.channel_balances.values(),
             key=lambda item: (int(item.get("points", 0)), item.get("login", "")),
             reverse=True,
         )
-        return ranked[:3], {
+        balances = {
             login: int(item.get("points", 0))
             for login, item in self.channel_balances.items()
-        }, {
-            login: {
-                "name": str(item.get("points_name") or ""),
-                "icon_url": str(item.get("points_icon_url") or ""),
-            }
-            for login, item in self.channel_balances.items()
         }
+        currency = {}
+        for login in self.channels:
+            cached = self.channel_points_branding_cache.get(login, {})
+            currency[login] = {
+                "name": str(cached.get("name") or ""),
+                "icon_url": str(cached.get("icon_url") or ""),
+            }
+            if "points" in cached and login not in balances:
+                try:
+                    balances[login] = max(0, int(cached.get("points")))
+                except (TypeError, ValueError):
+                    pass
+        for login, item in self.channel_balances.items():
+            currency[login] = {
+                "name": str(item.get("points_name") or currency.get(login, {}).get("name") or ""),
+                "icon_url": str(item.get("points_icon_url") or currency.get(login, {}).get("icon_url") or ""),
+            }
+        return ranked[:3], balances, currency
 
     def get_state(self, after_log_id=0):
         try:
