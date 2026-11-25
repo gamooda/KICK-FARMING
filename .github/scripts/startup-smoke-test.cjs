@@ -3,7 +3,15 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const source = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/app.js"), "utf8");
+const html = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/index.html"), "utf8");
+if (!html.includes("window.onerror") || !html.includes("unhandledrejection") || !html.includes("startup-debug-output")) {
+  throw new Error("Startup error capture or debug console is missing from index.html.");
+}
+if (source.includes("WebView2 не запустился за 120 секунд")) {
+  throw new Error("The obsolete 120-second startup placeholder is still present.");
+}
 const elements = new Map();
+let intervalCount = 0;
 
 function getElement(id) {
   if (!elements.has(id)) {
@@ -16,12 +24,20 @@ function getElement(id) {
       disabled: false,
       dataset: {},
       style: {},
-      classList: {
-        add() {},
-        remove() {},
-        toggle() {},
-        contains() { return false; }
-      }
+      classList: (() => {
+        const values = new Set();
+        return {
+          add(name) { values.add(name); },
+          remove(name) { values.delete(name); },
+          toggle(name, force) {
+            const enabled = force === undefined ? !values.has(name) : Boolean(force);
+            if (enabled) values.add(name);
+            else values.delete(name);
+            return enabled;
+          },
+          contains(name) { return values.has(name); }
+        };
+      })()
     });
   }
   return elements.get(id);
@@ -74,6 +90,7 @@ const required = [
   "get_state",
   "get_startup_state",
   "record_frontend_timing",
+  "record_startup_debug",
   "mark_frontend_ready",
   "restart_app",
   "begin_session_restore",
@@ -117,7 +134,13 @@ bridge.get_state = () => Promise.resolve(state);
 const window = {
   setTimeout() { return 0; },
   clearTimeout() {},
-  __twitchPywebviewReadyPromise: Promise.resolve(),
+  setInterval() { intervalCount++; return intervalCount; },
+  clearInterval() {},
+  __tfStartupDebug: {
+    log() {},
+    display() {},
+    flush() {}
+  },
   pywebview: { api: bridge }
 };
 
@@ -126,6 +149,7 @@ const sandbox = {
   window,
   console,
   performance: {
+    now() { return 0; },
     getEntriesByType() {
       return [{ domContentLoadedEventEnd: 0, loadEventEnd: 0 }];
     }
@@ -151,6 +175,12 @@ appInitialized = true;
   await initialize();
   if (!startupCompleteUi || !initialStateReady) {
     throw new Error("Startup flags were not set.");
+  }
+  if (!document.getElementById("startup-overlay").classList.contains("hidden")) {
+    throw new Error("Startup overlay was not hidden after successful initialization.");
+  }
+  if (intervalCount !== 3) {
+    throw new Error("Startup timers and polling were not initialized after readiness.");
   }
   const button = document.getElementById("farm-toggle");
   if (!button.innerHTML.includes("Запустить")) {
