@@ -68,6 +68,7 @@ class TwitchChannelPointsMiner:
         "start_datetime",
         "original_streamers",
         "streamers_lock",
+        "streamer_topics_initialized",
         "logs_file",
         "queue_listener",
     ]
@@ -159,6 +160,7 @@ class TwitchChannelPointsMiner:
         self.start_datetime = None
         self.original_streamers = []
         self.streamers_lock = threading.RLock()
+        self.streamer_topics_initialized = False
 
         self.logs_file, self.queue_listener = configure_loggers(
             self.username, logger_settings
@@ -205,6 +207,20 @@ class TwitchChannelPointsMiner:
         else:
             logger.error("Can't start analytics(), please set enable_analytics=True")
 
+    def _subscribe_streamer_topics(self, streamer, pool=None):
+        pool = pool or self.ws_pool
+        if pool is None:
+            return
+        pool.submit(PubsubTopic("video-playback-by-id", streamer=streamer))
+        if streamer.settings.follow_raid:
+            pool.submit(PubsubTopic("raid", streamer=streamer))
+        if streamer.settings.make_predictions:
+            pool.submit(PubsubTopic("predictions-channel-v1", streamer=streamer))
+        if streamer.settings.claim_moments:
+            pool.submit(PubsubTopic("community-moments-channel-v1", streamer=streamer))
+        if streamer.settings.community_goals:
+            pool.submit(PubsubTopic("community-points-channel-v1", streamer=streamer))
+
     def add_streamer(self, username, channel_id=None):
         username = str(username or "").strip().lower()
         if not username:
@@ -234,17 +250,10 @@ class TwitchChannelPointsMiner:
                     return {"ok": True, "message": "Канал уже находится в фарме.", "unchanged": True}
                 self.streamers.append(streamer)
                 self.original_streamers.append(streamer.channel_points)
+                subscribe_now = bool(self.streamer_topics_initialized)
                 pool = self.ws_pool
-            if pool is not None:
-                pool.submit(PubsubTopic("video-playback-by-id", streamer=streamer))
-                if streamer.settings.follow_raid:
-                    pool.submit(PubsubTopic("raid", streamer=streamer))
-                if streamer.settings.make_predictions:
-                    pool.submit(PubsubTopic("predictions-channel-v1", streamer=streamer))
-                if streamer.settings.claim_moments:
-                    pool.submit(PubsubTopic("community-moments-channel-v1", streamer=streamer))
-                if streamer.settings.community_goals:
-                    pool.submit(PubsubTopic("community-points-channel-v1", streamer=streamer))
+            if subscribe_now and pool is not None:
+                self._subscribe_streamer_topics(streamer, pool)
             logger.info("Добавлен Drops-стример в активный фарм: %s", username)
             return {"ok": True, "message": "Канал добавлен в активный фарм.", "login": username}
         except StreamerDoesNotExistException:
@@ -441,28 +450,10 @@ class TwitchChannelPointsMiner:
                     )
                 )
 
-            for streamer in self.streamers:
-                self.ws_pool.submit(
-                    PubsubTopic("video-playback-by-id", streamer=streamer)
-                )
-
-                if streamer.settings.follow_raid is True:
-                    self.ws_pool.submit(PubsubTopic("raid", streamer=streamer))
-
-                if streamer.settings.make_predictions is True:
-                    self.ws_pool.submit(
-                        PubsubTopic("predictions-channel-v1", streamer=streamer)
-                    )
-
-                if streamer.settings.claim_moments is True:
-                    self.ws_pool.submit(
-                        PubsubTopic("community-moments-channel-v1", streamer=streamer)
-                    )
-
-                if streamer.settings.community_goals is True:
-                    self.ws_pool.submit(
-                        PubsubTopic("community-points-channel-v1", streamer=streamer)
-                    )
+            with self.streamers_lock:
+                for streamer in list(self.streamers):
+                    self._subscribe_streamer_topics(streamer, self.ws_pool)
+                self.streamer_topics_initialized = True
 
             logger.info(f"Monitoring started for {len(self.streamers)} channels.")
             refresh_context = time.time()
