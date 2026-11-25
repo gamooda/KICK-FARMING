@@ -111,10 +111,6 @@ class Twitch(object):
     def login(self, force_reauth=False):
         if not force_reauth and self.restore_session():
             return True
-        try:
-            os.remove(self.cookies_file)
-        except OSError:
-            pass
         if self.twitch_login.login_flow():
             self.twitch_login.validate_token()
             self.twitch_login.save_cookies(self.cookies_file)
