@@ -226,6 +226,7 @@ class ChannelProfileWorker(threading.Thread):
                             "loaded": True,
                             "is_live": False,
                             "display_name": user.get("display_name") or login,
+                            "error": "",
                         }
                         avatar = str(user.get("profile_image_url") or "")
                         if avatar.startswith("https://"):
@@ -239,7 +240,7 @@ class ChannelProfileWorker(threading.Thread):
                 except Exception as error:
                     message = str(error)[:180]
                     for login in batch:
-                        self.app.update_channel_profile(login, {"loaded": True, "is_live": False, "error": message})
+                        self.app.update_channel_profile(login, {"loaded": True, "error": message})
         finally:
             self.app.profile_worker_finished(self)
 
@@ -264,6 +265,7 @@ class TwitchFarmingApi:
         self.watch_status = {}
         self.profile_worker = None
         self.pending_profile_logins = set()
+        self.last_profile_refresh_at = 0.0
         self.restore_started = False
         self.startup_worker = None
         self.startup_error = ""
@@ -627,6 +629,7 @@ class TwitchFarmingApi:
                 return
             worker = ChannelProfileWorker(self, self.api_client, batch)
             self.profile_worker = worker
+            self.last_profile_refresh_at = time.monotonic()
         worker.start()
 
     def update_channel_profile(self, login, profile):
@@ -658,6 +661,7 @@ class TwitchFarmingApi:
                 return
             next_worker = ChannelProfileWorker(self, self.api_client, batch)
             self.profile_worker = next_worker
+            self.last_profile_refresh_at = time.monotonic()
         next_worker.start()
 
     def start_farm(self, payload):
@@ -997,6 +1001,15 @@ class TwitchFarmingApi:
         except (TypeError, ValueError):
             after = 0
         with self.lock:
+            profile_worker_alive = bool(self.profile_worker is not None and self.profile_worker.is_alive())
+            if (
+                self.authenticated
+                and self.api_client is not None
+                and self.channels
+                and not profile_worker_alive
+                and time.monotonic() - self.last_profile_refresh_at >= 45
+            ):
+                self.refresh_channel_profiles()
             top_channels, channel_balances, channel_currency = self._refresh_channel_balances_locked()
             logs = [dict(item) for item in self.log_records if item["id"] > after]
             return {
