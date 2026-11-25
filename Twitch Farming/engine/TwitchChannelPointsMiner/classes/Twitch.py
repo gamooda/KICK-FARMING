@@ -761,16 +761,22 @@ class Twitch(object):
             request = {
                 "operationName": "ChannelPointsBranding",
                 "variables": {"channelLogin": streamer.username},
-                "query": "query ChannelPointsBranding($channelLogin: String!) { community { channel(login: $channelLogin) { communityPointsSettings { name image { url url2x url4x } } } } }",
+                "query": "query ChannelPointsBranding($channelLogin: String!) { community { channel(login: $channelLogin) { communityPointsSettings { isEnabled name image { url url2x url4x } defaultImage { url url2x url4x } } } } }",
             }
             response = self.post_gql_request(request)
+            errors = response.get("errors") if isinstance(response, dict) else None
+            if errors:
+                details = "; ".join(str(item.get("message") or item) for item in errors[:2])
+                logger.warning(f"Twitch не вернул оформление Channel Points для @{streamer.username}: {details[:220]}")
+                return
             data = response.get("data") if isinstance(response, dict) else None
             community = data.get("community") if isinstance(data, dict) else None
             channel = community.get("channel") if isinstance(community, dict) else None
             settings = channel.get("communityPointsSettings") if isinstance(channel, dict) else None
             if not isinstance(settings, dict):
+                logger.warning(f"Twitch не вернул настройки Channel Points для @{streamer.username}.")
                 return
-            image = settings.get("image") or {}
+            image = settings.get("image") or settings.get("defaultImage") or {}
             image_url = image.get("url2x") or image.get("url") or image.get("url4x")
             image_url = str(image_url or "")
             streamer.channel_points_name = str(settings.get("name") or "").strip()
