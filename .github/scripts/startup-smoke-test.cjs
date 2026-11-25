@@ -10,8 +10,14 @@ if (!html.includes("window.onerror") || !html.includes("unhandledrejection") || 
 if (source.includes("WebView2 не запустился за 120 секунд")) {
   throw new Error("The obsolete 120-second startup placeholder is still present.");
 }
+const inlineBootstrap = [...html.matchAll(/<script>([\\s\\S]*?)<\\/script>/gi)][0]?.[1];
+if (!inlineBootstrap) throw new Error("Inline startup diagnostic bootstrap was not found.");
+new vm.Script(inlineBootstrap, { filename: "index.html:inline-startup" });
 const elements = new Map();
 let intervalCount = 0;
+let authCalls = 0;
+let stateCalls = 0;
+let restoreStarted = false;
 
 function getElement(id) {
   if (!elements.has(id)) {
@@ -117,23 +123,59 @@ for (const name of required) {
   bridge[name] = () => Promise.resolve({ ok: true });
 }
 
-bridge.get_startup_state = () => Promise.resolve({ ready: true, phase: "Готово", elapsed: 0, error: "" });
-bridge.get_auth_state = () => Promise.resolve({
-  authenticated: false,
-  username: "",
-  auth_status: "АККАУНТ НЕ ПОДКЛЮЧЁН",
-  auth_code: "",
-  auth_error: "",
-  worker_alive: false,
-  worker_state: "idle",
-  restore_pending: false,
-  elapsed: 0
-});
-bridge.get_state = () => Promise.resolve(state);
+bridge.get_startup_state = () => Promise.resolve({ ready: true, phase: "Готово", elapsed: 0, error: "", diagnostics: [] });
+bridge.get_auth_state = () => {
+  authCalls++;
+  if (authCalls === 1) {
+    return Promise.resolve({
+      authenticated: false,
+      username: "example",
+      auth_status: "ПРОВЕРКА СОХРАНЁННОЙ СЕССИИ",
+      auth_code: "",
+      auth_error: "",
+      worker_alive: false,
+      worker_state: "idle",
+      restore_pending: true,
+      elapsed: 0
+    });
+  }
+  if (restoreStarted && authCalls === 2) {
+    return Promise.resolve({
+      authenticated: false,
+      username: "example",
+      auth_status: "ПРОВЕРКА СОХРАНЁННОЙ СЕССИИ",
+      auth_code: "",
+      auth_error: "",
+      worker_alive: true,
+      worker_state: "restoring",
+      restore_pending: false,
+      elapsed: 1
+    });
+  }
+  return Promise.resolve({
+    authenticated: false,
+    username: "example",
+    auth_status: "АВТОРИЗАЦИЯ НЕ УДАЛАСЬ",
+    auth_code: "",
+    auth_error: "Тестовая сессия отклонена",
+    worker_alive: false,
+    worker_state: "failed",
+    restore_pending: false,
+    elapsed: 0
+  });
+};
+bridge.begin_session_restore = () => {
+  restoreStarted = true;
+  return Promise.resolve({ ok: true });
+};
+bridge.get_state = () => {
+  stateCalls++;
+  return Promise.resolve(state);
+};
 
 const window = {
-  setTimeout() { return 0; },
-  clearTimeout() {},
+  setTimeout(callback) { return setImmediate(callback); },
+  clearTimeout(handle) { clearImmediate(handle); },
   setInterval() { intervalCount++; return intervalCount; },
   clearInterval() {},
   __tfStartupDebug: {
@@ -154,8 +196,8 @@ const sandbox = {
       return [{ domContentLoadedEventEnd: 0, loadEventEnd: 0 }];
     }
   },
-  setTimeout() { return 0; },
-  clearTimeout() {},
+  setTimeout(callback) { return setImmediate(callback); },
+  clearTimeout(handle) { clearImmediate(handle); },
   setInterval() { return 0; },
   clearInterval() {},
   process
@@ -181,6 +223,9 @@ appInitialized = true;
   }
   if (intervalCount !== 3) {
     throw new Error("Startup timers and polling were not initialized after readiness.");
+  }
+  if (!restoreStarted || authCalls < 3 || stateCalls !== 2) {
+    throw new Error("Startup did not wait for the saved-session check to finish.");
   }
   const button = document.getElementById("farm-toggle");
   if (!button.innerHTML.includes("Запустить")) {
