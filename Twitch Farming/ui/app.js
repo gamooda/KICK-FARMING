@@ -244,7 +244,15 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
 
 
 function renderFollowedChannels(state){
-  const list=Array.isArray(state&&state.channels)?state.channels:[];
+  const list=Array.isArray(state&&state.channels)?state.channels.slice().sort((a,b)=>{
+    const liveA=Boolean(a&&a.is_live);
+    const liveB=Boolean(b&&b.is_live);
+    if(liveA!==liveB) return liveA?-1:1;
+    if(!liveA) return 0;
+    const viewersA=Math.max(0,Number(a.viewer_count)||0);
+    const viewersB=Math.max(0,Number(b.viewer_count)||0);
+    return viewersB-viewersA;
+  }):[];
   const tracked=new Set(appState&&Array.isArray(appState.channels)?appState.channels:[]);
   const running=Boolean(appState&&appState.session_running);
   $("followers-count").textContent=String(list.length);
