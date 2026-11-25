@@ -7,17 +7,149 @@
 <title>Twitch Farming</title>
 <link rel="stylesheet" href="style.css">
 <script>
-window.__twitchPywebviewReady=false;
-window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
+(function(){
+  const records=[];
+  const pending=[];
+  const start=performance.now();
+  let output=null;
+  const format=(level,message,stack)=>{
+    const elapsed=Math.max(0,(performance.now()-start)/1000).toFixed(3);
+    const tag=String(level||"INFO").toUpperCase();
+    return "[+"+elapsed+"s] ["+tag+"] "+String(message||"")+(stack?"\n"+String(stack):"");
+  };
+  const send=item=>{
+    const bridge=window.pywebview&&window.pywebview.api;
+    if(!bridge||typeof bridge.record_startup_debug!=="function"){
+      pending.push(item);
+      return;
+    }
+    try{
+      const result=bridge.record_startup_debug(item.level,item.line);
+      if(result&&typeof result.catch==="function") result.catch(()=>{});
+    }catch(error){}
+  };
+  const paint=item=>{
+    if(!output) output=document.getElementById("startup-debug-output");
+    if(!output) return;
+    const row=document.createElement("div");
+    row.className="startup-debug-line"+(item.level==="ERROR"||item.level==="CRITICAL"?" startup-debug-error":"");
+    row.textContent=item.line;
+    output.appendChild(row);
+    while(output.childNodes.length>180) output.removeChild(output.firstChild);
+    output.scrollTop=output.scrollHeight;
+  };
+  const log=(level,message,stack)=>{
+    const item={level:String(level||"INFO").toUpperCase(),line:format(level,message,stack)};
+    records.push(item);
+    if(records.length>300) records.shift();
+    paint(item);
+    send(item);
+    return item.line;
+  };
+  const flush=()=>{
+    const bridge=window.pywebview&&window.pywebview.api;
+    if(!bridge||typeof bridge.record_startup_debug!=="function") return;
+    while(pending.length){
+      const item=pending.shift();
+      try{
+        const result=bridge.record_startup_debug(item.level,item.line);
+        if(result&&typeof result.catch==="function") result.catch(()=>{});
+      }catch(error){}
+    }
+  };
+  const copy=async()=>{
+    const text=records.map(item=>item.line).join("\n");
+    try{
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        await navigator.clipboard.writeText(text);
+      }else{
+        const field=document.createElement("textarea");
+        field.value=text;
+        field.style.position="fixed";
+        field.style.opacity="0";
+        document.body.appendChild(field);
+        field.select();
+        document.execCommand("copy");
+        field.remove();
+      }
+      const button=document.getElementById("startup-copy-log");
+      if(button){
+        const previous=button.textContent;
+        button.textContent="Скопировано";
+        setTimeout(()=>button.textContent=previous,1200);
+      }
+    }catch(error){
+      log("ERROR","Не удалось скопировать отладочный лог",error&&error.stack||String(error));
+    }
+  };
+  const showError=message=>{
+    const overlay=document.getElementById("startup-overlay");
+    const title=document.getElementById("startup-title");
+    const description=document.getElementById("startup-description");
+    const spinner=document.getElementById("startup-spinner");
+    const retry=document.getElementById("startup-retry");
+    if(title) title.textContent="Ошибка запуска";
+    if(description) description.textContent=String(message||"Не удалось запустить приложение.");
+    if(spinner) spinner.style.display="none";
+    if(retry) retry.style.display="inline-flex";
+    if(overlay){
+      overlay.classList.add("startup-error");
+      overlay.classList.remove("hidden");
+      overlay.style.pointerEvents="auto";
+    }
+  };
+  window.__tfStartupDebug={log,flush,copy,showError,display:item=>{paint(item);}};
+  window.__tfStartupLog=log;
+  window.onerror=(message,source,line,column,error)=>{
+    const location=source?String(source)+(line?":"+line:"")+(column?":"+column:""):"";
+    const stack=error&&error.stack?error.stack:"";
+    log("ERROR","window.onerror: "+String(message)+(location?" @ "+location:""),stack);
+    showError(String(message));
+    return false;
+  };
+  window.addEventListener("unhandledrejection",event=>{
+    const reason=event.reason;
+    const message=reason&&reason.message?reason.message:String(reason||"Неизвестная ошибка Promise");
+    log("ERROR","unhandledrejection: "+message,reason&&reason.stack||"");
+    showError(message);
+  });
+  window.addEventListener("error",event=>{
+    const target=event.target;
+    if(target&&target!==window&&(target.tagName==="SCRIPT"||target.tagName==="LINK")){
+      const source=target.src||target.href||"неизвестный ресурс";
+      log("ERROR","Не удалось загрузить ресурс: "+source);
+      showError("Не удалось загрузить "+source);
+    }
+  },true);
   window.addEventListener("pywebviewready",()=>{
     window.__twitchPywebviewReady=true;
-    resolve();
+    log("INFO","Получено событие pywebviewready");
+    flush();
+  });
+  window.addEventListener("load",()=>log("INFO","Событие window.load"));
+  document.addEventListener("DOMContentLoaded",()=>{
+    log("INFO","DOM загружен; начало привязки интерфейса");
+    const copyButton=document.getElementById("startup-copy-log");
+    if(copyButton) copyButton.addEventListener("click",copy);
+    const retryButton=document.getElementById("startup-retry");
+    if(retryButton) retryButton.addEventListener("click",()=>{
+      const bridge=window.pywebview&&window.pywebview.api;
+      if(bridge&&typeof bridge.restart_app==="function"){
+        try{
+          const result=bridge.restart_app();
+          if(result&&typeof result.catch==="function") result.catch(()=>window.location.reload());
+        }catch(error){window.location.reload();}
+      }else{
+        window.location.reload();
+      }
+    });
   },{once:true});
-});
+  log("INFO","Загрузка JavaScript оболочки");
+})();
 </script>
 </head>
 <body>
-<div class="startup-overlay" id="startup-overlay"><div class="startup-card"><span class="startup-spinner" id="startup-spinner"></span><div class="startup-title" id="startup-title">Инициализация...</div><div class="startup-description" id="startup-description">Подключение встроенного браузера...</div><button class="button button-primary startup-retry" id="startup-retry">Повторить запуск</button></div></div>
+<div class="startup-overlay" id="startup-overlay"><div class="startup-card"><div class="startup-indicator"><span class="startup-spinner" id="startup-spinner"></span><div class="startup-title" id="startup-title">Инициализация...</div><div class="startup-description" id="startup-description">Подключение встроенного браузера...</div></div><section class="startup-debug-panel"><div class="startup-debug-heading"><span>ДИАГНОСТИКА ЗАПУСКА</span><button class="startup-copy-log" id="startup-copy-log" type="button">Скопировать лог</button></div><div class="startup-debug-output" id="startup-debug-output" role="log" aria-live="polite"><div class="startup-debug-line">Ожидание запуска Python и WebView2...</div></div></section><button class="button button-primary startup-retry" id="startup-retry" type="button">Перезапустить приложение</button></div></div>
 <div class="window-frame">
   <svg class="svg-symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="i-channel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4" fill="currentColor" opacity=".13"/><rect x="3" y="4" width="18" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2.1"/><path d="m10 8 6 4-6 4z" fill="currentColor"/></symbol>
