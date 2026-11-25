@@ -97,6 +97,10 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
         <button class="nav-button" id="nav-settings"><svg><use href="#i-settings"></use></svg><span>Настройки</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
+      <button class="nav-button about-button" id="nav-about" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.5v5.2M12 7.4h.01" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        <span>О проекте</span>
+      </button>
       <section class="sidebar-account" id="sidebar-account">
         <div class="sidebar-account-avatar" id="account-avatar"><span>?</span></div>
         <div class="sidebar-account-details">
@@ -338,6 +342,52 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
       <div class="tutorial-text" id="tutorial-text"></div>
       <div class="tutorial-actions"><button class="button button-soft" id="tutorial-skip">Пропустить</button><button class="button button-primary" id="tutorial-next">Далее</button></div>
     </div>
+  </div>
+  <div class="about-modal-overlay" id="about-modal-overlay" aria-hidden="true">
+    <section class="about-modal-card" role="dialog" aria-modal="true" aria-labelledby="about-modal-title" tabindex="-1">
+      <button class="about-modal-close" id="about-modal-close" type="button" title="Закрыть" aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
+      <header class="about-modal-header">
+        <div class="about-modal-logo" aria-hidden="true">
+          <svg viewBox="0 0 48 48">
+            <path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/>
+            <rect class="about-logo-eye about-logo-eye-left" x="17" y="13" width="5" height="13" rx=".4" fill="#211338"/>
+            <rect class="about-logo-eye about-logo-eye-right" x="28" y="13" width="5" height="13" rx=".4" fill="#211338"/>
+          </svg>
+        </div>
+        <div class="about-modal-heading">
+          <span class="about-modal-kicker">О ПРОЕКТЕ</span>
+          <div class="about-modal-title-row">
+            <h2 id="about-modal-title">Twitch Farming</h2>
+            <span class="about-version" id="about-version">v1.0.0</span>
+          </div>
+          <p>Инструмент для управления автоматизацией Twitch.</p>
+        </div>
+      </header>
+      <div class="about-modal-divider"></div>
+      <div class="about-credits">
+        <div class="about-credit-row">
+          <div class="about-credit-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 20c.5-3.3 2.8-5.1 6.5-5.1s6 1.8 6.5 5.1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          </div>
+          <div class="about-credit-copy"><span>СОЗДАТЕЛЬ</span><strong>Dv4roka</strong></div>
+        </div>
+        <div class="about-credit-row">
+          <div class="about-credit-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="about-credit-copy"><span>РАЗРАБОТКА И ДИЗАЙН</span><strong>ChatGPT &amp; Google Gemini</strong></div>
+        </div>
+      </div>
+      <footer class="about-modal-actions">
+        <button class="button button-primary about-github-button" id="about-github-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4.2 1.3-4.2-2.1-5.9-2.5M15 21v-3.4c0-1 .1-1.5-.5-2.1 3.2-.4 6.5-1.6 6.5-7.1a5.5 5.5 0 0 0-1.5-3.8 5.1 5.1 0 0 0-.1-3.8s-1.2-.4-4 1.5a13.8 13.8 0 0 0-7.2 0C5.4.4 4.2.8 4.2.8a5.1 5.1 0 0 0-.1 3.8 5.5 5.5 0 0 0-1.5 3.8c0 5.5 3.3 6.7 6.5 7.1-.6.6-.6 1.2-.6 2.1V21" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Открыть репозиторий на GitHub
+        </button>
+        <button class="button button-soft about-close-button" id="about-close-button" type="button">Закрыть</button>
+      </footer>
+    </section>
   </div>
   <div class="delete-confirm-overlay" id="delete-confirm-overlay">
     <div class="delete-confirm-card" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title">
