@@ -23,6 +23,7 @@ CONFIG_FILE = APP_DIR / "config.json"
 LOG_DIR = APP_DIR / "logs"
 LOG_FILE = LOG_DIR / "TwitchFarming.log"
 ACTIVATION_URL = "https://www.twitch.tv/activate"
+APP_VERSION = "1.0.0"
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 UI_DIR = RESOURCE_DIR / "ui"
 ICON_FILE = RESOURCE_DIR / "assets" / "twitch.ico"
@@ -1918,6 +1919,9 @@ class TwitchFarmingApi:
             return {"ok": True}
         except Exception as error:
             return {"ok": False, "message": str(error)}
+
+    def get_app_version(self):
+        return APP_VERSION
 
     def open_url(self, url):
         value = str(url or "")
