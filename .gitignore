@@ -1,9 +1,54 @@
+# Python
 __pycache__/
 *.py[cod]
-.kick-farming/
-.twitch-farming/
+*.pyd
+*.so
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging output
+build/
+dist/
+*.spec
+pip-wheel-metadata/
+
+# Runtime data, credentials and local configuration
 .env
-Twitch Farming/cookies/
-Twitch Farming/logs/
-Twitch Farming/build/
-Twitch Farming/dist/
+.env.*
+!.env.example
+**/.kick-farming/
+**/.twitch-farming/
+**/cookies/
+**/cookies*.json
+**/*cookies*.json
+**/config.json
+**/config.local.json
+**/session.json
+**/token.json
+**/auth.json
+**/logs/
+*.log
+*.log.*
+
+# Generated application assets
+Twitch Farming/assets/twitch.ico
+
+# IDE and operating system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
