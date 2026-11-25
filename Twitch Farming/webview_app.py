@@ -2192,23 +2192,22 @@ def main():
         webview.settings['DRAG_REGION_DIRECT_TARGET_ONLY'] = True
         api = TwitchFarmingApi()
         window = webview.create_window(
-        "Twitch Farming",
-        url=str(UI_DIR / "index.html"),
-        js_api=api,
-        width=1180,
-        height=800,
-        min_size=(960, 660),
-        resizable=True,
-        frameless=True,
-        transparent=False,
-        easy_drag=False,
-        shadow=True,
-        background_color="#0B0B12",
+            "Twitch Farming",
+            url=str(UI_DIR / "index.html"),
+            js_api=api,
+            width=1180,
+            height=800,
+            min_size=(960, 660),
+            resizable=True,
+            frameless=True,
+            transparent=False,
+            easy_drag=False,
+            shadow=True,
+            background_color="#0B0B12",
             text_select=True,
         )
         api.window = window
-
-            window.events.before_show += lambda *args: api.on_webview_before_show()
+        window.events.before_show += lambda *args: api.on_webview_before_show()
         window.events.before_load += lambda *args: api.on_webview_before_load()
         window.events.shown += lambda *args: api.on_webview_shown()
         window.events.loaded += lambda *args: api.on_loaded()
