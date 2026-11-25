@@ -1,7 +1,7 @@
 import logging
 import time
 from enum import Enum, auto
-from threading import Thread
+from threading import Event, Thread
 
 from irc.bot import SingleServerIRCBot
 
@@ -34,10 +34,12 @@ class ClientIRC(SingleServerIRCBot):
     def on_welcome(self, client, event):
         client.join(self.channel)
 
-    def start(self):
+    def start(self, stop_event=None):
+        if stop_event is not None and stop_event.is_set():
+            return
         self.__active = True
         self._connect()
-        while self.__active:
+        while self.__active and not (stop_event is not None and stop_event.is_set()):
             try:
                 self.reactor.process_once(timeout=0.2)
                 time.sleep(0.01)
@@ -93,15 +95,22 @@ class ThreadChat(Thread):
         self.channel = channel
 
         self.chat_irc = None
+        self.stop_event = Event()
 
     def run(self):
+        if self.stop_event.is_set():
+            return
         self.chat_irc = ClientIRC(self.username, self.token, self.channel)
+        if self.stop_event.is_set():
+            self.chat_irc.die()
+            return
         logger.info(
             f"Join IRC Chat: {self.channel}", extra={"emoji": ":speech_balloon:"}
         )
-        self.chat_irc.start()
+        self.chat_irc.start(self.stop_event)
 
     def stop(self):
+        self.stop_event.set()
         if self.chat_irc is not None:
             logger.info(
                 f"Leave IRC Chat: {self.channel}", extra={"emoji": ":speech_balloon:"}
