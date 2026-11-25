@@ -15,14 +15,6 @@ import webview
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parent / "engine"))
 
-from TwitchChannelPointsMiner import TwitchChannelPointsMiner
-from TwitchChannelPointsMiner.classes.Chat import ChatPresence
-from TwitchChannelPointsMiner.classes.Settings import Priority
-from TwitchChannelPointsMiner.classes.entities.Streamer import StreamerSettings
-from TwitchChannelPointsMiner.classes.entities.Bet import BetSettings, Condition, DelayMode, FilterCondition, OutcomeKeys, Strategy
-from TwitchChannelPointsMiner.classes.Twitch import Twitch
-from TwitchChannelPointsMiner.logger import LoggerSettings
-from TwitchChannelPointsMiner.utils import get_user_agent
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "Twitch Farming"
 CONFIG_FILE = APP_DIR / "config.json"
@@ -93,6 +85,8 @@ class AuthWorker(threading.Thread):
 
     def run(self):
         try:
+            from TwitchChannelPointsMiner.classes.Twitch import Twitch
+            from TwitchChannelPointsMiner.utils import get_user_agent
             self.client = Twitch(self.username, get_user_agent("CHROME"))
             success = bool(self.client.login())
             self.app.auth_result(
@@ -137,6 +131,12 @@ class EngineWorker(threading.Thread):
     def run(self):
         miner = None
         try:
+            from TwitchChannelPointsMiner import TwitchChannelPointsMiner
+            from TwitchChannelPointsMiner.classes.Chat import ChatPresence
+            from TwitchChannelPointsMiner.classes.Settings import Priority
+            from TwitchChannelPointsMiner.classes.entities.Streamer import StreamerSettings
+            from TwitchChannelPointsMiner.classes.entities.Bet import BetSettings, Condition, DelayMode, FilterCondition, OutcomeKeys, Strategy
+            from TwitchChannelPointsMiner.logger import LoggerSettings
             data = self.options.get("bet_settings", dict(DEFAULT_BET_SETTINGS))
             condition = None
             if data.get("filter_enabled"):
@@ -1094,6 +1094,74 @@ class TwitchFarmingApi:
                 pass
 
 
+def apply_round_window_region():
+    if os.name != "nt":
+        return False
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    user32.SetWindowRgn.argtypes = [wintypes.HWND, ctypes.c_void_p, wintypes.BOOL]
+    user32.SetWindowRgn.restype = ctypes.c_int
+    gdi32.CreateRoundRectRgn.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int]
+    gdi32.CreateRoundRectRgn.restype = ctypes.c_void_p
+    gdi32.DeleteObject.argtypes = [ctypes.c_void_p]
+    gdi32.DeleteObject.restype = wintypes.BOOL
+    process_id = os.getpid()
+    found = None
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, ctypes.c_ssize_t)
+
+    def inspect_window(hwnd, _):
+        nonlocal found
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value != process_id or not user32.IsWindowVisible(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        if length <= 0:
+            return True
+        title = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, title, length + 1)
+        if title.value.strip().casefold() == "twitch farming":
+            found = hwnd
+            return False
+        return True
+
+    callback = callback_type(inspect_window)
+    user32.EnumWindows(callback, 0)
+    if not found:
+        return False
+    rect = wintypes.RECT()
+    if not user32.GetWindowRect(found, ctypes.byref(rect)):
+        return False
+    width = rect.right - rect.left
+    height = rect.bottom - rect.top
+    if width < 2 or height < 2:
+        return False
+    region = gdi32.CreateRoundRectRgn(0, 0, width + 1, height + 1, 28, 28)
+    if not region:
+        return False
+    if not user32.SetWindowRgn(found, region, True):
+        gdi32.DeleteObject(region)
+        return False
+    return True
+
+
+def apply_round_window_region_when_ready():
+    def apply():
+        for _ in range(30):
+            if apply_round_window_region():
+                return
+            time.sleep(0.1)
+    threading.Thread(target=apply, name="RoundedWindowRegion", daemon=True).start()
+
+
 def main():
     webview.settings['DRAG_REGION_DIRECT_TARGET_ONLY'] = True
     APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -1113,7 +1181,13 @@ def main():
         text_select=True,
     )
     api.window = window
-    window.events.loaded += api.on_loaded
+
+    def on_window_loaded(*args):
+        apply_round_window_region_when_ready()
+        api.on_loaded()
+
+    window.events.loaded += on_window_loaded
+    window.events.resized += lambda *args: apply_round_window_region()
     window.events.closing += api.on_closing
     window.events.maximized += lambda: api.sync_window_maximized(True)
     window.events.restored += lambda: api.sync_window_maximized(False)

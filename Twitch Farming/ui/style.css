@@ -7,7 +7,7 @@ button,input,select{font:inherit}
 button{cursor:pointer}
 svg{display:block}
 .svg-symbols{position:absolute;width:0;height:0;overflow:hidden}
-.window-frame{width:100%;height:100vh;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);border:1px solid #31283f;border-radius:11px;box-shadow:0 12px 40px rgba(0,0,0,.3)}
+.window-frame{width:100%;height:100vh;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);border:0;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.3)}
 .window-bar{height:48px;min-height:48px;display:flex;align-items:center;gap:12px;padding:0 11px 0 13px;background:#11111b;border-bottom:1px solid #262334;position:relative;z-index:30}
 .window-nav{display:flex;align-items:center;gap:4px;flex:0 0 auto}
 .window-nav-button{width:29px;height:29px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid transparent;border-radius:7px;color:#b8b2c7;background:transparent;transition:background .14s,color .14s,border-color .14s}
