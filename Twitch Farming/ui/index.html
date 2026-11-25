@@ -93,6 +93,7 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
         <button class="nav-button" id="nav-chat"><svg><use href="#i-chat"></use></svg><span>IRC-чат</span></button>
         <button class="nav-button" id="nav-events"><svg><use href="#i-calendar"></use></svg><span>События</span></button>
         <button class="nav-button" id="nav-followers"><svg><use href="#i-users"></use></svg><span>Фолловеры</span></button>
+        <button class="nav-button" id="nav-drops-inventory"><svg><use href="#i-gift"></use></svg><span>Инвентарь Drops</span><b class="nav-badge" id="drops-badge">0</b></button>
         <button class="nav-button" id="nav-settings"><svg><use href="#i-settings"></use></svg><span>Настройки</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
@@ -140,13 +141,27 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
         
       </section>
       <section class="page" id="page-logs">
-        <header class="subpage-header">
-          <button class="button button-soft back-button" id="back-from-logs"><svg><use href="#i-left"></use></svg>Назад</button>
-          <div><div class="page-title">События и журнал</div><div class="page-subtitle">Технические сообщения фарм-движка</div></div>
+        <header class="subpage-header logs-page-header">
+          <div class="page-heading-group">
+            <button class="button button-soft back-button" id="back-from-logs"><svg><use href="#i-left"></use></svg>Назад</button>
+            <div><div class="page-title">События и журнал</div><div class="page-subtitle">Сообщения приложения, начисления и диагностика фарма</div></div>
+          </div>
+          <div class="log-filters" role="group" aria-label="Фильтр журнала">
+            <button class="log-filter active" data-log-filter="important">Только важные</button>
+            <button class="log-filter" data-log-filter="all">Все</button>
+            <button class="log-filter" data-log-filter="points">Начисления баллов</button>
+          </div>
         </header>
         <section class="panel logs-panel">
-          <div class="logs-toolbar"><div class="section-heading">ЖУРНАЛ ПРИЛОЖЕНИЯ</div><button class="button button-mini" id="copy-logs">Копировать</button></div>
-          <pre class="log-view" id="log-view"></pre>
+          <div class="logs-toolbar">
+            <div class="section-heading">ЖУРНАЛ ПРИЛОЖЕНИЯ <span class="heading-count" id="log-count">0 / 500</span></div>
+            <div class="logs-toolbar-actions">
+              <label class="log-search"><svg><use href="#i-search"></use></svg><input id="log-search" type="search" placeholder="Поиск по журналу..." autocomplete="off"></label>
+              <button class="button button-mini" id="copy-logs">Копировать</button>
+              <button class="button button-mini button-danger" id="clear-logs">Очистить журнал</button>
+            </div>
+          </div>
+          <div class="log-view" id="log-view" role="log" aria-live="off"></div>
         </section>
       </section>
       <section class="page" id="page-followers">
@@ -160,32 +175,90 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
           <div class="followers-grid" id="followers-list"></div>
         </section>
       </section>
-      <section class="page" id="page-settings">
-        <header class="subpage-header">
-          <div><div class="page-title">Настройки</div><div class="page-subtitle">Управление автоматизацией Twitch Farming</div></div>
-          <button class="button button-soft" id="open-folder">Папка с данными</button>
+      <section class="page drops-page" id="page-drops">
+        <header class="subpage-header drops-page-header">
+          <div><div class="page-title">Инвентарь Drops</div><div class="page-subtitle">Прогресс наград Twitch и подходящие стримеры из твоих подписок</div></div>
+          <button class="button button-primary" id="refresh-drops"><svg><use href="#i-refresh"></use></svg>Обновить прогресс</button>
         </header>
-        <section class="panel settings-panel">
-          <div class="panel-heading"><div class="section-heading">АВТОМАТИЗАЦИЯ</div><span class="settings-note">Изменения сохраняются отдельно</span></div>
-          <div class="options-list">
-            <label class="check-row option-row" id="row-claim_drops"><input type="checkbox" id="opt-claim_drops"><span class="check-box"></span><svg><use href="#i-drops"></use></svg><span>Twitch Drops</span><small>Автоматически забирать награды</small></label>
-            <label class="check-row option-row" id="row-watch_streak"><input type="checkbox" id="opt-watch_streak"><span class="check-box"></span><svg><use href="#i-star"></use></svg><span>Серии просмотров</span><small>Поддерживать streak</small></label>
-            <label class="check-row option-row" id="row-claim_moments"><input type="checkbox" id="opt-claim_moments"><span class="check-box"></span><svg><use href="#i-diamond"></use></svg><span>Моменты</span><small>Автоматически забирать моменты</small></label>
-            <label class="check-row option-row" id="row-follow_raid"><input type="checkbox" id="opt-follow_raid"><span class="check-box"></span><svg><use href="#i-trophy"></use></svg><span>Рейды</span><small>Переходить за стримером</small></label>
-            <label class="check-row option-row" id="row-make_predictions"><input type="checkbox" id="opt-make_predictions"><span class="check-box"></span><svg><use href="#i-chart"></use></svg><span>Прогнозы</span><small>Автоматическое участие</small></label>
-            <label class="check-row option-row" id="row-chat"><input type="checkbox" id="opt-chat"><span class="check-box"></span><svg><use href="#i-chat"></use></svg><span>IRC-чат</span><small>Подключаться к чату эфира</small></label>
-          </div>
-          <div class="branding-settings">
-            <div class="branding-settings-copy"><strong>Оформление Channel Points</strong><span>Название валюты и значок сохраняются на этом компьютере. Проверка вручную обновит их для всех каналов.</span></div>
-            <button class="button button-primary" id="refresh-channel-branding"><svg><use href="#i-refresh"></use></svg>Обновить оформление</button>
-          </div>
-          <div class="feedback" id="branding-feedback"></div>
-          <div class="settings-actions">
-            <button class="button button-soft" id="open-bets"><svg><use href="#i-settings"></use></svg>Настроить прогнозы</button>
-            <button class="button button-primary" id="save-button"><svg><use href="#i-save"></use></svg>Сохранить настройки</button>
-          </div>
-          <div class="feedback" id="settings-feedback"></div>
+        <div class="drops-summary">
+          <div><strong id="drops-campaign-count">0</strong><span>активных кампаний</span></div>
+          <div><strong id="drops-reward-count">0</strong><span>наград в прогрессе</span></div>
+          <span id="drops-updated" class="drops-updated"></span>
+        </div>
+        <div class="drops-status" id="drops-status">Нажми «Обновить прогресс», чтобы получить актуальный инвентарь Twitch.</div>
+        <section class="drops-section">
+          <div class="drops-section-heading"><div><span class="drops-section-symbol watch-symbol"><svg><use href="#i-play"></use></svg></span><div><strong>Смотреть Drops</strong><small>Награды за время просмотра трансляций</small></div></div><span class="heading-count" id="drops-watch-count">0</span></div>
+          <div class="drops-campaign-grid" id="drops-watch-list"></div>
         </section>
+        <section class="drops-section">
+          <div class="drops-section-heading"><div><span class="drops-section-symbol sub-symbol"><svg><use href="#i-gift"></use></svg></span><div><strong>Drops для подписки</strong><small>Награды за платные или подарочные подписки</small></div></div><span class="heading-count" id="drops-sub-count">0</span></div>
+          <div class="drops-campaign-grid" id="drops-sub-list"></div>
+        </section>
+      </section>
+      <section class="page settings-page" id="page-settings">
+        <header class="subpage-header settings-page-header">
+          <div><div class="page-title">Настройки</div><div class="page-subtitle">Управление автоматизацией, оформлением и поведением приложения</div></div>
+        </header>
+        <div class="settings-panel">
+          <div class="settings-grid">
+            <section class="settings-card settings-card-automation">
+              <div class="settings-card-heading"><div><span class="settings-kicker">АВТОМАТИЗАЦИЯ</span><h2>Автоматизация фарма</h2><p>Выбери действия, которые Twitch Farming будет выполнять автоматически.</p></div><span class="settings-card-mark"><svg><use href="#i-settings"></use></svg></span></div>
+              <div class="option-grid">
+                <label class="option-tile option-row" id="row-claim_drops">
+                  <input type="checkbox" id="opt-claim_drops"><span class="option-tile-icon option-color-violet"><svg><use href="#i-drops"></use></svg></span><span class="option-tile-copy"><strong>Twitch Drops</strong><small>Отслеживать кампании и автоматически забирать награды за просмотр.</small></span><span class="modern-toggle"></span>
+                </label>
+                <label class="option-tile option-row" id="row-watch_streak">
+                  <input type="checkbox" id="opt-watch_streak"><span class="option-tile-icon option-color-gold"><svg><use href="#i-star"></use></svg></span><span class="option-tile-copy"><strong>Серии просмотров</strong><small>Поддерживать серии просмотров и получать дополнительные бонусы.</small></span><span class="modern-toggle"></span>
+                </label>
+                <label class="option-tile option-row" id="row-claim_moments">
+                  <input type="checkbox" id="opt-claim_moments"><span class="option-tile-icon option-color-cyan"><svg><use href="#i-diamond"></use></svg></span><span class="option-tile-copy"><strong>Моменты</strong><small>Автоматически получать доступные моменты на каналах.</small></span><span class="modern-toggle"></span>
+                </label>
+                <label class="option-tile option-row" id="row-follow_raid">
+                  <input type="checkbox" id="opt-follow_raid"><span class="option-tile-icon option-color-pink"><svg><use href="#i-trophy"></use></svg></span><span class="option-tile-copy"><strong>Рейды</strong><small>Переходить за стримером, когда он отправляет рейд.</small></span><span class="modern-toggle"></span>
+                </label>
+                <label class="option-tile option-row" id="row-make_predictions">
+                  <input type="checkbox" id="opt-make_predictions"><span class="option-tile-icon option-color-green"><svg><use href="#i-chart"></use></svg></span><span class="option-tile-copy"><strong>Прогнозы</strong><small>Автоматически выбирать исходы и размещать Channel Points.</small></span><span class="modern-toggle"></span>
+                </label>
+                <label class="option-tile option-row" id="row-chat">
+                  <input type="checkbox" id="opt-chat"><span class="option-tile-icon option-color-blue"><svg><use href="#i-chat"></use></svg></span><span class="option-tile-copy"><strong>IRC-чат</strong><small>Подключаться к чату стримера во время сбора.</small></span><span class="modern-toggle"></span>
+                </label>
+              </div>
+            </section>
+            <section class="settings-card">
+              <div class="settings-card-heading"><div><span class="settings-kicker">ЛОКАЛЬНЫЕ ДАННЫЕ</span><h2>Оформление Channel Points и кэш</h2><p>Сохранённые аватары, иконки валют и названия Channel Points.</p></div><span class="settings-card-mark settings-mark-purple"><svg><use href="#i-diamond"></use></svg></span></div>
+              <div class="cache-stats">
+                <div class="cache-stat"><span>Аватарки</span><strong id="cache-avatar-count">0</strong><small>сохранённых профилей</small></div>
+                <div class="cache-stat"><span>Иконки валют</span><strong id="cache-currency-count">0</strong><small>оформлений каналов</small></div>
+              </div>
+              <div class="settings-card-actions">
+                <button class="button button-soft" id="clear-avatar-cache">Очистить аватарки</button>
+                <button class="button button-soft" id="clear-currency-cache">Очистить иконки</button>
+                <button class="button button-primary" id="refresh-channel-branding"><svg><use href="#i-refresh"></use></svg>Обновить оформление</button>
+              </div>
+              <div class="feedback" id="branding-feedback"></div>
+            </section>
+            <section class="settings-card">
+              <div class="settings-card-heading"><div><span class="settings-kicker">ПОВЕДЕНИЕ ПРИЛОЖЕНИЯ</span><h2>Приложение и система</h2><p>Настрой запуск и способ закрытия Twitch Farming.</p></div><span class="settings-card-mark settings-mark-blue"><svg><use href="#i-settings"></use></svg></span></div>
+              <div class="system-options">
+                <label class="system-option" for="opt-minimize_to_tray"><span><strong>Сворачивать в трей при закрытии</strong><small>Крестик скроет окно, фарм продолжит работать. Выход доступен из меню значка в трее.</small></span><input type="checkbox" id="opt-minimize_to_tray"><i class="modern-toggle"></i></label>
+                <label class="system-option" for="opt-auto_start_farm"><span><strong>Запускать фарм автоматически при старте</strong><small>После восстановления Twitch-сессии приложение само запустит сохранённый список каналов.</small></span><input type="checkbox" id="opt-auto_start_farm"><i class="modern-toggle"></i></label>
+              </div>
+              <div class="settings-card-actions"><button class="button button-soft" id="open-folder"><svg><use href="#i-folder"></use></svg>Папка с данными</button></div>
+            </section>
+            <section class="settings-card settings-account-card">
+              <div class="settings-card-heading"><div><span class="settings-kicker">ПОДКЛЮЧЕНИЕ</span><h2>Аккаунт Twitch</h2><p>Текущая авторизованная сессия.</p></div><span class="settings-card-mark settings-mark-green"><svg><use href="#i-users"></use></svg></span></div>
+              <div class="settings-account-info">
+                <div class="settings-account-avatar" id="settings-account-avatar">?</div>
+                <div><strong id="settings-account-name">Twitch</strong><span id="settings-account-login">@—</span><small id="settings-account-status">Не подключён</small></div>
+              </div>
+              <div class="settings-card-actions"><button class="button button-danger" id="logout-account">Выйти из аккаунта</button></div>
+            </section>
+          </div>
+          <div class="settings-savebar">
+            <div class="settings-savebar-label"><strong>Сохранение настроек</strong><small id="settings-feedback">Изменения вступят в силу после сохранения.</small></div>
+            <div class="settings-savebar-actions"><label class="settings-preset-label" for="settings-preset-select">Пресет прогнозов</label><select class="input settings-preset-select" id="settings-preset-select"><option>Оптимальный</option></select><button class="button button-primary" id="save-button"><svg><use href="#i-save"></use></svg>Сохранить настройки</button></div>
+          </div>
+        </div>
       </section>
       <section class="page channel-modal-overlay" id="page-channel">
         <div class="channel-modal" role="dialog" aria-modal="true" aria-labelledby="channel-page-title">
