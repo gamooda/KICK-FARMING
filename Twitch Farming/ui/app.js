@@ -4,6 +4,13 @@ let appState=null;
 let pyApi=null;
 let apiReady=false;
 let apiReadyPromise=null;
+let startupReadyResolve=null;
+const startupReadyPromise=new Promise(resolve=>{startupReadyResolve=resolve;});
+window.onPythonStartupComplete=result=>{
+  const overlay=$("startup-overlay");
+  if(overlay) overlay.classList.add("hidden");
+  if(startupReadyResolve){startupReadyResolve(result||{});startupReadyResolve=null;}
+};
 let currentPage="dashboard";
 let lastLogId=0;
 let channelMode="add";
@@ -684,6 +691,8 @@ function nextTutorial(){
 
 async function initialize(){
   await waitForBridge();
+  const startupResult=await startupReadyPromise;
+  if(startupResult&&!startupResult.ok&&startupResult.message) notify("Ошибка инициализации: "+startupResult.message);
   setupBetControls();
   const authState=await api().get_auth_state();
   applyAuthState(authState);
