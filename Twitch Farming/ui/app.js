@@ -266,14 +266,16 @@ function renderFollowedChannels(state){
     const avatar=String(item.avatar_url||"");
     const initial=esc(name.charAt(0).toUpperCase()||"?");
     const image=avatar.startsWith("https://")?"<img loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.remove()'>":"";
+    const avatarMarkup=image||initial;
     const live=Boolean(item.is_live);
     const followed=String(item.followed_at||"");
-    const followedTime=followed?timeAgo(Date.parse(followed)/1000):"";
+    const followedTimestamp=Date.parse(followed);
+    const followedTime=followed&&Number.isFinite(followedTimestamp)?timeAgo(followedTimestamp/1000):"";
     const meta=live?"<span class='follower-live'><i class='follower-live-dot'></i>В ЭФИРЕ"+(Number(item.viewer_count||0)?" · "+Number(item.viewer_count).toLocaleString("ru-RU")+" зрителей":"")+"</span>":followedTime?"Подписка · "+esc(followedTime):"Подписка Twitch";
     const added=tracked.has(login);
     const disabled=added||running;
     const buttonText=added?"Добавлен":running?"Сбор запущен":"Добавить";
-    return "<article class='follower-card' data-login='"+esc(login)+"'><div class='follower-avatar'>"+image+initial+"</div><div class='follower-info'><strong class='follower-name'>"+esc(name)+"</strong><span class='follower-login'>@"+esc(login)+"</span><div class='follower-meta'>"+meta+"</div></div><button class='button "+(added?"button-soft":"button-primary")+" follower-add' data-followers-action='add' data-login='"+esc(login)+"' "+(disabled?"disabled":"")+">"+buttonText+"</button></article>";
+    return "<article class='follower-card' data-login='"+esc(login)+"'><div class='follower-avatar'>"+avatarMarkup+"</div><div class='follower-info'><strong class='follower-name'>"+esc(name)+"</strong><span class='follower-login'>@"+esc(login)+"</span><div class='follower-meta'>"+meta+"</div></div><button class='button "+(added?"button-soft":"button-primary")+" follower-add' data-followers-action='add' data-login='"+esc(login)+"' "+(disabled?"disabled":"")+">"+buttonText+"</button></article>";
   }).join("");
 }
 
