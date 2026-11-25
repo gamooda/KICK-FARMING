@@ -1116,7 +1116,11 @@ class Twitch(object):
                         or progress.get("currentSubscriptionCount")
                         or progress.get("subscriptionsCount")
                     )
-                    is_subscription = source_type == "subscription" or required == 0
+                    is_subscription = (
+                        source_type == "subscription"
+                        or subscription_count > 0
+                        or str(drop.get("dropType") or drop.get("type") or "").upper() in ("SUBSCRIPTION", "SUB")
+                    )
                     drops.append({
                         "id": drop_id,
                         "name": str(drop.get("name") or "Награда"),
