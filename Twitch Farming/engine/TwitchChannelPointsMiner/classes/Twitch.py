@@ -1246,6 +1246,9 @@ class Twitch(object):
                 for source_key in source_keys:
                     source_items.extend(nested_items(campaign.get(source_key)))
                     source_items.extend(nested_items(active_progress.get(source_key)))
+                if not source_items and source_type == "watch" and source_keys[0] == "timeBasedDrops":
+                    if campaign.get("unlockRequirements") or active_progress.get("currentMinutesWatched") is not None:
+                        source_items.append(campaign)
                 for raw_drop in source_items:
                     if not isinstance(raw_drop, dict):
                         continue
@@ -1255,7 +1258,7 @@ class Twitch(object):
                     if unique_id in seen_drop_ids:
                         continue
                     seen_drop_ids.add(unique_id)
-                    progress = progress_by_drop.get(drop_id, {}) or raw_drop.get("self") or drop.get("self") or {}
+                    progress = progress_by_drop.get(drop_id, {}) or raw_drop.get("self") or drop.get("self") or active_progress
                     unlock = drop.get("unlockRequirements") or {}
                     if not isinstance(unlock, dict):
                         unlock = {}
