@@ -1129,8 +1129,18 @@ class Twitch(object):
     def get_drop_inventory_snapshot(self):
         inventory = self.__get_inventory() or {}
         dashboard = self.__get_drops_dashboard(status="ACTIVE")
-        details = self.__get_campaigns_details(dashboard)
         progress_campaigns = inventory.get("dropCampaignsInProgress") or []
+        if not dashboard and progress_campaigns:
+            dashboard = [
+                {"id": str(item.get("id"))}
+                for item in progress_campaigns
+                if isinstance(item, dict) and item.get("id") is not None
+            ]
+            if dashboard:
+                logger.warning(
+                    "ViewerDropsDashboard пуст, использую ID кампаний из Inventory для получения деталей."
+                )
+        details = self.__get_campaigns_details(dashboard)
         progress_by_campaign = {
             str(item.get("id")): item
             for item in progress_campaigns
