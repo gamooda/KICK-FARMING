@@ -725,8 +725,6 @@ class TwitchFarmingApi:
     def save_settings(self, payload):
         payload = payload if isinstance(payload, dict) else {}
         with self.lock:
-            if self.session_running:
-                return {"ok": False, "message": "Сначала останови сбор."}
             username = str(payload.get("username", self.username)).strip().lower()
             channels = payload.get("channels", self.channels)
             if isinstance(channels, str):
@@ -1189,6 +1187,13 @@ class TwitchFarmingApi:
             for item in self.channel_balances.values():
                 item["points_name"] = ""
                 item["points_icon_url"] = ""
+            miner = getattr(self.engine_worker, "miner", None) if self.engine_worker is not None else None
+            streamers = list(getattr(miner, "streamers", []) or [])
+            for streamer in streamers:
+                streamer.channel_points_name = ""
+                streamer.channel_points_image = ""
+                streamer.channel_points_branding_loaded = False
+                streamer.channel_points_branding_loading = False
         self._save_config()
         return {"ok": True, "cleared": cleared, "message": "Кэш оформления Channel Points очищен."}
 
@@ -1402,6 +1407,9 @@ class TwitchFarmingApi:
         return {"ok": True, "message": "Проверка названий и значков Channel Points запущена."}
 
     def start_farm(self, payload):
+        with self.lock:
+            if self.engine_worker is not None and self.engine_worker.is_alive():
+                return {"ok": False, "message": "Сбор уже запущен."}
         saved = self.save_settings(payload)
         if not saved.get("ok"):
             return saved
@@ -1673,19 +1681,19 @@ class TwitchFarmingApi:
             self.pending_log_lines.append(line)
 
     def _flush_logs(self):
-        with self.lock:
-            if not self.pending_log_lines:
-                return
-            data = "\n".join(self.pending_log_lines) + "\n"
-            self.pending_log_lines.clear()
-        try:
-            LOG_DIR.mkdir(parents=True, exist_ok=True)
-            with self.log_file_lock:
+        with self.log_file_lock:
+            with self.lock:
+                if not self.pending_log_lines:
+                    return
+                data = "\n".join(self.pending_log_lines) + "\n"
+                self.pending_log_lines.clear()
+            try:
+                LOG_DIR.mkdir(parents=True, exist_ok=True)
                 with LOG_FILE.open("a", encoding="utf-8") as file:
                     file.write(data)
-        except OSError:
-            with self.lock:
-                self.pending_log_lines.insert(0, data.rstrip("\n"))
+            except OSError:
+                with self.lock:
+                    self.pending_log_lines.insert(0, data.rstrip("\n"))
 
     def _log_writer_loop(self):
         while not self.log_stop.wait(0.4):
