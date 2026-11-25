@@ -98,7 +98,16 @@
       overlay.style.pointerEvents="auto";
     }
   };
-  window.__tfStartupDebug={log,flush,copy,showError,display:item=>{paint(item);}};
+  const display=item=>{
+    const entry={
+      level:String(item&&item.level||"INFO").toUpperCase(),
+      line:String(item&&item.line||"")
+    };
+    records.push(entry);
+    if(records.length>300) records.shift();
+    paint(entry);
+  };
+  window.__tfStartupDebug={log,flush,copy,showError,display};
   window.__tfStartupLog=log;
   window.onerror=(message,source,line,column,error)=>{
     const location=source?String(source)+(line?":"+line:"")+(column?":"+column:""):"";
