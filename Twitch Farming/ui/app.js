@@ -24,8 +24,8 @@ let channelDraftTokens=[];
 let channelPreviewCache={};
 let channelPreviewPending=new Map();
 let pendingDeleteChannel="";
-let draggedChannelCard=null;
-let channelDropPending=false;
+let selectedChannelForMove="";
+let channelMovePending=false;
 let logsLoaded=false;
 let logsLoading=false;
 let pendingLogRows=[];
@@ -199,13 +199,97 @@ function filterChannelCards(){
   }else if(empty) empty.remove();
 }
 
+function updateChannelMoveHighlights(){
+  const root=$("channel-list");
+  if(!root) return;
+  const active=Boolean(selectedChannelForMove);
+  root.classList.toggle("channel-reorder-mode",active);
+  root.querySelectorAll(".channel-card").forEach(card=>{
+    const selected=active&&card.dataset.channel===selectedChannelForMove;
+    card.classList.toggle("move-selected",selected);
+    card.classList.toggle("move-slot",active&&!selected);
+    const button=card.querySelector(".channel-move-button");
+    if(button){
+      button.classList.toggle("is-selected",selected);
+      button.setAttribute("aria-pressed",selected?"true":"false");
+      button.title=selected?"Отменить выбор":"Переместить канал";
+    }
+  });
+}
+
+function clearChannelMoveSelection(){
+  if(!selectedChannelForMove) return;
+  selectedChannelForMove="";
+  updateChannelMoveHighlights();
+}
+
+async function saveChannelCardSwap(sourceLogin,targetLogin){
+  if(channelMovePending||!sourceLogin||!targetLogin||sourceLogin===targetLogin) return;
+  const root=$("channel-list");
+  const cards=Array.from(root.querySelectorAll(".channel-card"));
+  const sourceIndex=cards.findIndex(card=>card.dataset.channel===sourceLogin);
+  const targetIndex=cards.findIndex(card=>card.dataset.channel===targetLogin);
+  if(sourceIndex<0||targetIndex<0){
+    clearChannelMoveSelection();
+    return;
+  }
+  const originalOrder=cards.map(card=>card.dataset.channel);
+  const reordered=cards.slice();
+  [reordered[sourceIndex],reordered[targetIndex]]=[reordered[targetIndex],reordered[sourceIndex]];
+  const positions=new Map(cards.map(card=>[card,card.getBoundingClientRect()]));
+  reordered.forEach(card=>root.appendChild(card));
+  const order=reordered.map(card=>card.dataset.channel).filter(Boolean);
+  selectedChannelForMove="";
+  updateChannelMoveHighlights();
+  channelMovePending=true;
+  reordered.forEach(card=>{
+    const before=positions.get(card);
+    const after=card.getBoundingClientRect();
+    if(!before||!after.width||!after.height) return;
+    const x=before.left-after.left;
+    const y=before.top-after.top;
+    if(!x&&!y) return;
+    card.style.transition="none";
+    card.style.transform="translate("+x+"px,"+y+"px)";
+  });
+  root.offsetHeight;
+  requestAnimationFrame(()=>{
+    reordered.forEach(card=>{
+      card.style.transition="";
+      card.style.transform="";
+    });
+  });
+  try{
+    const result=await api().reorder_channels(order);
+    if(!result||!result.ok) throw new Error(result&&result.message||"Не удалось сохранить порядок каналов.");
+    if(appState) appState.channels=order.slice();
+    channelCache="";
+    await poll();
+    notify("Порядок каналов сохранён.");
+  }catch(error){
+    const cardByChannel=new Map(reordered.map(card=>[card.dataset.channel,card]));
+    originalOrder.forEach(login=>{
+      const card=cardByChannel.get(login);
+      if(card) root.appendChild(card);
+    });
+    channelCache="";
+    await poll();
+    notify(error.message||"Не удалось сохранить порядок каналов.");
+  }finally{
+    channelMovePending=false;
+  }
+}
+
 function renderChannels(channels,online,running,profiles,watchStatuses,balances,currencies){
+  if(running||!channels.includes(selectedChannelForMove)) selectedChannelForMove="";
   const signature=JSON.stringify([channels,online,running,profiles,watchStatuses,balances,currencies]);
   if(signature===channelCache) return;
   channelCache=signature;
   const root=$("channel-list");
   $("channel-count").textContent=String(channels.length);
   if(!channels.length){
+    selectedChannelForMove="";
+    root.classList.remove("channel-reorder-mode");
     root.innerHTML="<div class='empty-channels'><div class='empty-channel-icon'><svg><use href='#i-channel'></use></svg></div><strong>Пока нет каналов</strong><span>Добавь первый Twitch-канал кнопкой +</span></div>";
     $("add-channel").disabled=running;
     return;
@@ -234,9 +318,10 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
     const liveClass=live?"is-live":profile.error?"is-error":loaded?"is-offline":"is-pending";
     const extra=live&&viewers?"<span class='channel-viewers'>"+viewers.toLocaleString("ru-RU")+" зрителей</span>":watchMarkup;
     const searchKey=esc((login+" "+displayName).toLowerCase());
-    return "<article class='channel-card' data-channel='"+esc(login)+"' data-search='"+searchKey+"'><button class='channel-drag-handle' type='button' draggable='true' "+(running?"disabled":"")+" title='Перетащить канал' aria-label='Перетащить канал'>⋮⋮</button><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть канал в браузере'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Изменить'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
+    return "<article class='channel-card' data-channel='"+esc(login)+"' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть на Twitch'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Редактировать'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button channel-move-button' data-action='move' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Переместить канал' aria-label='Переместить канал' aria-pressed='false'>⋮⋮</button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
   }).join("");
   $("add-channel").disabled=running;
+  updateChannelMoveHighlights();
   filterChannelCards();
 }
 
@@ -1660,61 +1745,28 @@ document.addEventListener("DOMContentLoaded",()=>{
     }
   });
   $("refresh-channel-branding").addEventListener("click",refreshChannelBranding);
-  $("channel-list").addEventListener("dragstart",event=>{
-    const handle=event.target.closest(".channel-drag-handle");
-    if(!handle||handle.disabled||appState&&appState.session_running){event.preventDefault();return;}
-    draggedChannelCard=handle.closest(".channel-card");
-    if(!draggedChannelCard){event.preventDefault();return;}
-    draggedChannelCard.classList.add("is-dragging");
-    event.dataTransfer.effectAllowed="move";
-    event.dataTransfer.setData("text/plain",draggedChannelCard.dataset.channel||"");
-  });
-  $("channel-list").addEventListener("dragover",event=>{
-    if(!draggedChannelCard||channelDropPending)return;
-    const target=event.target.closest(".channel-card");
-    if(!target||target===draggedChannelCard)return;
-    event.preventDefault();
-    const rect=target.getBoundingClientRect();
-    const after=event.clientY>rect.top+rect.height/2;
-    $("channel-list").insertBefore(draggedChannelCard,after?target.nextSibling:target);
-    target.classList.add("drop-target");
-    $("channel-list").querySelectorAll(".channel-card.drop-target").forEach(card=>{if(card!==target)card.classList.remove("drop-target");});
-  });
-  $("channel-list").addEventListener("dragleave",event=>{
-    const target=event.target.closest(".channel-card");
-    if(target&&!target.contains(event.relatedTarget))target.classList.remove("drop-target");
-  });
-  $("channel-list").addEventListener("drop",async event=>{
-    if(!draggedChannelCard)return;
-    event.preventDefault();
-    const order=Array.from($("channel-list").querySelectorAll(".channel-card")).map(card=>card.dataset.channel).filter(Boolean);
-    draggedChannelCard.classList.remove("is-dragging");
-    $("channel-list").querySelectorAll(".channel-card").forEach(card=>card.classList.remove("drop-target"));
-    draggedChannelCard=null;
-    if(!appState||JSON.stringify(order)===JSON.stringify(appState.channels||[]))return;
-    channelDropPending=true;
-    try{
-      const result=await api().reorder_channels(order);
-      if(!result.ok)throw new Error(result.message||"Не удалось сохранить порядок каналов.");
-      appState.channels=order.slice();
-      channelCache="";
-      await poll();
-      notify("Порядок каналов сохранён.");
-    }catch(error){
-      channelCache="";
-      await poll();
-      notify(error.message||"Не удалось сохранить порядок каналов.");
-    }finally{
-      channelDropPending=false;
-    }
-  });
-  $("channel-list").addEventListener("dragend",()=>{
-    if(draggedChannelCard)draggedChannelCard.classList.remove("is-dragging");
-    draggedChannelCard=null;
-    $("channel-list").querySelectorAll(".channel-card").forEach(card=>card.classList.remove("drop-target"));
-  });
-  $("channel-list").addEventListener("click",event=>{
+  $("channel-list").addEventListener("click",async event=>{
+    const card=event.target.closest(".channel-card");
     const button=event.target.closest("button[data-action]");
+    if(button&&button.dataset.action==="move"){
+      event.preventDefault();
+      if(button.disabled||channelMovePending||appState&&appState.session_running) return;
+      const channel=button.dataset.channel;
+      if(!selectedChannelForMove){
+        selectedChannelForMove=channel;
+        updateChannelMoveHighlights();
+      }else if(selectedChannelForMove===channel){
+        clearChannelMoveSelection();
+      }else{
+        await saveChannelCardSwap(selectedChannelForMove,channel);
+      }
+      return;
+    }
+    if(selectedChannelForMove&&card&&card.dataset.channel!==selectedChannelForMove&&!button){
+      event.preventDefault();
+      await saveChannelCardSwap(selectedChannelForMove,card.dataset.channel);
+      return;
+    }
     if(!button) return;
     const channel=button.dataset.channel;
     if(button.dataset.action==="open"){
@@ -1723,6 +1775,15 @@ document.addEventListener("DOMContentLoaded",()=>{
     }
     if(button.dataset.action==="edit") openChannelEditor("edit",channel);
     if(button.dataset.action==="remove") removeChannel(channel);
+  });
+  document.addEventListener("keydown",event=>{
+    if(event.key==="Escape"&&selectedChannelForMove){
+      event.preventDefault();
+      clearChannelMoveSelection();
+    }
+  });
+  document.addEventListener("click",event=>{
+    if(selectedChannelForMove&&!event.target.closest(".channel-card")) clearChannelMoveSelection();
   });
   $("account-connect-button").addEventListener("click",()=>{
     const username=appState&&(appState.authenticated_username||appState.username);
