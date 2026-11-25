@@ -714,6 +714,7 @@ function applyState(state,initial){
     $("gate-status").textContent=state.auth_code&&!state.auth_code.includes("Сессия")?"Код Twitch: "+state.auth_code+". Подтверди вход в открывшемся браузере.":waiting?"Ожидается подтверждение входа в браузере Twitch…":state.auth_status.includes("ПОДКЛЮЧЕНИЕ")?"Выполняется подключение к Twitch…":state.auth_status.includes("ПРОВЕРКА")?"Проверяю сохранённую сессию Twitch…":state.auth_status.includes("НЕ УДАЛАСЬ")?"Не удалось подключиться. Проверь браузер и попробуй ещё раз.":"Введи логин и подключи аккаунт, чтобы открыть приложение.";
   }
   sessionStartedAt=Number(state.session_started_at||0);
+  if(initial) startupLog("INFO","Обновление стартового значения таймера сессии");
   updateSessionTimer();
   updateFarmToggleButton(Boolean(state.session_running));
   $("session-label").textContent=state.session_running?"ФАРМ РАБОТАЕТ":String(state.status_text||"ОСТАНОВЛЕН").replace(/[●]/g,"").trim();
@@ -721,8 +722,11 @@ function applyState(state,initial){
   $("points-value").textContent=Number(state.gained_total||0).toLocaleString("ru-RU");
   $("online-value").textContent=String((state.online_channels||[]).length);
   $("events-value").textContent=String(state.event_total||0);
+  if(initial) startupLog("INFO","Отрисовка списка каналов");
   renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{},state.channel_balances||{},state.channel_currency||{});
+  if(initial) startupLog("INFO","Отрисовка последних наград и загрузка иконок валюты");
   renderRewards(state.rewards||[],state.channel_currency||{});
+  if(initial) startupLog("INFO","Отрисовка ленты событий");
   renderEvents(state.events||[]);
   if(initial){
     const options=state.options||{};
