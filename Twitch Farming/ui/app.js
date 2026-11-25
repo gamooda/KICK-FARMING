@@ -426,8 +426,7 @@ function renderLogs(){
   const query=String(logSearch||"").trim().toLowerCase();
   const rows=logEntries.filter(item=>{
     const line=String(item.line||"");
-    const lower=line.toLowerCase();
-    if(query&&!lower.includes(query)) return false;
+    if(query&&!line.toLowerCase().includes(query)) return false;
     if(logFilter==="points") return /\+\s*[\d,]+/.test(line)&&/(?:Reason:\s*(?:WATCH|CLAIM)|Channel Points|балл)/i.test(line);
     if(logFilter==="important") return /\[(?:INFO|WARNING|ERROR|CRITICAL)\]/i.test(line);
     return true;
@@ -447,7 +446,6 @@ function renderLogs(){
   }).join("");
   if(currentPage==="logs") box.scrollTop=box.scrollHeight;
 }
-
 function appendLogRows(rows){
   if(!rows||!rows.length) return;
   if(logsLoading){
@@ -1484,7 +1482,13 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("nav-chat").addEventListener("click",()=>focusOption("chat","nav-chat"));
   $("nav-events").addEventListener("click",()=>setPage("logs"));
   $("nav-followers").addEventListener("click",()=>setPage("followers"));
+  $("nav-drops-inventory").addEventListener("click",()=>setPage("drops"));
   $("nav-settings").addEventListener("click",()=>setPage("settings"));
+  $("refresh-drops").addEventListener("click",()=>loadDropsInventory(true));
+  $("page-drops").addEventListener("click",event=>{
+    const button=event.target.closest("[data-drop-action='add']");
+    if(button) addDropChannelToFarm(button.dataset.login,button);
+  });
   $("refresh-followers").addEventListener("click",()=>loadFollowedChannels(true));
   $("page-followers").addEventListener("click",event=>{
     const button=event.target.closest("[data-followers-action]");
@@ -1497,6 +1501,9 @@ document.addEventListener("DOMContentLoaded",()=>{
     }
   });
   $("open-folder").addEventListener("click",openFolder);
+  $("clear-avatar-cache").addEventListener("click",clearAvatarCache);
+  $("clear-currency-cache").addEventListener("click",clearCurrencyCache);
+  $("logout-account").addEventListener("click",logoutAccount);
   $("add-channel").addEventListener("click",()=>openChannelEditor("add",""));
   $("page-channel").addEventListener("click",event=>{if(event.target===$("page-channel"))setPage("dashboard");});
   $("channel-chips").addEventListener("click",event=>{
@@ -1588,11 +1595,27 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("open-bets").addEventListener("click",openBetSettings);
   $("back-from-bets").addEventListener("click",()=>setPage("settings"));
   $("preset-select").addEventListener("change",()=>fillPreset($("preset-select").value,appState&&appState.bet_settings,appState&&appState.custom_presets));
+  $("settings-preset-select").addEventListener("change",()=>fillPreset($("settings-preset-select").value,appState&&appState.bet_settings,appState&&appState.custom_presets));
   $("load-preset").addEventListener("click",()=>fillPreset($("preset-select").value,appState&&appState.bet_settings,appState&&appState.custom_presets));
   $("apply-bets").addEventListener("click",applyBets);
   $("save-preset").addEventListener("click",savePreset);
   $("delete-preset").addEventListener("click",deletePreset);
   $("copy-logs").addEventListener("click",copyLogs);
+  $("clear-logs").addEventListener("click",clearLogs);
+  $("log-search").addEventListener("input",event=>{
+    logSearch=event.target.value||"";
+    renderLogs();
+  });
+  document.querySelectorAll("[data-log-filter]").forEach(button=>{
+    button.addEventListener("click",()=>{
+      logFilter=button.dataset.logFilter;
+      document.querySelectorAll("[data-log-filter]").forEach(item=>item.classList.toggle("active",item===button));
+      renderLogs();
+    });
+  });
+  setInterval(()=>{
+    if(currentPage==="drops"&&appState&&appState.session_running) loadDropsInventory(true);
+  },150000);
   initialize().catch(error=>{
     const message=error&&error.message?error.message:"Не удалось запустить интерфейс.";
     $("startup-title").textContent="Не удалось загрузить приложение";
