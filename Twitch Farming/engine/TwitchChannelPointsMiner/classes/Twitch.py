@@ -130,6 +130,7 @@ class Twitch(object):
             self.twitch_login.cancelled = False
             if not self.twitch_login.login_flow():
                 return False
+            self.twitch_login.validate_token()
             self.twitch_login.save_cookies(self.cookies_file)
             logger.info("Twitch session renewed after device confirmation.")
             return True
