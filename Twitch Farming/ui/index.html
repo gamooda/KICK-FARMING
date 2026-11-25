@@ -27,6 +27,7 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
     <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 19V13h4v6zm6 0V8h4v11zm6 0V4h4v15z" fill="currentColor" opacity=".2"/><path d="M3 20h18M4 12.5l5-4 4 2 7-7M16 3.5h4v4" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2h9A3.5 3.5 0 0 1 20 5.5v7a3.5 3.5 0 0 1-3.5 3.5H10l-5.5 4v-4.7A3.5 3.5 0 0 1 4 12z" fill="currentColor" opacity=".16"/><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2h9A3.5 3.5 0 0 1 20 5.5v7a3.5 3.5 0 0 1-3.5 3.5H10l-5.5 4v-4.7A3.5 3.5 0 0 1 4 12z" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linejoin="round"/><path d="M8 9h.01M12 9h.01M16 9h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></symbol>
     <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="currentColor" opacity=".12"/><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="2.1"/><path d="M7.5 3v4M16.5 3v4M4 9.5h16M8 13h2m3 0h2m-7 4h2m3 0h2" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3.5 20v-1.3A4.7 4.7 0 0 1 8.2 14h1.6a4.7 4.7 0 0 1 4.7 4.7V20zM16 5.2a3.1 3.1 0 0 1 0 5.9M17 14.2a4.3 4.3 0 0 1 3.5 4.3V20h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-settings" viewBox="0 0 24 24"><path d="m9.8 2.9 4.4 0 .7 2.3 2 .8 2.1-1.1 3.1 3.1-1.1 2.1.8 2 .3.1-.3.1-.8 2 1.1 2.1-3.1 3.1-2.1-1.1-2 .8-.7 2.3H9.8l-.7-2.3-2-.8L5 19.5l-3.1-3.1L3 14.3l-.8-2 .8-2-1.1-2.1L5 5.1l2.1 1.1 2-.8z" fill="currentColor" opacity=".15"/><path d="m9.8 2.9 4.4 0 .7 2.3 2 .8 2.1-1.1 3.1 3.1-1.1 2.1.8 2 .3.1-.3.1-.8 2 1.1 2.1-3.1 3.1-2.1-1.1-2 .8-.7 2.3H9.8l-.7-2.3-2-.8L5 19.5l-3.1-3.1L3 14.3l-.8-2 .8-2-1.1-2.1L5 5.1l2.1 1.1 2-.8z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><circle cx="12" cy="12.2" r="3.2" fill="none" stroke="currentColor" stroke-width="2.1"/></symbol>
     <symbol id="i-diamond" viewBox="0 0 24 24"><path d="m12 2.8 8.7 8.3L12 21.2l-8.7-10.1z" fill="currentColor" opacity=".23"/><path d="m12 2.8 8.7 8.3L12 21.2l-8.7-10.1zM3.3 11.1h17.4M8 3.7l-1.2 7.4L12 21.2l5.2-10.1L16 3.7" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linejoin="round"/></symbol>
     <symbol id="i-gift" viewBox="0 0 24 24"><path d="M4 10h16v11H4z" fill="currentColor" opacity=".2"/><path d="M3 8h18v4H3zM5 12v9h14v-9M12 8v13M12 8C7 8 5.5 6.9 5.5 5c0-1.1.8-2 2-2C10 3 12 8 12 8Zm0 0c5 0 6.5-1.1 6.5-3 0-1.1-.8-2-2-2C14 3 12 8 12 8Z" fill="none" stroke="currentColor" stroke-width="2.0" stroke-linecap="round" stroke-linejoin="round"/></symbol>
@@ -79,7 +80,7 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
   <div class="app-shell auth-hidden" id="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><path fill="#211338" d="M17 13h5v13h-5zm11 0h5v13h-5z"/></svg></div>
+        <div class="brand-mark"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><g class="brand-eye-blink" fill="#211338"><path d="M17 13h5v13h-5zm11 0h5v13h-5z"/></g></svg></div>
         <div class="brand-title">TWITCH<br><span>FARMING</span></div>
       </div>
       <div class="side-caption">МЕНЮ</div>
@@ -91,6 +92,7 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
         <button class="nav-button" id="nav-predictions"><svg><use href="#i-chart"></use></svg><span>Прогнозы</span></button>
         <button class="nav-button" id="nav-chat"><svg><use href="#i-chat"></use></svg><span>IRC-чат</span></button>
         <button class="nav-button" id="nav-events"><svg><use href="#i-calendar"></use></svg><span>События</span></button>
+        <button class="nav-button" id="nav-followers"><svg><use href="#i-users"></use></svg><span>Фолловеры</span></button>
         <button class="nav-button" id="nav-settings"><svg><use href="#i-settings"></use></svg><span>Настройки</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
@@ -145,6 +147,17 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
         <section class="panel logs-panel">
           <div class="logs-toolbar"><div class="section-heading">ЖУРНАЛ ПРИЛОЖЕНИЯ</div><button class="button button-mini" id="copy-logs">Копировать</button></div>
           <pre class="log-view" id="log-view"></pre>
+        </section>
+      </section>
+      <section class="page" id="page-followers">
+        <header class="subpage-header">
+          <div><div class="page-title">Фолловеры</div><div class="page-subtitle" id="followers-subtitle">Каналы, на которые подписан текущий аккаунт Twitch</div></div>
+          <button class="button button-primary" id="refresh-followers"><svg><use href="#i-refresh"></use></svg>Обновить</button>
+        </header>
+        <section class="panel followers-panel">
+          <div class="followers-toolbar"><div class="section-heading">СПИСОК ПОДПИСОК <span class="heading-count" id="followers-count">0</span></div><span class="followers-updated" id="followers-updated"></span></div>
+          <div class="followers-status" id="followers-status">Нажми «Обновить», чтобы загрузить подписки аккаунта.</div>
+          <div class="followers-grid" id="followers-list"></div>
         </section>
       </section>
       <section class="page" id="page-settings">
