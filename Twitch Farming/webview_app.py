@@ -253,6 +253,9 @@ class TwitchFarmingApi:
         self.account_profile = {}
         self.channel_profiles = {}
         self.channel_balances = {}
+        self.rewards = []
+        self.window = None
+        self.window_maximized = False
         self.online_channels = set()
         self.watch_status = {}
         self.profile_worker = None
@@ -673,6 +676,15 @@ class TwitchFarmingApi:
         self.events.append(stamp + "  " + str(message))
         self.events = self.events[-100:]
 
+    def _append_reward_locked(self, title, description, kind, created):
+        self.rewards.append({
+            "title": str(title)[:100],
+            "description": str(description)[:140],
+            "kind": str(kind),
+            "timestamp": float(created),
+        })
+        self.rewards = self.rewards[-60:]
+
     def _append_event(self, message):
         with self.lock:
             self._append_event_locked(message)
@@ -788,6 +800,7 @@ class TwitchFarmingApi:
                 self.gained_total += amount
                 self.event_total += 1
                 self._append_event_locked("+" + str(amount) + "  ·  " + channel + "  ·  " + label)
+                self._append_reward_locked(channel, "+" + str(amount) + " Channel Points", "gem", created)
                 self.reward = {"text": "@" + channel + "  ·  +" + str(amount) + " очков  ·  " + label, "until": time.time() + 5}
             return
         if "Twitch Drop received:" in message:
@@ -795,12 +808,14 @@ class TwitchFarmingApi:
             with self.lock:
                 self.event_total += 1
                 self._append_event_locked("Twitch Drop · " + name)
+                self._append_reward_locked(name, "Twitch Drop", "gift", created)
                 self.reward = {"text": "Twitch Drop · " + name, "until": time.time() + 5}
             return
         if "Twitch Moment claimed:" in message:
             name = message.split("Twitch Moment claimed:", 1)[1].strip()[:100]
             with self.lock:
                 self._append_event_locked("Момент · " + name)
+                self._append_reward_locked(name, "Момент получен", "star", created)
                 self.reward = {"text": "Момент · " + name, "until": time.time() + 5}
             return
         if "Joining raid from" in message:
@@ -951,6 +966,7 @@ class TwitchFarmingApi:
                 "gained_total": self.gained_total,
                 "event_total": self.event_total,
                 "events": list(self.events[-100:]),
+                "rewards": [dict(item) for item in self.rewards[-60:]],
                 "reward": dict(self.reward) if self.reward else None,
                 "logs": logs[-100:],
                 "next_log_id": self.next_log_id,
@@ -1000,6 +1016,34 @@ class TwitchFarmingApi:
         return {"ok": False}
 
 
+    def minimize_window(self):
+        if self.window is None:
+            return {"ok": False, "message": "Окно ещё не готово."}
+        self.window.minimize()
+        return {"ok": True}
+
+    def toggle_maximize_window(self):
+        if self.window is None:
+            return {"ok": False, "message": "Окно ещё не готово."}
+        self.window_maximized = not self.window_maximized
+        if self.window_maximized:
+            self.window.maximize()
+        else:
+            self.window.restore()
+        return {"ok": True, "maximized": self.window_maximized}
+
+    def close_window(self):
+        if self.window is not None:
+            self.window.destroy()
+        return {"ok": True}
+
+    def sync_window_maximized(self, maximized):
+        self.window_maximized = bool(maximized)
+        try:
+            self.window.evaluate_js("window.setWindowMaximized(" + ("true" if self.window_maximized else "false") + ")")
+        except Exception:
+            pass
+
     def on_loaded(self):
         with self.lock:
             if self.restore_started:
@@ -1047,12 +1091,17 @@ def main():
         height=800,
         min_size=(960, 660),
         resizable=True,
-        frameless=False,
-        background_color="#0B0F19",
+        frameless=True,
+        easy_drag=False,
+        shadow=True,
+        background_color="#0B0B12",
         text_select=True,
     )
+    api.window = window
     window.events.loaded += api.on_loaded
     window.events.closing += api.on_closing
+    window.events.maximized += lambda: api.sync_window_maximized(True)
+    window.events.restored += lambda: api.sync_window_maximized(False)
     try:
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None)
     except Exception as error:
