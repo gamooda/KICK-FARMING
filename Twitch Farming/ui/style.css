@@ -305,12 +305,25 @@ select.input option{background:#171622;color:#e8e4ef}
   .feed-item{min-height:54px}
 }
 
-.startup-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(11,11,18,.94);opacity:1;visibility:visible;pointer-events:none;transition:opacity .24s ease,visibility .24s ease}
+.startup-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:22px;background:#0b0b12;opacity:1;visibility:visible;pointer-events:auto;transition:opacity .24s ease,visibility .24s ease}
 .startup-overlay.hidden{opacity:0;visibility:hidden;pointer-events:none}
-.startup-card{display:flex;flex-direction:column;align-items:center;gap:11px;padding:28px 34px;text-align:center}
+.startup-card{width:min(760px,100%);max-height:calc(100vh - 36px);display:flex;flex-direction:column;align-items:center;gap:17px;padding:25px 27px;text-align:center}
+.startup-indicator{display:flex;flex-direction:column;align-items:center;gap:10px}
 .startup-spinner{width:34px;height:34px;flex:0 0 34px;border:3px solid #30283d;border-top-color:#a66bf0;border-radius:50%;animation:startup-spin .8s linear infinite}
 .startup-title{font-size:15px;font-weight:800;color:#f0eaf8}
-.startup-description{font-size:11px;color:#a49bad;margin-top:0}
+.startup-description{font-size:11px;color:#a49bad;margin-top:0;max-width:620px;overflow-wrap:anywhere}
+.startup-debug-panel{width:min(680px,100%);min-width:0;overflow:hidden;text-align:left;border:1px solid #342c43;border-radius:10px;background:#111019;box-shadow:0 10px 35px rgba(0,0,0,.26)}
+.startup-debug-heading{height:35px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 10px;border-bottom:1px solid #30283d;background:#191624;color:#a995c2;font-size:8px;font-weight:900;letter-spacing:1px}
+.startup-copy-log{flex:0 0 auto;padding:5px 8px;border:1px solid #49395e;border-radius:6px;background:#251c31;color:#d4b6f4;font:inherit;font-size:8px;letter-spacing:0;cursor:pointer;transition:background .15s,border-color .15s}
+.startup-copy-log:hover{background:#37264a;border-color:#805ba5;color:#fff}
+.startup-debug-output{height:160px;max-height:28vh;overflow:auto;padding:9px 11px;color:#a9a1b7;background:#0e0d15;font-family:Consolas,"Cascadia Mono",monospace;font-size:9px;line-height:1.55;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;scrollbar-width:thin;scrollbar-color:#59436f transparent}
+.startup-debug-line{margin:0 0 3px;color:#a9a1b7}
+.startup-debug-error{color:#ff6f83}
+.startup-retry{display:none;margin-top:1px}
+.startup-overlay.startup-error{pointer-events:auto;background:#0b0b12}
+.startup-overlay.startup-error .startup-card{width:min(760px,100%);padding:22px;background:transparent;border:0;box-shadow:none}
+.startup-overlay.startup-error .startup-title{color:#ffb6c2}
+@media(max-width:560px){.startup-card{padding:14px 8px;gap:13px}.startup-debug-output{height:125px}.startup-debug-heading{padding:0 7px}} 
 @keyframes startup-spin{to{transform:rotate(360deg)}}
 
 .button-danger{background:#351a25;border-color:#713344;color:#ff9aaa}
