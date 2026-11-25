@@ -1,6 +1,8 @@
 
 :root{color-scheme:dark;font-family:"Segoe UI",Arial,sans-serif;font-synthesis:none;text-rendering:optimizeLegibility;background:#0b0b12;color:#e9e7f2;--bg:#0b0b12;--sidebar:#101019;--panel:#151520;--panel2:#191925;--border:#292638;--border-soft:#211e2e;--text:#e9e7f2;--muted:#a09bad;--quiet:#716c7e;--purple:#9658f5;--purple-bright:#b07aff;--purple-soft:#6f3cbd;--green:#4bd58d;--red:#f05270}
 *{box-sizing:border-box}
+*,*::before,*::after{-webkit-user-select:none;user-select:none}
+img{-webkit-user-drag:none;user-drag:none}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0b0b12;border-radius:0}
 body{padding:0;color:var(--text);font-size:13px;border-radius:0}
 button,input,select{font:inherit}
@@ -691,3 +693,5 @@ select.input option{background:#171622;color:#e8e4ef}
   .preset-toolbar .preset-actions{flex-wrap:wrap}
   .preset-toolbar .preset-name{flex-basis:100%}
 }
+
+input,textarea,.log-view,.log-view *,#event-list,#event-list *,#event-list .feed-item,#event-list .feed-item *, .feedback,.feedback *, .is-error,.is-error *, .login-status,.login-status *, .startup-overlay.startup-error .startup-description,.startup-overlay.startup-error .startup-description *,[role="alert"],[role="alert"] *, .toast,.toast *{-webkit-user-select:text;user-select:text}
