@@ -515,11 +515,12 @@ class TwitchFarmingApi:
         self.root_logger.setLevel(logging.DEBUG)
         self.log_file_lock = threading.Lock()
         self.log_handler = AppLogHandler(self)
-        self.root_logger.addHandler(self.log_handler)
         try:
             self._sanitize_existing_log()
+            self._load_existing_log_records()
         except Exception:
             pass
+        self.root_logger.addHandler(self.log_handler)
         self.log_writer = threading.Thread(target=self._log_writer_loop, name="LogWriter", daemon=True)
         self.log_writer.start()
     def _startup_tasks(self):
@@ -1654,6 +1655,28 @@ class TwitchFarmingApi:
         text = re.sub(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])", "[IP REDACTED]", text)
         return text[:1200]
 
+    def _load_existing_log_records(self):
+        try:
+            with self.log_file_lock:
+                if not LOG_FILE.is_file():
+                    return
+                with LOG_FILE.open("rb") as file:
+                    file.seek(0, os.SEEK_END)
+                    size = file.tell()
+                    file.seek(max(0, size - 1000000))
+                    content = file.read(1000000).decode("utf-8", errors="replace")
+                if size > 1000000:
+                    content = content.split("\n", 1)[-1]
+            lines = content.splitlines()[-500:]
+            with self.lock:
+                self.log_records = [
+                    {"id": index + 1, "line": line}
+                    for index, line in enumerate(lines)
+                ]
+                self.next_log_id = len(self.log_records) + 1
+        except OSError:
+            return
+
     def _sanitize_existing_log(self):
         try:
             if not LOG_FILE.is_file():
@@ -1836,24 +1859,13 @@ class TwitchFarmingApi:
     def get_log_snapshot(self):
         self._flush_logs()
         with self.lock:
+            rows = [dict(item) for item in self.log_records[-500:]]
             snapshot_id = self.next_log_id - 1
-            fallback = [item["line"] for item in self.log_records[-500:]]
-        try:
-            with self.log_file_lock:
-                if LOG_FILE.is_file():
-                    with LOG_FILE.open("rb") as file:
-                        file.seek(0, os.SEEK_END)
-                        size = file.tell()
-                        file.seek(max(0, size - 1000000))
-                        content = file.read(1000000).decode("utf-8", errors="replace")
-                    if size > 1000000:
-                        content = content.split("\n", 1)[-1]
-                    lines = content.splitlines()[-500:]
-                else:
-                    lines = fallback
-        except OSError:
-            lines = fallback
-        return {"lines": lines, "last_log_id": snapshot_id}
+        return {
+            "rows": rows,
+            "lines": [item["line"] for item in rows],
+            "last_log_id": snapshot_id,
+        }
 
     def clear_logs(self):
         try:
