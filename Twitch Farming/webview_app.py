@@ -967,6 +967,8 @@ class TwitchFarmingApi:
                     "points": points,
                     "display_name": str(profile.get("display_name") or login),
                     "avatar_url": str(profile.get("avatar_url") or ""),
+                    "points_name": str(getattr(streamer, "channel_points_name", "") or ""),
+                    "points_icon_url": str(getattr(streamer, "channel_points_image", "") or ""),
                 }
         valid = set(self.channels)
         self.channel_balances = {
@@ -981,6 +983,12 @@ class TwitchFarmingApi:
         return ranked[:3], {
             login: int(item.get("points", 0))
             for login, item in self.channel_balances.items()
+        }, {
+            login: {
+                "name": str(item.get("points_name") or ""),
+                "icon_url": str(item.get("points_icon_url") or ""),
+            }
+            for login, item in self.channel_balances.items()
         }
 
     def get_state(self, after_log_id=0):
@@ -989,7 +997,7 @@ class TwitchFarmingApi:
         except (TypeError, ValueError):
             after = 0
         with self.lock:
-            top_channels, channel_balances = self._refresh_channel_balances_locked()
+            top_channels, channel_balances, channel_currency = self._refresh_channel_balances_locked()
             logs = [dict(item) for item in self.log_records if item["id"] > after]
             return {
                 "username": self.username,
@@ -1004,6 +1012,7 @@ class TwitchFarmingApi:
                 "account_profile": dict(self.account_profile),
                 "channel_profiles": {key: dict(value) for key, value in self.channel_profiles.items()},
                 "channel_balances": channel_balances,
+                "channel_currency": channel_currency,
                 "top_channels": top_channels,
                 "authenticated": self.authenticated,
                 "authenticated_username": self.authenticated_username,
