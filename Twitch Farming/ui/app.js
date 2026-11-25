@@ -1719,6 +1719,33 @@ function initLogoAnimation(){
   runRandom();
 }
 
+async function waitForSessionRestore(){
+  const started=Date.now();
+  let lastReport=started;
+  startupLog("INFO","Ожидание результата проверки сохранённой сессии Twitch");
+  while(true){
+    const auth=await withTimeout(api().get_auth_state(),15000,"Python API не ответил на состояние проверки сессии за 15 секунд.");
+    if(!auth.worker_alive&&!auth.restore_pending&&auth.worker_state!=="restoring"){
+      if(auth.authenticated){
+        startupLog("INFO","Проверка сессии завершена: аккаунт Twitch подключён");
+      }else{
+        startupLog("WARNING","Проверка сессии завершена без авторизации: "+String(auth.auth_error||auth.auth_status||"сессия отсутствует"));
+      }
+      const diagnostics=await withTimeout(api().get_startup_state(lastPythonStartupEventId),10000,"Python API не ответил после проверки сессии.");
+      displayPythonStartupEvents(diagnostics);
+      return auth;
+    }
+    const now=Date.now();
+    if(now-lastReport>=5000){
+      const diagnostics=await withTimeout(api().get_startup_state(lastPythonStartupEventId),10000,"Python API не ответил во время проверки сессии.");
+      displayPythonStartupEvents(diagnostics);
+      startupLog("INFO","Проверка сессии продолжается; прошло "+((now-started)/1000).toFixed(1)+" сек.; статус: "+String(auth.auth_status||auth.worker_state||"ожидание"));
+      lastReport=now;
+    }
+    await sleep(300);
+  }
+}
+
 function initializeStartupWidgets(){
   if(sessionTimerInterval===null){
     startupLog("INFO","Инициализация таймера сессии");
@@ -1751,11 +1778,20 @@ async function initialize(){
   setupBetControls();
   lastLogId=0;
   startupLog("INFO","Запрос состояния авторизации Python API");
-  const authState=await withTimeout(api().get_auth_state(),15000,"Python API не ответил на get_auth_state за 15 секунд.");
+  let authState=await withTimeout(api().get_auth_state(),15000,"Python API не ответил на get_auth_state за 15 секунд.");
   startupLog("INFO","Состояние авторизации получено");
   startupLog("INFO","Запрос начального состояния приложения");
-  const state=await withTimeout(api().get_state(0),15000,"Python API не ответил на get_state за 15 секунд.");
-  startupLog("INFO","Начальное состояние приложения получено; отрисовка интерфейса");
+  let state=await withTimeout(api().get_state(0),15000,"Python API не ответил на get_state за 15 секунд.");
+  startupLog("INFO","Начальное состояние приложения получено");
+  if(authState.restore_pending){
+    startupLog("INFO","Проверка сохранённой сессии Twitch: запуск фонового потока");
+    await withTimeout(api().begin_session_restore(),10000,"Python API не запустил проверку сохранённой сессии за 10 секунд.");
+    authState=await waitForSessionRestore();
+    startupLog("INFO","Повторное чтение состояния после проверки сессии");
+    state=await withTimeout(api().get_state(0),15000,"Python API не ответил на get_state после проверки сессии.");
+  }else{
+    startupLog("INFO","Проверка сессии не требуется: сохранённая сессия уже отсутствует или подключена");
+  }
   state.authenticated=Boolean(authState.authenticated);
   state.authenticated_username=authState.username||state.authenticated_username;
   state.auth_status=authState.auth_status||state.auth_status;
@@ -1765,19 +1801,10 @@ async function initialize(){
   state.worker_state=authState.worker_state||"idle";
   state.restore_pending=Boolean(authState.restore_pending);
   state.elapsed=Number(authState.elapsed||0);
+  startupLog("INFO","Отрисовка каналов, последних наград и событий");
   applyState(state,true);
   startupLog("INFO","Отрисовка каналов, последних наград и событий завершена");
   appInitialized=Boolean(authState.authenticated);
-  if(state.restore_pending){
-    startupLog("INFO","Проверка сохранённой сессии Twitch: запуск фоновой проверки");
-    await withTimeout(api().begin_session_restore(),10000,"Python API не запустил проверку сохранённой сессии за 10 секунд.");
-    await sleep(100);
-    const diagnostics=await withTimeout(api().get_startup_state(lastPythonStartupEventId),10000,"Python API не ответил после запуска проверки сессии.");
-    displayPythonStartupEvents(diagnostics);
-    startupLog("INFO","Проверка сохранённой сессии передана фоновому потоку; интерфейс не блокируется сетевым запросом");
-  }else{
-    startupLog("INFO","Проверка сессии: сохранённый аккаунт отсутствует");
-  }
   initializeStartupWidgets();
   initialStateReady=true;
   updateFarmToggleButton(Boolean(state.session_running));
