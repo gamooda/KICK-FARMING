@@ -306,14 +306,14 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
     const currency=currencies&&currencies[login]?currencies[login]:{};
     const pointsName=String(currency.name||"").trim()||"баллов";
     const pointsIconUrl=String(currency.icon_url||"");
-    const pointsIcon=pointsIconUrl.startsWith("https://")?"<img class='channel-points-icon-image' loading='lazy' src='"+esc(pointsIconUrl)+"' alt='' onerror='this.remove()'>":"<svg class='channel-points-icon'><use href='#i-diamond'></use></svg>";
+    const pointsIcon=pointsIconUrl.startsWith("https://")?"<img draggable='false' class='channel-points-icon-image' loading='lazy' src='"+esc(pointsIconUrl)+"' alt='' onerror='this.remove()'>":"<svg class='channel-points-icon'><use href='#i-diamond'></use></svg>";
     const viewers=Number(profile.viewer_count||0);
     const watch=watchStatuses&&watchStatuses[login]?watchStatuses[login]:null;
     const watchFresh=watch&&Date.now()/1000-Number(watch.updated_at||0)<120;
     const watchLabels={selected:"Выбран",waiting:"В очереди",request:"Запрос…",accepted:"Принят",error:"Ошибка"};
     const watchMarkup=watchFresh&&watchLabels[watch.state]?"<span class='channel-watch-state "+esc(watch.state)+"'>"+esc(watchLabels[watch.state]+(watch.detail?" · "+watch.detail:""))+"</span>":"";
     const initial=esc(displayName.charAt(0).toUpperCase()||"?");
-    const avatarMarkup="<div class='channel-avatar "+(avatar?"":"avatar-fallback")+"'>"+(avatar?"<img loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.parentElement.classList.add(\"avatar-fallback\");this.remove()'>":"")+"<span class='avatar-initial'>"+initial+"</span></div>";
+    const avatarMarkup="<div class='channel-avatar "+(avatar?"":"avatar-fallback")+"'>"+(avatar?"<img draggable='false' loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.parentElement.classList.add(\"avatar-fallback\");this.remove()'>":"")+"<span class='avatar-initial'>"+initial+"</span></div>";
     const pointsText=points===null?"—":points.toLocaleString("ru-RU");
     const liveClass=live?"is-live":profile.error?"is-error":loaded?"is-offline":"is-pending";
     const extra=live&&viewers?"<span class='channel-viewers'>"+viewers.toLocaleString("ru-RU")+" зрителей</span>":watchMarkup;
@@ -363,7 +363,7 @@ function renderFollowedChannels(state){
     const name=String(item.display_name||login);
     const avatar=String(item.avatar_url||"");
     const initial=esc(name.charAt(0).toUpperCase()||"?");
-    const image=avatar.startsWith("https://")?"<img loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.remove()'>":"";
+    const image=avatar.startsWith("https://")?"<img draggable='false' loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.remove()'>":"";
     const avatarMarkup=image||initial;
     const live=Boolean(item.is_live);
     const followed=String(item.followed_at||"");
@@ -883,7 +883,7 @@ function renderChannelPreviewCards(items){
     const live=Boolean(item.is_live);
     const status=previewStatus(item);
     const statusClass=item.error?"is-error":item.loaded?(live?"is-live":"is-offline"):"is-pending";
-    const image=avatar?"<img src='"+esc(avatar)+"' alt='' loading='lazy' onerror='this.remove();this.parentElement.classList.add(&quot;avatar-fallback&quot;)'>":"";
+    const image=avatar?"<img draggable='false' src='"+esc(avatar)+"' alt='' loading='lazy' onerror='this.remove();this.parentElement.classList.add(&quot;avatar-fallback&quot;)'>":"";
     return "<article class='channel-preview-card'><div class='channel-preview-avatar "+(avatar?"":"avatar-fallback")+"'>"+image+"<span>"+esc(display.charAt(0).toUpperCase()||"?")+"</span></div><div class='channel-preview-copy'><strong>"+esc(display)+"</strong><span>@"+esc(login)+"</span><div class='channel-preview-meta'><span class='channel-live-pill "+statusClass+"'><i class='channel-status-dot "+(live?"is-live":"") +"'></i>"+status+"</span>"+(Number(item.viewer_count||0)>0?"<small>"+Number(item.viewer_count).toLocaleString("ru-RU")+" зрителей</small>":"")+"</div></div></article>";
   }).join("");
 }
@@ -970,10 +970,10 @@ function renderEditChannelPreview(login){
   const avatar=String(profile.avatar_url||"");
   const live=Boolean(profile.is_live||(appState&&Array.isArray(appState.online_channels)&&appState.online_channels.includes(login)));
   const icon=String(currency.icon_url||"");
-  const pointsIcon=icon.startsWith("https://")?"<img class='channel-points-icon-image' src='"+esc(icon)+"' alt='' onerror='this.remove()'>":"<svg class='channel-points-icon'><use href='#i-diamond'></use></svg>";
+  const pointsIcon=icon.startsWith("https://")?"<img draggable='false' class='channel-points-icon-image' src='"+esc(icon)+"' alt='' onerror='this.remove()'>":"<svg class='channel-points-icon'><use href='#i-diamond'></use></svg>";
   const status=profile.loaded?(live?"В ЭФИРЕ":"ОФФЛАЙН"):(live?"В ЭФИРЕ":"СТАТУС НЕ ПРОВЕРЕН");
   const statusClass=live?"is-live":"is-offline";
-  const image=avatar?"<img src='"+esc(avatar)+"' alt='' loading='lazy' onerror='this.remove();this.parentElement.classList.add(&quot;avatar-fallback&quot;)'>":"";
+  const image=avatar?"<img draggable='false' src='"+esc(avatar)+"' alt='' loading='lazy' onerror='this.remove();this.parentElement.classList.add(&quot;avatar-fallback&quot;)'>":"";
   $("channel-preview-list").innerHTML="<article class='channel-preview-card edit-preview'><div class='channel-preview-avatar "+(avatar?"":"avatar-fallback")+"'>"+image+"<span>"+esc(display.charAt(0).toUpperCase()||"?")+"</span></div><div class='channel-preview-copy'><strong>"+esc(display)+"</strong><span>@"+esc(login)+"</span><div class='channel-preview-meta'><span class='channel-live-pill "+statusClass+"'><i class='channel-status-dot "+(live?"is-live":"") +"'></i>"+status+"</span><span class='channel-balance'>"+pointsIcon+"<b>"+points+"</b><small>"+esc(String(currency.name||"баллов"))+"</small></span></div></div></article>";
 }
 
@@ -1055,7 +1055,7 @@ function openDeleteConfirmation(login){
   const profile=appState&&appState.channel_profiles&&appState.channel_profiles[pendingDeleteChannel]?appState.channel_profiles[pendingDeleteChannel]:{};
   const display=String(profile.display_name||pendingDeleteChannel);
   const avatar=String(profile.avatar_url||"");
-  const avatarHtml=avatar?"<img src='"+esc(avatar)+"' alt='' onerror='this.remove();this.parentElement.classList.add(&quot;avatar-fallback&quot;)'>":"";
+  const avatarHtml=avatar?"<img draggable='false' src='"+esc(avatar)+"' alt='' onerror='this.remove();this.parentElement.classList.add(&quot;avatar-fallback&quot;)'>":"";
   $("delete-confirm-channel").innerHTML="<div class='delete-confirm-avatar "+(avatar?"":"avatar-fallback")+"'>"+avatarHtml+"<span>"+esc(display.charAt(0).toUpperCase()||"?")+"</span></div><div class='delete-confirm-copy'><strong>"+esc(display)+"</strong><span>@"+esc(pendingDeleteChannel)+"</span></div>";
   $("delete-confirm-overlay").classList.add("visible");
   $("delete-confirm-button").disabled=false;
@@ -1248,7 +1248,7 @@ function renderSettingsSummary(state){
   const initial=esc(display.charAt(0).toUpperCase()||"?");
   if(avatar.dataset.url!==avatarUrl){
     avatar.dataset.url=avatarUrl;
-    avatar.innerHTML=avatarUrl.startsWith("https://")?"<img src='"+esc(avatarUrl)+"' alt='' onerror='this.remove()'>":initial;
+    avatar.innerHTML=avatarUrl.startsWith("https://")?"<img draggable='false' src='"+esc(avatarUrl)+"' alt='' onerror='this.remove()'>":initial;
   }
   const stats=state.cache_stats||{};
   $("cache-avatar-count").textContent=Number(stats.avatars||0).toLocaleString("ru-RU");
@@ -1309,11 +1309,11 @@ function renderDropsSection(campaigns,root,isSubscription){
   }
   root.innerHTML=groups.map(({campaign,drops})=>{
     const gameImage=String(campaign.game_image||"");
-    const gameMarkup=gameImage.startsWith("https://")?"<img src='"+esc(gameImage)+"' alt='' loading='lazy' onerror='this.remove()'>":"<span class='drop-game-fallback'><svg><use href='#i-gift'></use></svg></span>";
+    const gameMarkup=gameImage.startsWith("https://")?"<img draggable='false' src='"+esc(gameImage)+"' alt='' loading='lazy' onerror='this.remove()'>":"<span class='drop-game-fallback'><svg><use href='#i-gift'></use></svg></span>";
     const endDate=campaign.end_at?new Date(campaign.end_at).toLocaleDateString("ru-RU",{day:"2-digit",month:"short",year:"numeric"}):"—";
     const rewardMarkup=drops.map(drop=>{
       const rewardImage=String(drop.image_url||"");
-      const rewardThumb=rewardImage.startsWith("https://")?"<img src='"+esc(rewardImage)+"' alt='' loading='lazy' onerror='this.remove()'>":"<span class='drop-reward-fallback'><svg><use href='#i-gift'></use></svg></span>";
+      const rewardThumb=rewardImage.startsWith("https://")?"<img draggable='false' src='"+esc(rewardImage)+"' alt='' loading='lazy' onerror='this.remove()'>":"<span class='drop-reward-fallback'><svg><use href='#i-gift'></use></svg></span>";
       const claimed=Boolean(drop.claimed);
       const progress=Math.max(0,Math.min(100,Number(drop.percentage||0)));
       const watched=Number(drop.watched_minutes||0);
@@ -1338,7 +1338,7 @@ function renderDropsSection(campaigns,root,isSubscription){
       const login=String(streamer.login||"").toLowerCase();
       const name=String(streamer.display_name||login);
       const avatar=String(streamer.avatar_url||"");
-      const image=avatar.startsWith("https://")?"<img src='"+esc(avatar)+"' alt='' loading='lazy' onerror='this.remove()'>":"<span>"+esc(name.charAt(0).toUpperCase()||"?")+"</span>";
+      const image=avatar.startsWith("https://")?"<img draggable='false' src='"+esc(avatar)+"' alt='' loading='lazy' onerror='this.remove()'>":"<span>"+esc(name.charAt(0).toUpperCase()||"?")+"</span>";
       const added=Boolean(appState&&Array.isArray(appState.channels)&&appState.channels.includes(login));
       const running=Boolean(appState&&appState.session_running);
       const button=added&&running?"<button class='button button-soft drop-streamer-add' disabled>Уже в фарме</button>":"<button class='button button-primary drop-streamer-add' data-drop-action='add' data-login='"+esc(login)+"'>"+(added?"Запустить фарм":"Добавить в фарм")+"</button>";
