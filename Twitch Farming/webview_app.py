@@ -17,6 +17,8 @@ if not getattr(sys, "frozen", False):
 
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "Twitch Farming"
+LOCAL_APP_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "Twitch Farming"
+WEBVIEW_DIR = LOCAL_APP_DIR / "WebView2"
 CONFIG_FILE = APP_DIR / "config.json"
 LOG_DIR = APP_DIR / "logs"
 LOG_FILE = LOG_DIR / "TwitchFarming.log"
@@ -85,11 +87,19 @@ class AuthWorker(threading.Thread):
 
     def run(self):
         try:
+            logger = logging.getLogger("twitch_farming.startup" if self.restoring else "twitch_farming.auth")
+            import_started = time.monotonic()
+            if self.restoring:
+                logger.info("[STARTUP] Загрузка модулей Twitch...")
             from TwitchChannelPointsMiner.classes.Twitch import Twitch
             from TwitchChannelPointsMiner.utils import get_user_agent
+            if self.restoring:
+                logger.info("[STARTUP] Модули Twitch загружены за %.2f сек.", time.monotonic() - import_started)
+            client_started = time.monotonic()
             self.client = Twitch(self.username, get_user_agent("CHROME"))
             if self.restoring:
-                logging.getLogger("twitch_farming.auth").info("[STARTUP] Проверка сохранённой сессии Twitch...")
+                logger.info("[STARTUP] Клиент Twitch создан за %.2f сек.", time.monotonic() - client_started)
+                logger.info("[STARTUP] Проверка сохранённой сессии Twitch...")
                 success = bool(self.client.restore_session())
             else:
                 success = bool(self.client.login())
@@ -331,16 +341,13 @@ class TwitchFarmingApi:
             logger.exception("Startup configuration failed")
         finally:
             with self.lock:
-                if self.username:
-                    self.restore_pending = True
-                    self.auth_status = "ПРОВЕРКА СОХРАНЁННОЙ СЕССИИ…"
-                    self.auth_error = ""
-                    self.auth_worker_state = "restoring"
-                    self.auth_started_at = time.time()
-                    self._set_status_locked("●  ПРОВЕРКА СЕССИИ", "#F0B65A")
+                self.restore_pending = False
                 self.startup_complete = True
                 self.startup_phase = "Готово"
+                should_restore = bool(self.username)
             logger.info("[STARTUP] Конфигурация готова за %.2f сек.", time.monotonic() - started)
+            if should_restore:
+                self._restore_session()
             threading.Thread(target=self._sanitize_startup_log, name="StartupLogPreparation", daemon=True).start()
     def begin_session_restore(self):
         with self.lock:
@@ -1363,6 +1370,8 @@ class TwitchFarmingApi:
             logging.getLogger("twitch_farming.startup").exception("Could not start startup worker")
 
     def on_loaded(self):
+        elapsed = max(0.0, time.monotonic() - self.startup_started_at)
+        logging.getLogger("twitch_farming.startup").info("[STARTUP] Страница интерфейса загружена за %.2f сек.", elapsed)
         self.start_startup_worker()
 
     def on_closing(self):
@@ -1419,8 +1428,10 @@ def main():
     window.events.maximized += lambda: api.sync_window_maximized(True)
     window.events.restored += lambda: api.sync_window_maximized(False)
     api.start_startup_worker()
+    WEBVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    logging.getLogger("twitch_farming.startup").info("[STARTUP] Запуск WebView2. Профиль браузера: %s", WEBVIEW_DIR)
     try:
-        webview.start(gui="edgechromium", private_mode=False, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None, debug=False)
+        webview.start(gui="edgechromium", private_mode=False, storage_path=str(WEBVIEW_DIR), icon=str(ICON_FILE) if ICON_FILE.is_file() else None, debug=False)
     except Exception as error:
         if os.name == "nt":
             try:
