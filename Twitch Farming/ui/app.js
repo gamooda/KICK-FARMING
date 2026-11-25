@@ -18,6 +18,7 @@ let pageHistoryIndex=0;
 let windowMaximized=false;
 let polling=false;
 let toastTimer=null;
+let sessionStartedAt=0;
 let channelPreviewTimer=null;
 let channelPreviewSequence=0;
 let channelDraftTokens=[];
@@ -494,14 +495,20 @@ function timeAgo(timestamp){
   return Math.floor(hours/24)+" дн. назад";
 }
 
-function renderRewards(rewards){
+function renderRewards(rewards,channelCurrency){
   const root=$("reward-list");
   const items=Array.isArray(rewards)?rewards.slice(-30).reverse():[];
   $("reward-count").textContent=String(items.length);
   const icons={gem:"i-diamond",gift:"i-gift",star:"i-star"};
+  const currencyMap=channelCurrency&&typeof channelCurrency==="object"?channelCurrency:{};
   const html=items.length?items.map(item=>{
     const icon=icons[item.kind]||"i-diamond";
-    return "<div class='feed-item'><div class='feed-item-icon reward-"+esc(item.kind||"gem")+"'><svg><use href='#"+icon+"'></use></svg></div><div class='feed-item-copy'><strong>"+esc(item.title||"Награда")+"</strong><span>"+esc(item.description||"Награда Twitch")+"</span></div><time>"+timeAgo(item.timestamp)+"</time></div>";
+    const currency=currencyMap[String(item.channel_login||"").toLowerCase()]||{};
+    const currencyName=String(item.currency_name||currency.name||"").trim();
+    const currencyIcon=String(item.currency_icon||currency.icon_url||"");
+    const description=currencyName?String(item.description||"").replace(/Channel Points/gi,currencyName):String(item.description||"Награда Twitch");
+    const iconMarkup=item.kind==="gem"&&currencyIcon.startsWith("https://")?"<img class='reward-currency-icon' draggable='false' src='"+esc(currencyIcon)+"' alt=''>":"<svg><use href='#"+icon+"'></use></svg>";
+    return "<div class='feed-item'><div class='feed-item-icon reward-"+esc(item.kind||"gem")+"'>"+iconMarkup+"</div><div class='feed-item-copy'><strong>"+esc(item.title||"Награда")+"</strong><span>"+esc(description)+"</span></div><time>"+timeAgo(item.timestamp)+"</time></div>";
   }).join(""):"<div class='feed-empty'>Награды появятся после начисления Channel Points.</div>";
   if(root.dataset.signature!==html){
     root.dataset.signature=html;
@@ -648,6 +655,8 @@ function applyState(state,initial){
     const waiting=state.auth_status.includes("ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ");
     $("gate-status").textContent=state.auth_code&&!state.auth_code.includes("Сессия")?"Код Twitch: "+state.auth_code+". Подтверди вход в открывшемся браузере.":waiting?"Ожидается подтверждение входа в браузере Twitch…":state.auth_status.includes("ПОДКЛЮЧЕНИЕ")?"Выполняется подключение к Twitch…":state.auth_status.includes("ПРОВЕРКА")?"Проверяю сохранённую сессию Twitch…":state.auth_status.includes("НЕ УДАЛАСЬ")?"Не удалось подключиться. Проверь браузер и попробуй ещё раз.":"Введи логин и подключи аккаунт, чтобы открыть приложение.";
   }
+  sessionStartedAt=Number(state.session_started_at||0);
+  updateSessionTimer();
   updateFarmToggleButton(Boolean(state.session_running));
   $("session-label").textContent=state.session_running?"ФАРМ РАБОТАЕТ":String(state.status_text||"ОСТАНОВЛЕН").replace(/[●]/g,"").trim();
   $("session-dot").classList.toggle("is-running",Boolean(state.session_running));
@@ -655,7 +664,7 @@ function applyState(state,initial){
   $("online-value").textContent=String((state.online_channels||[]).length);
   $("events-value").textContent=String(state.event_total||0);
   renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{},state.channel_balances||{},state.channel_currency||{});
-  renderRewards(state.rewards||[]);
+  renderRewards(state.rewards||[],state.channel_currency||{});
   renderEvents(state.events||[]);
   if(initial){
     const options=state.options||{};
@@ -800,8 +809,24 @@ async function saveSettings(){
   }
 }
 
+function updateSessionTimer(){
+  const timer=$("session-timer");
+  const value=$("session-timer-value");
+  if(!timer||!value) return;
+  const active=Boolean(appState&&appState.session_running&&sessionStartedAt>0);
+  timer.classList.toggle("visible",active);
+  if(!active){
+    value.textContent="00:00:00";
+    return;
+  }
+  const elapsed=Math.max(0,Math.floor(Date.now()/1000-sessionStartedAt));
+  const hours=Math.floor(elapsed/3600);
+  const minutes=Math.floor((elapsed%3600)/60);
+  const seconds=elapsed%60;
+  value.textContent=[hours,minutes,seconds].map(number=>String(number).padStart(2,"0")).join(":");
+}
+
 function updateFarmToggleButton(running){
-  const button=$("farm-toggle");
   if(!button) return;
   button.classList.toggle("button-primary",!running);
   button.classList.toggle("button-start",!running);
@@ -1865,8 +1890,13 @@ document.addEventListener("DOMContentLoaded",()=>{
     });
   });
   setInterval(()=>{
-    if(currentPage==="drops"&&appState&&appState.session_running) loadDropsInventory(true);
-  },150000);
+    if(appState&&appState.authenticated&&appState.session_running){
+      loadDropsInventory(true);
+    }else if(currentPage==="drops"){
+      loadDropsInventory(false);
+    }
+  },120000);
+  setInterval(updateSessionTimer,1000);
   initialize().catch(error=>{
     const message=error&&error.message?error.message:"Не удалось запустить интерфейс.";
     $("startup-title").textContent="Не удалось загрузить приложение";
