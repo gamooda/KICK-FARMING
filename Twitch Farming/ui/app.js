@@ -73,11 +73,17 @@ async function waitForBridge(){
   await withTimeout(apiReadyPromise,120000,"WebView2 не запустился за 120 секунд. Проверь Microsoft Edge WebView2 Runtime.");
   const bridge=window.pywebview&&window.pywebview.api;
   if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
-  const required=["get_auth_state","get_state","get_startup_state","begin_session_restore","login","minimize_window","toggle_maximize_window","close_window"];
+  const required=["get_auth_state","get_state","get_startup_state","mark_frontend_ready","restart_app","begin_session_restore","login","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
   apiReady=true;
+  try{
+    const ready=bridge.mark_frontend_ready();
+    if(ready&&typeof ready.catch==="function") ready.catch(error=>console.warn("Frontend ready signal failed:",error));
+  }catch(error){
+    console.warn("Frontend ready signal failed:",error);
+  }
   return pyApi;
 }
 
@@ -1088,7 +1094,22 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("delete-confirm-overlay").addEventListener("click",event=>{if(event.target===$("delete-confirm-overlay"))closeDeleteConfirmation();});
   $("delete-cancel-button").addEventListener("click",closeDeleteConfirmation);
   $("delete-confirm-button").addEventListener("click",confirmDeleteChannel);
-  $("startup-retry").addEventListener("click",()=>window.location.reload());
+  $("startup-retry").addEventListener("click",async()=>{
+    const button=$("startup-retry");
+    button.disabled=true;
+    button.textContent="Перезапуск...";
+    try{
+      if(apiReady&&pyApi&&typeof pyApi.restart_app==="function"){
+        const result=await pyApi.restart_app();
+        throw new Error(result&&result.message||"Не удалось перезапустить приложение.");
+      }
+      window.location.reload();
+    }catch(error){
+      button.disabled=false;
+      button.textContent="Повторить запуск";
+      setStartupMessage(error.message||"Не удалось перезапустить приложение.");
+    }
+  });
   $("refresh-channel-branding").addEventListener("click",refreshChannelBranding);
   $("channel-list").addEventListener("click",event=>{
     const button=event.target.closest("button[data-action]");
