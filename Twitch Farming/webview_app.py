@@ -319,10 +319,12 @@ class TwitchFarmingApi:
             self.startup_complete = True
         logger.info("[STARTUP] Конфигурация готова за %.2f сек.", time.monotonic() - started)
         threading.Thread(target=self._sanitize_startup_log, name="StartupLogPreparation", daemon=True).start()
-        if self.restore_pending:
-            timer = threading.Timer(0.35, self._restore_session)
-            timer.daemon = True
-            timer.start()
+    def begin_session_restore(self):
+        with self.lock:
+            pending = bool(self.restore_pending)
+        if pending:
+            self._restore_session()
+        return {"ok": True}
 
     def _sanitize_startup_log(self):
         try:

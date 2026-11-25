@@ -54,7 +54,7 @@ async function waitForBridge(){
   await apiReadyPromise;
   const bridge=window.pywebview&&window.pywebview.api;
   if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
-  const required=["get_auth_state","get_state","get_startup_state","login","minimize_window","toggle_maximize_window","close_window"];
+  const required=["get_auth_state","get_state","get_startup_state","begin_session_restore","login","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
@@ -741,10 +741,15 @@ async function initialize(){
   state.restore_pending=Boolean(authState.restore_pending);
   state.elapsed=Number(authState.elapsed||0);
   applyState(state,true);
-  initialStateReady=true;
   appInitialized=Boolean(authState.authenticated);
-  updateFarmToggleButton(Boolean(state.session_running));
   $("startup-overlay").classList.add("hidden");
+  try{
+    await api().begin_session_restore();
+  }catch(error){
+    notify("Не удалось запустить проверку сессии: "+(error.message||String(error)));
+  }
+  initialStateReady=true;
+  updateFarmToggleButton(Boolean(state.session_running));
   setInterval(poll,900);
 }
 
