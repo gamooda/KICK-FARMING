@@ -93,7 +93,7 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
         <button class="nav-button" id="nav-chat"><svg><use href="#i-chat"></use></svg><span>IRC-чат</span></button>
         <button class="nav-button" id="nav-events"><svg><use href="#i-calendar"></use></svg><span>События</span></button>
         <button class="nav-button" id="nav-followers"><svg><use href="#i-users"></use></svg><span>Фолловеры</span></button>
-        <button class="nav-button" id="nav-drops-inventory"><svg><use href="#i-gift"></use></svg><span>Инвентарь Drops</span><b class="nav-badge" id="drops-badge">0</b></button>
+        <button class="nav-button" id="nav-drops-inventory"><svg><use href="#i-gift"></use></svg><span>Инвентарь</span><b class="nav-badge" id="drops-badge">0</b></button>
         <button class="nav-button" id="nav-settings"><svg><use href="#i-settings"></use></svg><span>Настройки</span></button>
       </nav>
       <div class="sidebar-spacer"></div>
@@ -286,35 +286,48 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
         <header class="subpage-header">
           <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-bets"><svg><use href="#i-left"></use></svg>Назад</button><div><div class="page-title">Настройки прогнозов</div><div class="page-subtitle">Стратегия автоматического размещения баллов</div></div></div>
         </header>
-        <section class="panel bet-panel">
-          <div class="section-heading">СТРАТЕГИЯ АВТОМАТИЧЕСКИХ ПРОГНОЗОВ</div>
-          <label class="field-label" for="preset-select">ПРЕСЕТ</label>
-          <select class="input" id="preset-select"></select>
-          <div class="bet-fields">
-            <label class="field"><span>Стратегия выбора</span><select class="input" id="bet-strategy"></select></label>
-            <label class="field"><span>Процент баланса</span><input class="input" id="bet-percentage" type="number" min="0" max="100" step="0.1"></label>
-            <label class="field"><span>Порог SMART, %</span><input class="input" id="bet-percentage_gap" type="number" min="0" max="100" step="0.1"></label>
-            <label class="field"><span>Максимум очков за прогноз</span><input class="input" id="bet-max_points" type="number" min="0" step="1"></label>
-            <label class="field"><span>Минимальный баланс</span><input class="input" id="bet-minimum_points" type="number" min="0" step="1"></label>
-            <label class="field"><span>Когда размещать прогноз</span><select class="input" id="bet-delay_mode"><option>FROM_START</option><option>FROM_END</option><option>PERCENTAGE</option></select></label>
-            <label class="field"><span>Задержка / доля таймера</span><input class="input" id="bet-delay" type="number" min="0" step="0.1"></label>
-            <label class="field"><span>Параметр фильтра</span><select class="input" id="bet-filter_by"></select></label>
-            <label class="field"><span>Условие фильтра</span><select class="input" id="bet-filter_condition"><option>GT</option><option>GTE</option><option>LT</option><option>LTE</option></select></label>
-            <label class="field"><span>Значение фильтра</span><input class="input" id="bet-filter_value" type="number" step="0.1"></label>
-          </div>
-          <div class="bet-checks">
-            <label class="check-row"><input type="checkbox" id="bet-filter_enabled"><span class="check-box"></span><span>Использовать числовой фильтр участия</span></label>
-            <label class="check-row"><input type="checkbox" id="bet-stealth_mode"><span class="check-box"></span><span>Скрытная ставка</span></label>
-          </div>
-          <div class="feedback" id="bet-feedback">Настройки применяются при следующем запуске сбора.</div>
-          <div class="preset-actions">
-            <input class="input preset-name" id="preset-name" placeholder="Название пресета">
-            <button class="button button-soft" id="load-preset">Загрузить</button>
-            <button class="button button-soft" id="save-preset">Сохранить пресет</button>
-            <button class="button button-danger" id="delete-preset">Удалить</button>
-            <button class="button button-primary" id="apply-bets">Применить</button>
-          </div>
+        <div class="bets-scroll">
+        <section class="bet-card bet-preset-card">
+          <div class="bet-card-heading"><span class="bet-card-icon purple"><svg><use href="#i-chart"></use></svg></span><div><strong>Выбор пресета</strong><small>Готовая конфигурация стратегии прогнозов</small></div></div>
+          <label class="field"><span>Пресет</span><select class="input custom-select" id="preset-select"></select></label>
         </section>
+        <div class="bet-settings-grid">
+          <section class="bet-card">
+            <div class="bet-card-heading"><span class="bet-card-icon violet"><svg><use href="#i-target"></use></svg></span><div><strong>Стратегия и лимиты ставок</strong><small>Управление выбором и размером ставки</small></div></div>
+            <div class="bet-fields bet-fields-single">
+              <label class="field"><span>Стратегия выбора</span><select class="input custom-select" id="bet-strategy"></select></label>
+              <label class="field"><span>Процент баланса</span><input class="input" id="bet-percentage" type="number" min="0" max="100" step="0.1"></label>
+              <label class="field"><span>Порог SMART, %</span><input class="input" id="bet-percentage_gap" type="number" min="0" max="100" step="0.1"></label>
+              <label class="field"><span>Максимум очков за прогноз</span><input class="input" id="bet-max_points" type="number" min="0" step="1"></label>
+              <label class="field"><span>Минимальный баланс</span><input class="input" id="bet-minimum_points" type="number" min="0" step="1"></label>
+            </div>
+          </section>
+          <section class="bet-card">
+            <div class="bet-card-heading"><span class="bet-card-icon blue"><svg><use href="#i-clock"></use></svg></span><div><strong>Тайминг и фильтры участников</strong><small>Момент размещения и условия участия</small></div></div>
+            <div class="bet-fields bet-fields-single">
+              <label class="field"><span>Когда размещать прогноз</span><select class="input custom-select" id="bet-delay_mode"><option value="FROM_START">FROM_START</option><option value="FROM_END">FROM_END</option><option value="PERCENTAGE">PERCENTAGE</option></select></label>
+              <label class="field"><span>Задержка / доля таймера</span><input class="input" id="bet-delay" type="number" min="0" step="0.1"></label>
+              <label class="field"><span>Параметр фильтра</span><select class="input custom-select" id="bet-filter_by"></select></label>
+              <label class="field"><span>Условие фильтра</span><select class="input custom-select" id="bet-filter_condition"><option value="GT">GT</option><option value="GTE">GTE</option><option value="LT">LT</option><option value="LTE">LTE</option></select></label>
+              <label class="field"><span>Значение фильтра</span><input class="input" id="bet-filter_value" type="number" step="0.1"></label>
+            </div>
+            <div class="bet-checks bet-toggle-list">
+              <label class="bet-toggle-row"><span><strong>Числовой фильтр участников</strong><small>Учитывать заданное условие по параметру участников</small></span><input type="checkbox" id="bet-filter_enabled"><i class="toggle-switch"></i></label>
+              <label class="bet-toggle-row"><span><strong>Скрытая ставка</strong><small>Не отображать ставку другим участникам</small></span><input type="checkbox" id="bet-stealth_mode"><i class="toggle-switch"></i></label>
+            </div>
+          </section>
+        </div>
+      </div>
+      <div class="preset-toolbar">
+        <div class="feedback" id="bet-feedback">Настройки применяются при следующем запуске сбора.</div>
+        <div class="preset-actions">
+          <input class="input preset-name" id="preset-name" placeholder="Название пресета">
+          <button class="button button-soft" id="load-preset">Загрузить</button>
+          <button class="button button-soft" id="save-preset">Сохранить пресет</button>
+          <button class="button button-danger" id="delete-preset">Удалить</button>
+          <button class="button button-primary" id="apply-bets">Применить</button>
+        </div>
+      </div>
       </section>
     </main>
   </div>
