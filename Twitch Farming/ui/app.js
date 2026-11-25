@@ -1725,7 +1725,8 @@ function initLogoAnimation(){
 
 async function waitForSessionRestore(){
   const started=Date.now();
-  let lastReport=started;
+  let lastDiagnosticPoll=started;
+  let lastStatusReport=started;
   startupLog("INFO","Ожидание результата проверки сохранённой сессии Twitch");
   while(true){
     const auth=await withTimeout(api().get_auth_state(),15000,"Python API не ответил на состояние проверки сессии за 15 секунд.");
@@ -1740,11 +1741,14 @@ async function waitForSessionRestore(){
       return auth;
     }
     const now=Date.now();
-    if(now-lastReport>=5000){
+    if(now-lastDiagnosticPoll>=900){
       const diagnostics=await withTimeout(api().get_startup_state(lastPythonStartupEventId),10000,"Python API не ответил во время проверки сессии.");
       displayPythonStartupEvents(diagnostics);
+      lastDiagnosticPoll=now;
+    }
+    if(now-lastStatusReport>=5000){
       startupLog("INFO","Проверка сессии продолжается; прошло "+((now-started)/1000).toFixed(1)+" сек.; статус: "+String(auth.auth_status||auth.worker_state||"ожидание"));
-      lastReport=now;
+      lastStatusReport=now;
     }
     await sleep(300);
   }
