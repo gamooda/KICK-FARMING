@@ -1040,76 +1040,102 @@ class Twitch(object):
             if isinstance(item, dict) and item.get("id") is not None
         }
         result = []
+        drop_sources = (
+            ("watch", ("timeBasedDrops", "time_based_drops")),
+            ("subscription", ("subscriptionDrops", "subscriptionBasedDrops", "subscriptionDropRewards", "subDrops")),
+        )
+        image_keys = ("imageAssetURL", "imageUrl", "imageURL", "image_url", "url")
+        def safe_int(value):
+            try:
+                return max(0, int(value or 0))
+            except (TypeError, ValueError):
+                return 0
         for campaign in details:
             if not isinstance(campaign, dict):
                 continue
             campaign_id = str(campaign.get("id") or "")
             game = campaign.get("game") or {}
+            if not isinstance(game, dict):
+                game = {}
             active_progress = progress_by_campaign.get(campaign_id, {})
-            progress_by_drop = {
-                str(item.get("id")): item.get("self") or {}
-                for item in (active_progress.get("timeBasedDrops") or [])
-                if isinstance(item, dict) and item.get("id") is not None
-            }
+            progress_by_drop = {}
+            for source_type, source_keys in drop_sources:
+                for source_key in source_keys:
+                    progress_items = active_progress.get(source_key) or []
+                    for item in progress_items:
+                        if isinstance(item, dict) and item.get("id") is not None:
+                            progress_by_drop[str(item.get("id"))] = item.get("self") or item
             drops = []
-            for drop in campaign.get("timeBasedDrops") or []:
-                if not isinstance(drop, dict):
-                    continue
-                progress = progress_by_drop.get(str(drop.get("id") or ""), {}) or drop.get("self") or {}
-                try:
-                    required = max(0, int(drop.get("requiredMinutesWatched") or 0))
-                    watched = max(0, int(progress.get("currentMinutesWatched") or 0))
-                except (TypeError, ValueError):
-                    required = 0
-                    watched = 0
-                claimed = bool(progress.get("isClaimed") or drop.get("isClaimed"))
-                benefit_edges = drop.get("benefitEdges") or []
-                benefit_names = []
-                image_url = ""
-                for edge in benefit_edges:
-                    benefit = (edge or {}).get("benefit") or {}
-                    name = str(benefit.get("name") or "").strip()
-                    if name and name not in benefit_names:
-                        benefit_names.append(name)
+            seen_drop_ids = set()
+            for source_type, source_keys in drop_sources:
+                source_items = []
+                for source_key in source_keys:
+                    value = campaign.get(source_key) or []
+                    if isinstance(value, list):
+                        source_items.extend(value)
+                for drop in source_items:
+                    if not isinstance(drop, dict):
+                        continue
+                    drop_id = str(drop.get("id") or "")
+                    if drop_id and drop_id in seen_drop_ids:
+                        continue
+                    if drop_id:
+                        seen_drop_ids.add(drop_id)
+                    progress = progress_by_drop.get(drop_id, {}) or drop.get("self") or {}
+                    required = safe_int(drop.get("requiredMinutesWatched") or drop.get("required_minutes"))
+                    watched = safe_int(progress.get("currentMinutesWatched") or progress.get("current_minutes_watched"))
+                    claimed = bool(progress.get("isClaimed") or drop.get("isClaimed") or drop.get("claimed"))
+                    benefit_edges = drop.get("benefitEdges") or []
+                    benefit_names = []
+                    image_url = ""
+                    for edge in benefit_edges:
+                        benefit = (edge or {}).get("benefit") or {}
+                        name = str(benefit.get("name") or "").strip()
+                        if name and name not in benefit_names:
+                            benefit_names.append(name)
+                        if not image_url:
+                            for key in image_keys:
+                                candidate = str(benefit.get(key) or "")
+                                if candidate.startswith("https://"):
+                                    image_url = candidate
+                                    break
                     if not image_url:
-                        for key in ("imageAssetURL", "imageUrl", "imageURL", "image_url", "url"):
-                            candidate = str(benefit.get(key) or "")
+                        for key in image_keys:
+                            candidate = str(drop.get(key) or "")
                             if candidate.startswith("https://"):
                                 image_url = candidate
                                 break
-                if not image_url:
-                    for key in ("imageAssetURL", "imageUrl", "imageURL", "image_url", "url"):
-                        candidate = str(drop.get(key) or "")
-                        if candidate.startswith("https://"):
-                            image_url = candidate
+                    percentage_value = min(100, int(watched * 100 / required)) if required else (100 if claimed else 0)
+                    subscription_count = 0
+                    for key in ("requiredSubscriptions", "requiredSubscriptionsCount", "requiredSubs", "subscriptionCount"):
+                        subscription_count = safe_int(drop.get(key))
+                        if subscription_count:
                             break
-                percentage = min(100, int(watched * 100 / required)) if required else (100 if claimed else 0)
-                subscription_count = 0
-                for key in ("requiredSubscriptions", "requiredSubscriptionsCount", "requiredSubs", "subscriptionCount"):
-                    try:
-                        subscription_count = max(0, int(drop.get(key) or 0))
-                    except (TypeError, ValueError):
-                        subscription_count = 0
-                    if subscription_count:
-                        break
-                drops.append({
-                    "id": str(drop.get("id") or ""),
-                    "name": str(drop.get("name") or "Награда"),
-                    "benefit": ", ".join(benefit_names),
-                    "image_url": image_url,
-                    "type": "subscription" if required == 0 else "watch",
-                    "required_minutes": required,
-                    "watched_minutes": watched,
-                    "remaining_minutes": max(0, required - watched) if required else 0,
-                    "percentage": percentage,
-                    "claimed": claimed,
-                    "claimable": bool(progress.get("dropInstanceID")) and not claimed,
-                    "required_subscriptions": subscription_count,
-                    "current_subscriptions": max(0, int(progress.get("currentSubscriptions") or progress.get("currentSubscriptionCount") or 0)),
-                    "start_at": str(drop.get("startAt") or campaign.get("startAt") or ""),
-                    "end_at": str(drop.get("endAt") or campaign.get("endAt") or ""),
-                })
-            allowed_channels = campaign.get("allow", {}).get("channels") if isinstance(campaign.get("allow"), dict) else None
+                    current_subscriptions = safe_int(
+                        progress.get("currentSubscriptions")
+                        or progress.get("currentSubscriptionCount")
+                        or progress.get("subscriptionsCount")
+                    )
+                    is_subscription = source_type == "subscription" or required == 0
+                    drops.append({
+                        "id": drop_id,
+                        "name": str(drop.get("name") or "Награда"),
+                        "benefit": ", ".join(benefit_names),
+                        "image_url": image_url,
+                        "type": "subscription" if is_subscription else "watch",
+                        "required_minutes": required,
+                        "watched_minutes": watched,
+                        "remaining_minutes": max(0, required - watched) if required else 0,
+                        "percentage": percentage_value,
+                        "claimed": claimed,
+                        "claimable": bool(progress.get("dropInstanceID") or progress.get("drop_instance_id")) and not claimed,
+                        "required_subscriptions": subscription_count,
+                        "current_subscriptions": current_subscriptions,
+                        "start_at": str(drop.get("startAt") or campaign.get("startAt") or ""),
+                        "end_at": str(drop.get("endAt") or campaign.get("endAt") or ""),
+                    })
+            allow = campaign.get("allow")
+            allowed_channels = allow.get("channels") if isinstance(allow, dict) else None
             game_image = ""
             for key in ("boxArtURL", "boxArtUrl", "imageURL", "imageUrl"):
                 candidate = str(game.get(key) or "")
@@ -1124,7 +1150,11 @@ class Twitch(object):
                 "game_image": game_image,
                 "start_at": str(campaign.get("startAt") or ""),
                 "end_at": str(campaign.get("endAt") or ""),
-                "allowed_channel_ids": [str(item.get("id")) for item in (allowed_channels or []) if isinstance(item, dict) and item.get("id")],
+                "allowed_channel_ids": [
+                    str(item.get("id"))
+                    for item in (allowed_channels or [])
+                    if isinstance(item, dict) and item.get("id")
+                ],
                 "drops": drops,
             })
         return result
