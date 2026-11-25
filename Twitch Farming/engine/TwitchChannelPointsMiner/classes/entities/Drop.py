@@ -53,39 +53,33 @@ class Drop(object):
         self,
         progress,
     ):
-        self.has_preconditions_met = progress["hasPreconditionsMet"]
-
+        watched = max(0, int(progress.get("currentMinutesWatched", self.current_minutes_watched) or 0))
+        claimed = bool(progress.get("isClaimed", self.is_claimed))
+        self.has_preconditions_met = progress.get("hasPreconditionsMet", self.has_preconditions_met)
         updated_percentage = (
-            percentage(progress["currentMinutesWatched"], self.minutes_required)
+            percentage(watched, self.minutes_required)
             if self.minutes_required > 0
-            else (100 if progress.get("isClaimed") else 0)
+            else (100 if claimed else 0)
         )
         quarter = round((updated_percentage / 25), 4).is_integer() if self.minutes_required > 0 else False
         self.is_printable = (
-            # The new currentMinutesWatched are GT than previous
-            progress["currentMinutesWatched"] > self.current_minutes_watched
+            watched > self.current_minutes_watched
             and (
-                # The drop is printable when we have a new updated values and:
-                #  - also the percentage It's different and  quarter is True (self.current_minutes_watched != 0 for skip boostrap phase)
-                #  - or we have watched 1 and the previous value is 0 - We are collecting a new drop :)
                 (
                     updated_percentage > self.percentage_progress
                     and quarter is True
                     and self.current_minutes_watched != 0
                 )
                 or (
-                    progress["currentMinutesWatched"] == 1
+                    watched == 1
                     and self.current_minutes_watched == 0
                 )
             )
         )
-
-        self.current_minutes_watched = progress["currentMinutesWatched"]
-        self.drop_instance_id = progress["dropInstanceID"]
-        self.is_claimed = progress["isClaimed"]
-        self.is_claimable = (
-            self.is_claimed is False and self.drop_instance_id is not None
-        )
+        self.current_minutes_watched = watched
+        self.drop_instance_id = progress.get("dropInstanceID", self.drop_instance_id)
+        self.is_claimed = claimed
+        self.is_claimable = self.is_claimed is False and self.drop_instance_id is not None
         self.percentage_progress = updated_percentage
 
     def __repr__(self):
