@@ -119,6 +119,36 @@ function appendLogRows(rows){
   if(currentPage==="logs") box.scrollTop=box.scrollHeight;
 }
 
+function renderAccountSidebar(state){
+  const profile=state.account_profile||(appState&&appState.account_profile)||{};
+  const username=state.authenticated_username||state.username||(appState&&appState.authenticated_username)||"";
+  const display=profile.display_name||username||"Twitch";
+  const initial=String(display).charAt(0).toUpperCase()||"T";
+  $("account-display-name").textContent=display;
+  $("account-login").textContent=username?"@"+username:"Аккаунт не подключён";
+  $("account-state").textContent=state.authenticated?"ПОДКЛЮЧЁН":"НЕ ПОДКЛЮЧЁН";
+  $("account-state").style.color=state.authenticated?"#42d6a4":"#8792a8";
+  $("account-state-dot").style.background=state.authenticated?"#42d6a4":"#8792a8";
+  $("account-connect-button").textContent=state.authenticated?"↻":"↗";
+  $("account-connect-button").title=state.authenticated?"Переподключить Twitch":"Подключить Twitch";
+  $("account-connect-button").disabled=Boolean(state.worker_alive);
+  const avatar=$("account-avatar");
+  const avatarUrl=typeof profile.avatar_url==="string"&&profile.avatar_url.startsWith("https://")?profile.avatar_url:"";
+  if(avatar.dataset.url!==avatarUrl){
+    avatar.dataset.url=avatarUrl;
+    avatar.textContent=initial;
+    if(avatarUrl){
+      const image=document.createElement("img");
+      image.src=avatarUrl;
+      image.alt="";
+      image.onerror=()=>{avatar.replaceChildren(document.createTextNode(initial));};
+      avatar.replaceChildren(image);
+    }
+  }else if(!avatarUrl&&!avatar.querySelector("img")){
+    avatar.textContent=initial;
+  }
+}
+
 function applyAuthState(state){
   const authenticated=Boolean(state.authenticated);
   $("login-gate").classList.toggle("visible",!authenticated);
@@ -136,6 +166,7 @@ function applyAuthState(state){
             ?"Не удалось подключиться. "+(state.auth_error||"Повтори вход.")
             :"Введи логин Twitch.";
   if(state.username&&document.activeElement!==$("gate-username")) $("gate-username").value=state.username;
+  renderAccountSidebar(state);
 }
 
 function applyState(state,initial){
@@ -145,14 +176,8 @@ function applyState(state,initial){
   $("sidebar-status").textContent=state.status_text.replace(/^●\s*/,"");
   $("sidebar-status").style.color=state.status_color;
   document.querySelector(".status-dot").style.background=state.status_color;
-  $("auth-status").textContent=state.auth_status;
-  $("auth-status").style.color=authenticated?"#42d6a4":state.auth_status.includes("НЕ УДАЛАСЬ")?"#ff7b89":"#8792a8";
-  $("auth-code").textContent=state.auth_code?("Код авторизации: "+state.auth_code):"Код авторизации: —";
-  $("login-button").textContent=authenticated?"Подключено":state.auth_status.includes("ПОДКЛЮЧЕНИЕ")||state.auth_status.includes("ПРОВЕРКА")?"Подключение…":"Войти через Twitch";
-  $("login-button").disabled=state.auth_status.includes("ПОДКЛЮЧЕНИЕ")||state.auth_status.includes("ПРОВЕРКА");
   $("gate-login-button").disabled=state.auth_status.includes("ПОДКЛЮЧЕНИЕ")||state.auth_status.includes("ПРОВЕРКА")||state.auth_status.includes("ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ");
   if(document.activeElement!==$("gate-username")) $("gate-username").value=state.username||"";
-  if(document.activeElement!==$("username")) $("username").value=state.username||"";
   if(!authenticated){
     const waiting=state.auth_status.includes("ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ");
     $("gate-status").textContent=state.auth_code&&!state.auth_code.includes("Сессия")?"Код Twitch: "+state.auth_code+". Подтверди вход в открывшемся браузере.":waiting?"Ожидается подтверждение входа в браузере Twitch…":state.auth_status.includes("ПОДКЛЮЧЕНИЕ")?"Выполняется подключение к Twitch…":state.auth_status.includes("ПРОВЕРКА")?"Проверяю сохранённую сессию Twitch…":state.auth_status.includes("НЕ УДАЛАСЬ")?"Не удалось подключиться. Проверь браузер и попробуй ещё раз.":"Введи логин и подключи аккаунт, чтобы открыть приложение.";
@@ -278,7 +303,7 @@ function collectBet(){
 function collectPayload(){
   const presets=appState&&appState.custom_presets?appState.custom_presets:{};
   return {
-    username:$("username").value.trim().toLowerCase(),
+    username:String((appState&&appState.authenticated_username)||(appState&&appState.username)||"").trim().toLowerCase(),
     channels:appState&&appState.channels?appState.channels:[],
     settings:collectOptions(),
     bet_settings:collectBet(),
@@ -321,10 +346,6 @@ async function loginUser(username){
     $("gate-status").textContent=error.message||"Ошибка авторизации.";
     $("gate-login-button").disabled=false;
   }
-}
-
-async function login(){
-  return loginUser($("username").value);
 }
 
 async function gateLogin(){
@@ -556,7 +577,10 @@ document.addEventListener("DOMContentLoaded",()=>{
     if(button.dataset.action==="edit") openChannelEditor("edit",channel);
     if(button.dataset.action==="remove") removeChannel(channel);
   });
-  $("login-button").addEventListener("click",login);
+  $("account-connect-button").addEventListener("click",()=>{
+    const username=appState&&(appState.authenticated_username||appState.username);
+    if(username) loginUser(username);
+  });
   $("gate-login-button").addEventListener("click",gateLogin);
   $("gate-username").addEventListener("keydown",event=>{if(event.key==="Enter")gateLogin();});
   $("tutorial-next").addEventListener("click",nextTutorial);

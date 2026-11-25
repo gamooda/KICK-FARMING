@@ -248,6 +248,7 @@ class TwitchFarmingApi:
         self.custom_presets = {}
         self.selected_preset = "Оптимальный"
         self.tutorial_done = False
+        self.account_profile = {}
         self.channel_profiles = {}
         self.online_channels = set()
         self.profile_worker = None
@@ -556,7 +557,10 @@ class TwitchFarmingApi:
             if not self.authenticated or self.api_client is None:
                 return
             targets = list(logins if logins is not None else self.channels)
+            account_login = self.authenticated_username or self.username
             self.pending_profile_logins.update(x for x in targets if x in self.channels)
+            if account_login and account_login not in self.pending_profile_logins:
+                self.pending_profile_logins.add(account_login)
             if self.profile_worker is not None and self.profile_worker.is_alive():
                 return
             batch = sorted(self.pending_profile_logins)
@@ -569,6 +573,12 @@ class TwitchFarmingApi:
 
     def update_channel_profile(self, login, profile):
         with self.lock:
+            account_login = (self.authenticated_username or self.username).lower()
+            if login == account_login:
+                self.account_profile = {
+                    key: value for key, value in profile.items()
+                    if key in ("loaded", "display_name", "avatar_url", "error")
+                }
             if login not in self.channels:
                 return
             current = dict(self.channel_profiles.get(login, {}))
@@ -875,6 +885,7 @@ class TwitchFarmingApi:
                 "custom_presets": dict(self.custom_presets),
                 "selected_preset": self.selected_preset,
                 "tutorial_done": self.tutorial_done,
+                "account_profile": dict(self.account_profile),
                 "channel_profiles": {key: dict(value) for key, value in self.channel_profiles.items()},
                 "authenticated": self.authenticated,
                 "authenticated_username": self.authenticated_username,

@@ -33,26 +33,28 @@
     <button class="nav-button active" id="nav-dashboard" data-page="dashboard"><span class="nav-icon">◈</span><span>Панель управления</span></button>
     <button class="nav-button" id="nav-logs" data-page="logs"><span class="nav-icon">▤</span><span>Журнал событий</span></button>
   </nav>
-  <div class="sidebar-spacer"></div>
-  <div class="side-caption">СОСТОЯНИЕ</div>
   <div class="side-status"><span class="status-dot"></span><span id="sidebar-status">НЕ ЗАПУЩЕН</span></div>
+  <div class="sidebar-spacer"></div>
+  <section class="sidebar-account" id="sidebar-account">
+    <div class="sidebar-account-heading">АККАУНТ TWITCH</div>
+    <div class="sidebar-account-row">
+      <div class="sidebar-account-avatar" id="account-avatar"><span>?</span></div>
+      <div class="sidebar-account-details">
+        <div class="sidebar-account-name" id="account-display-name">Twitch</div>
+        <div class="sidebar-account-login" id="account-login">@—</div>
+        <div class="sidebar-account-state"><span class="account-state-dot" id="account-state-dot"></span><span id="account-state">ПОДКЛЮЧЕНО</span></div>
+      </div>
+      <button class="account-connect-button" id="account-connect-button" title="Переподключить Twitch">↻</button>
+    </div>
+  </section>
   <div class="sidebar-footer">PyWebView · Windows</div>
-</aside>
+</aside>>
 <main class="main-content">
   <section class="page active" id="page-dashboard">
     <header class="page-header">
       <div><div class="page-title">Панель управления</div><div class="page-subtitle">Просмотр трансляций и автоматический сбор наград</div></div>
       <button class="button button-soft header-folder" id="open-folder">Папка с данными</button>
     </header>
-    <section class="panel account-panel">
-      <div class="section-heading">АККАУНТ TWITCH</div>
-      <div class="account-row">
-        <input class="input username-input" id="username" type="text" placeholder="Логин Twitch" autocomplete="off" spellcheck="false">
-        <div class="auth-code" id="auth-code">Код авторизации: —</div>
-        <button class="button button-primary" id="login-button">Войти через Twitch</button>
-      </div>
-      <div class="auth-status" id="auth-status">АККАУНТ НЕ ПОДКЛЮЧЁН</div>
-    </section>
     <div class="dashboard-grid">
       <section class="panel channels-panel">
         <div class="panel-heading">
