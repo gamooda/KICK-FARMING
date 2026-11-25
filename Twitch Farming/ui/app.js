@@ -7,7 +7,6 @@ let channelMode="add";
 let editingChannel="";
 let channelCache="";
 let channelSearch="";
-let windowMaximized=false;
 let polling=false;
 let toastTimer=null;
 let logsLoaded=false;
@@ -41,7 +40,13 @@ function api(){
 }
 
 async function waitForBridge(){
-  while(!window.pywebview||!window.pywebview.api) await sleep(100);
+  const started=Date.now();
+  while(Date.now()-started<20000){
+    const bridge=window.pywebview&&window.pywebview.api;
+    if(bridge&&typeof bridge.get_auth_state==="function"&&typeof bridge.get_state==="function"&&typeof bridge.login==="function") return bridge;
+    await sleep(50);
+  }
+  throw new Error("Интерфейс не получил методы Python API. Проверь WebView2 Runtime и перезапусти приложение.");
 }
 
 function setPage(page){
@@ -53,30 +58,6 @@ function setPage(page){
   if(page==="logs") loadLogs();
 }
 
-
-function setWindowMaximized(value){
-  windowMaximized=Boolean(value);
-  const button=$("window-maximize");
-  if(button){
-    button.classList.toggle("is-maximized",windowMaximized);
-    button.title=windowMaximized?"Восстановить":"Развернуть";
-    button.innerHTML=windowMaximized?'<svg viewBox="0 0 16 16"><rect x="5" y="3" width="8" height="9" rx="1.4"/><path d="M3 6v7h7"/></svg>':'<svg viewBox="0 0 16 16"><rect x="3" y="3" width="10" height="10" rx="1.6"/></svg>';
-  }
-}
-window.setWindowMaximized=setWindowMaximized;
-
-async function minimizeWindow(){
-  try{await api().minimize_window();}catch(error){notify(error.message||"Не удалось свернуть окно.");}
-}
-async function toggleMaximizeWindow(){
-  try{
-    const result=await api().toggle_maximize_window();
-    setWindowMaximized(result.maximized);
-  }catch(error){notify(error.message||"Не удалось изменить размер окна.");}
-}
-async function closeWindow(){
-  try{await api().close_window();}catch(error){notify(error.message||"Не удалось закрыть окно.");}
-}
 
 function setFeedback(id,message,error){
   const node=$(id);
@@ -635,13 +616,10 @@ async function initialize(){
     appInitialized=true;
     setPage("dashboard");
   }
-  setInterval(poll,500);
+  setInterval(poll,900);
 }
 
 document.addEventListener("DOMContentLoaded",()=>{
-  $("window-minimize").addEventListener("click",minimizeWindow);
-  $("window-maximize").addEventListener("click",toggleMaximizeWindow);
-  $("window-close").addEventListener("click",closeWindow);
   $("channel-search").addEventListener("input",event=>{
     channelSearch=event.target.value||"";
     filterChannelCards();
@@ -695,5 +673,10 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("save-preset").addEventListener("click",savePreset);
   $("delete-preset").addEventListener("click",deletePreset);
   $("copy-logs").addEventListener("click",copyLogs);
-  initialize().catch(error=>notify(error.message||"Не удалось запустить интерфейс."));
+  initialize().catch(error=>{
+    const message=error&&error.message?error.message:"Не удалось запустить интерфейс.";
+    $("gate-status").textContent="Ошибка запуска интерфейса: "+message;
+    $("gate-login-button").disabled=false;
+    notify(message);
+  });
 });

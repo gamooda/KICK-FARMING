@@ -253,8 +253,6 @@ class TwitchFarmingApi:
         self.account_profile = {}
         self.channel_profiles = {}
         self.channel_balances = {}
-        self.window = None
-        self.window_maximized = False
         self.online_channels = set()
         self.watch_status = {}
         self.profile_worker = None
@@ -1002,36 +1000,6 @@ class TwitchFarmingApi:
         return {"ok": False}
 
 
-    def minimize_window(self):
-        if self.window is None:
-            return {"ok": False, "message": "Окно ещё не готово."}
-        self.window.minimize()
-        return {"ok": True}
-
-    def toggle_maximize_window(self):
-        if self.window is None:
-            return {"ok": False, "message": "Окно ещё не готово."}
-        self.window_maximized = not self.window_maximized
-        if self.window_maximized:
-            self.window.maximize()
-        else:
-            self.window.restore()
-        return {"ok": True, "maximized": self.window_maximized}
-
-    def close_window(self):
-        if self.window is not None:
-            self.window.destroy()
-        return {"ok": True}
-
-    def sync_window_maximized(self, maximized):
-        self.window_maximized = bool(maximized)
-        window = self.window
-        if window is not None:
-            try:
-                window.evaluate_js("window.setWindowMaximized(" + ("true" if self.window_maximized else "false") + ")")
-            except Exception:
-                pass
-
     def on_loaded(self):
         with self.lock:
             if self.restore_started:
@@ -1079,17 +1047,12 @@ def main():
         height=800,
         min_size=(960, 660),
         resizable=True,
-        frameless=True,
-        easy_drag=False,
-        shadow=True,
-        background_color="#090D18",
+        frameless=False,
+        background_color="#0B0F19",
         text_select=True,
     )
-    api.window = window
     window.events.loaded += api.on_loaded
     window.events.closing += api.on_closing
-    window.events.maximized += lambda: api.sync_window_maximized(True)
-    window.events.restored += lambda: api.sync_window_maximized(False)
     try:
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None)
     except Exception as error:

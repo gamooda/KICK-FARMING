@@ -308,3 +308,21 @@ body:after{opacity:.18;background-image:radial-gradient(rgba(221,220,255,.28) .5
 @media(max-width:760px){.window-bar{grid-template-columns:minmax(0,1fr) minmax(150px,42%) auto;gap:6px;padding:0 6px}.window-brand-copy span{display:none}.window-brand-copy strong{font-size:8px}.window-search{padding:0 6px}.window-search kbd{display:none}.window-control{width:27px}.sidebar{width:174px;min-width:174px}.main-content{padding:12px}.dashboard-grid{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(180px,1fr) auto}.automation-panel{max-height:230px}.channels-panel{min-height:180px}.channel-list{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}.top-channel-list{gap:5px}.top-channel-card{gap:4px}.rank-number{width:14px;height:14px;flex-basis:14px}.top-channel-avatar{width:25px;height:25px;flex-basis:25px}.top-channel-login{display:none}.top-channel-balance strong{font-size:8px}.ranking-live{display:none}}
 @media(max-height:720px){.window-bar{height:44px;min-height:44px}.app-shell{height:calc(100vh - 44px)}.login-gate{inset:44px 0 0}.tutorial-overlay{inset:44px 0 0}.main-content{padding-top:11px;padding-bottom:9px}.page{gap:7px}.ranking-panel{min-height:77px;padding:8px 10px}.top-channel-card{height:39px}.dashboard-grid{min-height:0}.activity-panel{min-height:86px;max-height:125px}.sidebar{padding-top:14px;padding-bottom:9px}.brand{margin-bottom:19px}.nav-button{height:36px}}
 @media(prefers-reduced-motion:reduce){body:before,.ranking-panel:before,*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
+
+
+.window-bar{grid-template-columns:minmax(245px,1fr) minmax(230px,390px);padding-right:16px;cursor:default}
+.window-controls{display:none!important}
+.window-brand{cursor:default}
+.app-shell{height:calc(100vh - 48px)}
+body{border:0;border-radius:0;box-shadow:none;overflow:hidden}
+body:before{inset:0;opacity:.72;filter:none;animation:none;background:radial-gradient(ellipse at 13% 16%,rgba(141,77,222,.24),transparent 34%),radial-gradient(ellipse at 83% 19%,rgba(59,115,211,.2),transparent 30%),radial-gradient(ellipse at 77% 86%,rgba(165,69,196,.14),transparent 32%),radial-gradient(ellipse at 22% 84%,rgba(38,151,183,.1),transparent 29%)}
+body:after{opacity:.08;background-size:7px 7px}
+.panel,.sidebar,.sidebar-account,.window-bar,.login-card,.stat-card,.channel-card,.event-list,.log-view,.input,.toast,.tutorial-card{backdrop-filter:blur(7px)!important;-webkit-backdrop-filter:blur(7px)!important}
+.channel-card{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+.channels-panel:after,.automation-panel:after{filter:blur(22px)}
+.ranking-panel:before{animation:none;display:none}
+@keyframes ambient-flow{0%,100%{transform:none}}
+@keyframes glass-sweep{0%,100%{transform:none}}
+@media(max-width:1050px){.window-bar{grid-template-columns:minmax(200px,1fr) minmax(200px,330px)}}
+@media(max-width:760px){.window-bar{grid-template-columns:minmax(0,1fr) minmax(150px,42%)}}
+@media(max-height:720px){.app-shell{height:calc(100vh - 44px)}}
