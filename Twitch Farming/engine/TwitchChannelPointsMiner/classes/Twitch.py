@@ -108,14 +108,15 @@ class Twitch(object):
             logger.warning(f"Saved Twitch session could not be restored: {error}")
         return False
 
-    def login(self):
-        if self.restore_session():
+    def login(self, force_reauth=False):
+        if not force_reauth and self.restore_session():
             return True
         try:
             os.remove(self.cookies_file)
         except OSError:
             pass
         if self.twitch_login.login_flow():
+            self.twitch_login.validate_token()
             self.twitch_login.save_cookies(self.cookies_file)
             logger.info("Twitch session saved securely.")
             return True
@@ -133,7 +134,7 @@ class Twitch(object):
             logger.info("Twitch session renewed after device confirmation.")
             return True
 
-    def helix_get(self, endpoint, params=None):
+    def helix_get_payload(self, endpoint, params=None):
         token = self.twitch_login.token
         if not token:
             raise RuntimeError("Сначала подключи аккаунт Twitch.")
@@ -158,8 +159,10 @@ class Twitch(object):
                 timeout=7,
             )
         response.raise_for_status()
-        payload = response.json()
-        return payload.get("data", [])
+        return response.json()
+
+    def helix_get(self, endpoint, params=None):
+        return self.helix_get_payload(endpoint, params).get("data", [])
 
     def get_user_info(self, login):
         users = self.helix_get("users", {"login": login})
