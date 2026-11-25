@@ -516,15 +516,16 @@ class TwitchChannelPointsMiner:
             self.twitch.twitch_login.cancel()
         except Exception:
             pass
-        deadline = time.monotonic() + 25
         for streamer in self.streamers:
-            if streamer.irc_chat is not None and streamer.settings.chat != ChatPresence.NEVER:
+            chat_thread = streamer.irc_chat
+            if chat_thread is not None and streamer.settings.chat != ChatPresence.NEVER:
                 try:
-                    streamer.leave_chat()
-                    if streamer.irc_chat.is_alive() and time.monotonic() < deadline:
-                        streamer.irc_chat.join(timeout=min(0.5, max(0, deadline - time.monotonic())))
+                    chat_thread.stop()
+                    if chat_thread.is_alive() and chat_thread is not threading.current_thread():
+                        chat_thread.join()
+                    streamer.irc_chat = None
                 except Exception:
-                    pass
+                    logger.exception("Could not stop IRC chat for %s", streamer.username)
         if self.ws_pool is not None:
             self.ws_pool.end()
         if self.ws_pool is not None:
