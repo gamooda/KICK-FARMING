@@ -783,7 +783,7 @@ class Twitch(object):
             streamer.channel_points_image = image_url if image_url.startswith("https://") else ""
             streamer.channel_points_branding_loaded = True
         except Exception as error:
-            logger.debug(f"Unable to load Channel Points branding for {streamer.username}: {error}")
+            logger.warning(f"Не удалось загрузить оформление Channel Points для @{streamer.username}: {str(error)[:220]}")
         finally:
             streamer.channel_points_branding_loading = False
 
