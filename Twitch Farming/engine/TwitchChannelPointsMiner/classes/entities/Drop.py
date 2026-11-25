@@ -55,10 +55,12 @@ class Drop(object):
     ):
         self.has_preconditions_met = progress["hasPreconditionsMet"]
 
-        updated_percentage = percentage(
-            progress["currentMinutesWatched"], self.minutes_required
+        updated_percentage = (
+            percentage(progress["currentMinutesWatched"], self.minutes_required)
+            if self.minutes_required > 0
+            else (100 if progress.get("isClaimed") else 0)
         )
-        quarter = round((updated_percentage / 25), 4).is_integer()
+        quarter = round((updated_percentage / 25), 4).is_integer() if self.minutes_required > 0 else False
         self.is_printable = (
             # The new currentMinutesWatched are GT than previous
             progress["currentMinutesWatched"] > self.current_minutes_watched
