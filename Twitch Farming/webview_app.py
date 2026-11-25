@@ -541,11 +541,7 @@ class TwitchFarmingApi:
         self.root_logger.setLevel(logging.DEBUG)
         self.log_file_lock = threading.Lock()
         self.log_handler = AppLogHandler(self)
-        try:
-            self._sanitize_existing_log()
-            self._load_existing_log_records()
-        except Exception:
-            pass
+        self.log_history_worker = None
         self.root_logger.addHandler(self.log_handler)
         self.log_writer = threading.Thread(target=self._log_writer_loop, name="LogWriter", daemon=True)
         self.log_writer.start()
@@ -565,13 +561,22 @@ class TwitchFarmingApi:
             logger.exception("Startup configuration failed")
         finally:
             with self.lock:
-                self.restore_pending = False
+                self.restore_pending = bool(self.username)
                 self.startup_complete = True
                 self.startup_phase = "Готово"
-                should_restore = bool(self.username)
+                if self.log_history_worker is None:
+                    self.log_history_worker = threading.Thread(
+                        target=self._load_startup_log_history,
+                        name="LogHistoryLoader",
+                        daemon=True,
+                    )
+                log_worker = self.log_history_worker
             logger.info("[STARTUP] Конфигурация готова за %.2f сек.", time.monotonic() - started)
-            if should_restore:
-                self._restore_session()
+            if log_worker is not None and not log_worker.is_alive():
+                try:
+                    log_worker.start()
+                except RuntimeError:
+                    pass
     def begin_session_restore(self):
         with self.lock:
             pending = bool(self.restore_pending)
@@ -1715,18 +1720,31 @@ class TwitchFarmingApi:
 
     def _load_existing_log_records(self):
         try:
+            self._flush_logs()
             with self.log_file_lock:
                 if not LOG_FILE.is_file():
-                    return
-                with LOG_FILE.open("rb") as file:
-                    file.seek(0, os.SEEK_END)
-                    size = file.tell()
-                    file.seek(max(0, size - 1000000))
-                    content = file.read(1000000).decode("utf-8", errors="replace")
-                if size > 1000000:
-                    content = content.split("\n", 1)[-1]
-            lines = content.splitlines()[-500:]
+                    content = ""
+                else:
+                    with LOG_FILE.open("rb") as file:
+                        file.seek(0, os.SEEK_END)
+                        size = file.tell()
+                        file.seek(max(0, size - 1000000))
+                        content = file.read(1000000).decode("utf-8", errors="replace")
+                    if size > 1000000:
+                        content = content.split("\n", 1)[-1]
+            history_lines = content.splitlines()[-500:]
             with self.lock:
+                remaining = {}
+                for line in history_lines:
+                    remaining[line] = remaining.get(line, 0) + 1
+                live_lines = []
+                for item in self.log_records:
+                    line = str(item.get("line") or "")
+                    if remaining.get(line, 0):
+                        remaining[line] -= 1
+                    else:
+                        live_lines.append(line)
+                lines = (history_lines + live_lines)[-500:]
                 self.log_records = [
                     {"id": index + 1, "line": line}
                     for index, line in enumerate(lines)
@@ -1737,26 +1755,27 @@ class TwitchFarmingApi:
 
     def _sanitize_existing_log(self):
         try:
-            if not LOG_FILE.is_file():
-                return
-            with LOG_FILE.open("r+b") as file:
-                file.seek(0, os.SEEK_END)
-                size = file.tell()
-                start = max(0, size - 262144)
-                if start:
+            with self.log_file_lock:
+                if not LOG_FILE.is_file():
+                    return
+                with LOG_FILE.open("r+b") as file:
+                    file.seek(0, os.SEEK_END)
+                    size = file.tell()
+                    start = max(0, size - 262144)
+                    if start:
+                        file.seek(start)
+                        file.readline()
+                        start = file.tell()
                     file.seek(start)
-                    file.readline()
-                    start = file.tell()
-                file.seek(start)
-                original = file.read().decode("utf-8", errors="replace")
-                lines = original.splitlines()
-                clean = "\n".join(self._redact(line) for line in lines)
-                if original.endswith("\n"):
-                    clean += "\n"
-                if clean != original:
-                    file.seek(start)
-                    file.write(clean.encode("utf-8"))
-                    file.truncate()
+                    original = file.read().decode("utf-8", errors="replace")
+                    lines = original.splitlines()
+                    clean = "\n".join(self._redact(line) for line in lines)
+                    if original.endswith("\n"):
+                        clean += "\n"
+                    if clean != original:
+                        file.seek(start)
+                        file.write(clean.encode("utf-8"))
+                        file.truncate()
         except OSError:
             pass
 
@@ -2044,6 +2063,16 @@ class TwitchFarmingApi:
             self.window.evaluate_js("window.setWindowMaximized(" + ("true" if self.window_maximized else "false") + ")")
         except Exception:
             pass
+
+    def _load_startup_log_history(self):
+        started = time.monotonic()
+        logger = logging.getLogger("twitch_farming.startup")
+        try:
+            self._sanitize_existing_log()
+            self._load_existing_log_records()
+            logger.info("[STARTUP] История журнала загружена за %.2f сек.", time.monotonic() - started)
+        except Exception:
+            logger.exception("Background log history loading failed")
 
     def start_startup_worker(self):
         with self.lock:
