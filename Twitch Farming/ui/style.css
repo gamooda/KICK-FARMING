@@ -732,3 +732,9 @@ input,textarea,.log-view,.log-view *,#event-list,#event-list *,#event-list .feed
 .about-close-button{min-width:86px;justify-content:center}
 @media(prefers-reduced-motion:reduce){.about-logo-eye{animation:none}}
 @media(max-width:480px){.about-modal-card{padding:20px}.about-modal-header{align-items:flex-start}.about-modal-actions{flex-direction:column}.about-close-button{width:100%}}
+
+.session-timer{height:27px;display:none;align-items:center;gap:6px;padding:0 8px;border:1px solid #31503f;border-radius:6px;background:#14231d;color:#7ce0a4;font-size:9px;font-weight:850;font-variant-numeric:tabular-nums;letter-spacing:.35px;white-space:nowrap}
+.session-timer.visible{display:flex}
+.session-timer svg{width:14px;height:14px;flex:0 0 14px;color:#6bd795}
+.reward-currency-icon{width:27px;height:27px;object-fit:contain;border-radius:5px}
+@media(max-width:700px){.session-timer{height:25px;padding:0 6px;font-size:8px}.session-timer svg{width:12px;height:12px;flex-basis:12px}}
