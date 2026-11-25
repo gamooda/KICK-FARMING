@@ -283,6 +283,8 @@ class TwitchFarmingApi:
         self.startup_worker = None
         self.startup_error = ""
         self.startup_complete = False
+        self.startup_phase = "Подготовка запуска..."
+        self.startup_started_at = time.monotonic()
         self.restore_pending = False
         self.authenticated = False
         self.authenticated_username = ""
@@ -317,23 +319,29 @@ class TwitchFarmingApi:
         logger = logging.getLogger("twitch_farming.startup")
         started = time.monotonic()
         try:
+            with self.lock:
+                self.startup_phase = "Подготовка папки данных..."
             APP_DIR.mkdir(parents=True, exist_ok=True)
+            with self.lock:
+                self.startup_phase = "Чтение локальной конфигурации..."
             logger.info("[STARTUP] Чтение config.json...")
             self._load_config()
         except Exception as error:
             self.startup_error = str(error) or error.__class__.__name__
             logger.exception("Startup configuration failed")
-        with self.lock:
-            if self.username:
-                self.restore_pending = True
-                self.auth_status = "ПРОВЕРКА СОХРАНЁННОЙ СЕССИИ…"
-                self.auth_error = ""
-                self.auth_worker_state = "restoring"
-                self.auth_started_at = time.time()
-                self._set_status_locked("●  ПРОВЕРКА СЕССИИ", "#F0B65A")
-            self.startup_complete = True
-        logger.info("[STARTUP] Конфигурация готова за %.2f сек.", time.monotonic() - started)
-        threading.Thread(target=self._sanitize_startup_log, name="StartupLogPreparation", daemon=True).start()
+        finally:
+            with self.lock:
+                if self.username:
+                    self.restore_pending = True
+                    self.auth_status = "ПРОВЕРКА СОХРАНЁННОЙ СЕССИИ…"
+                    self.auth_error = ""
+                    self.auth_worker_state = "restoring"
+                    self.auth_started_at = time.time()
+                    self._set_status_locked("●  ПРОВЕРКА СЕССИИ", "#F0B65A")
+                self.startup_complete = True
+                self.startup_phase = "Готово"
+            logger.info("[STARTUP] Конфигурация готова за %.2f сек.", time.monotonic() - started)
+            threading.Thread(target=self._sanitize_startup_log, name="StartupLogPreparation", daemon=True).start()
     def begin_session_restore(self):
         with self.lock:
             pending = bool(self.restore_pending)
@@ -352,6 +360,8 @@ class TwitchFarmingApi:
             return {
                 "ready": bool(self.startup_complete),
                 "error": self.startup_error,
+                "phase": self.startup_phase,
+                "elapsed": round(max(0.0, time.monotonic() - self.startup_started_at), 1),
                 "restore_pending": bool(self.restore_pending),
             }
 
@@ -468,7 +478,27 @@ class TwitchFarmingApi:
         ok = self._save_config()
         return {"ok": ok, "message": "Настройки сохранены." if ok else "Не удалось сохранить настройки."}
 
-    def save_channel_editor(self, mode, old_channel, raw_value):
+    def save_channel_editor(self, mode, old_channel, raw_value, preview_profiles=None):
+        prepared_profiles = {}
+        for item in (preview_profiles if isinstance(preview_profiles, list) else []):
+            if not isinstance(item, dict):
+                continue
+            login = self.normalize_channel(item.get("login"))
+            if not login:
+                continue
+            avatar_url = str(item.get("avatar_url") or "")
+            try:
+                viewer_count = max(0, int(item.get("viewer_count") or 0))
+            except (TypeError, ValueError):
+                viewer_count = 0
+            prepared_profiles[login] = {
+                "loaded": bool(item.get("loaded")),
+                "display_name": str(item.get("display_name") or login)[:80],
+                "avatar_url": avatar_url if avatar_url.startswith("https://") else "",
+                "is_live": bool(item.get("is_live")),
+                "viewer_count": viewer_count,
+                "error": str(item.get("error") or "")[:160],
+            }
         with self.lock:
             if self.session_running:
                 return {"ok": False, "message": "Нельзя менять каналы во время сбора."}
@@ -498,9 +528,19 @@ class TwitchFarmingApi:
                         return {"ok": False, "message": "Все указанные каналы уже добавлены."}
                     return {"ok": False, "message": "Укажи корректные логины или ссылки Twitch."}
                 self.channels.extend(added)
+                for login in added:
+                    profile = prepared_profiles.get(login)
+                    if profile and profile.get("loaded") and not profile.get("error"):
+                        self.channel_profiles[login] = dict(profile)
+            refresh_targets = [
+                login for login in added
+                if not bool(self.channel_profiles.get(login, {}).get("loaded"))
+                or bool(self.channel_profiles.get(login, {}).get("error"))
+            ]
         if not self._save_config():
             return {"ok": False, "message": "Не удалось сохранить список каналов."}
-        self.refresh_channel_profiles(added)
+        if refresh_targets:
+            self.refresh_channel_profiles(refresh_targets)
         if mode == "add":
             return {"ok": True, "message": "Добавлено каналов: " + str(len(added)) + ".", "added": added}
         return {"ok": True, "message": "Канал сохранён.", "added": added}
@@ -1306,23 +1346,24 @@ class TwitchFarmingApi:
         except Exception:
             pass
 
-    def on_loaded(self):
+    def start_startup_worker(self):
         with self.lock:
-            if self.restore_started:
+            if self.startup_worker is not None:
                 return
             self.restore_started = True
-
-        def start_worker():
-            with self.lock:
-                if self.startup_worker is not None:
-                    return
-                self.startup_worker = threading.Thread(target=self._startup_tasks, name="StartupTasks", daemon=True)
-                worker = self.startup_worker
+            self.startup_worker = threading.Thread(target=self._startup_tasks, name="StartupTasks", daemon=True)
+            worker = self.startup_worker
+        try:
             worker.start()
+        except Exception as error:
+            with self.lock:
+                self.startup_error = str(error) or error.__class__.__name__
+                self.startup_phase = "Не удалось запустить подготовку"
+                self.startup_complete = True
+            logging.getLogger("twitch_farming.startup").exception("Could not start startup worker")
 
-        timer = threading.Timer(0.15, start_worker)
-        timer.daemon = True
-        timer.start()
+    def on_loaded(self):
+        self.start_startup_worker()
 
     def on_closing(self):
         self.stop_farm()
@@ -1377,6 +1418,7 @@ def main():
     window.events.closing += api.on_closing
     window.events.maximized += lambda: api.sync_window_maximized(True)
     window.events.restored += lambda: api.sync_window_maximized(False)
+    api.start_startup_worker()
     try:
         webview.start(gui="edgechromium", private_mode=False, storage_path=str(APP_DIR / "webview"), icon=str(ICON_FILE) if ICON_FILE.is_file() else None, debug=False)
     except Exception as error:

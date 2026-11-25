@@ -20,6 +20,10 @@ let polling=false;
 let toastTimer=null;
 let channelPreviewTimer=null;
 let channelPreviewSequence=0;
+let channelDraftTokens=[];
+let channelPreviewCache={};
+let channelPreviewPending=new Map();
+let pendingDeleteChannel="";
 let logsLoaded=false;
 let logsLoading=false;
 let pendingLogRows=[];
@@ -30,7 +34,7 @@ let tutorialStep=0;
 const tutorialSteps=[
   {title:"Добавление каналов",text:"Нажми + и добавь Twitch-каналы по логину или ссылке. Аватары, имена и статус трансляции загрузятся автоматически.",target:".channels-panel"},
   {title:"Автоматизация",text:"Drops, бонусы, рейды, прогнозы и IRC-чат включаются в разделе «Настройки» бокового меню.",target:"#nav-settings"},
-  {title:"Запуск и логи",text:"Нажми «Запустить». Во время сбора эта же кнопка станет кнопкой «Стоп». Награды и изменения баланса появятся в ленте событий.",target:"#farm-toggle"}
+  {title:"Запуск и логи",text:"Нажми «Запустить». Во время сбора эта же кнопка станет кнопкой «Стоп». Награды и изменения баланса появятся в ленте событий.",targets:["#farm-toggle",".feed-grid .feed-panel:last-child"]}
 ];
 
 function esc(value){
@@ -50,10 +54,23 @@ function api(){
   return pyApi;
 }
 
+function withTimeout(promise,milliseconds,message){
+  return Promise.race([
+    promise,
+    new Promise((resolve,reject)=>window.setTimeout(()=>reject(new Error(message)),milliseconds))
+  ]);
+}
+
+function setStartupMessage(message){
+  const node=$("startup-description");
+  if(node) node.textContent=String(message||"");
+}
+
 async function waitForBridge(){
+  setStartupMessage("Подключение встроенного браузера...");
   if(!apiReadyPromise) apiReadyPromise=window.__twitchPywebviewReadyPromise;
   if(!apiReadyPromise) throw new Error("Событие готовности PyWebView не зарегистрировано.");
-  await apiReadyPromise;
+  await withTimeout(apiReadyPromise,45000,"Встроенный браузер не ответил за 45 секунд. Перезапусти приложение.");
   const bridge=window.pywebview&&window.pywebview.api;
   if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
   const required=["get_auth_state","get_state","get_startup_state","begin_session_restore","login","minimize_window","toggle_maximize_window","close_window"];
@@ -322,6 +339,7 @@ function applyAuthState(state){
 
 function applyState(state,initial){
   appState=state;
+  cacheChannelProfiles(state);
   applyAuthState(state);
   const authenticated=Boolean(state.authenticated);
   $("gate-login-button").disabled=state.auth_status.includes("ПОДКЛЮЧЕНИЕ")||state.auth_status.includes("ПРОВЕРКА")||state.auth_status.includes("ОЖИДАЕТСЯ ПОДТВЕРЖДЕНИЕ");
@@ -527,20 +545,39 @@ async function gateLogin(){
   return loginUser($("gate-username").value);
 }
 
-function channelTokens(value){
-  const tokens=String(value||"").split(/[\n,;]+/).map(item=>{
-    let login=String(item||"").trim();
-    login=login.replace(/^(?:https?:\/\/)?(?:www\.)?twitch\.tv\//i,"");
-    login=login.split(/[/?#]/,1)[0].replace(/^@/,"").trim().toLowerCase();
-    return /^[a-z0-9_]{1,25}$/.test(login)?login:"";
-  }).filter(Boolean);
-  return [...new Set(tokens)].slice(0,100);
+function normalizeChannelToken(value){
+  let login=String(value||"").trim();
+  login=login.replace(/^(?:https?:\/\/)?(?:www\.)?twitch\.tv\//i,"");
+  login=login.split(/[/?#]/,1)[0].replace(/^@/,"").trim().toLowerCase();
+  return /^[a-z0-9_]{1,25}$/.test(login)?login:"";
 }
 
-function renderChannelChips(tokens){
+function channelTokens(value){
+  return [...new Set(String(value||"").split(/[\s,;]+/).map(normalizeChannelToken).filter(Boolean))].slice(0,100);
+}
+
+function cacheChannelProfiles(state){
+  const profiles=state&&state.channel_profiles||{};
+  Object.keys(profiles).forEach(login=>{
+    const profile=profiles[login]||{};
+    if(!profile.loaded&&!profile.is_live) return;
+    if(channelPreviewCache[login]) return;
+    channelPreviewCache[login]={
+      login,
+      loaded:Boolean(profile.loaded||profile.is_live),
+      display_name:String(profile.display_name||login),
+      avatar_url:String(profile.avatar_url||""),
+      is_live:Boolean(profile.is_live),
+      viewer_count:Number(profile.viewer_count||0),
+      error:String(profile.error||"")
+    };
+  });
+}
+
+function renderChannelChips(){
   const root=$("channel-chips");
-  if(channelMode!=="add"||!tokens.length){root.innerHTML="";return;}
-  root.innerHTML=tokens.map(login=>"<span class='channel-chip'>@"+esc(login)+"<button type='button' data-remove-channel='"+esc(login)+"' title='Убрать'>×</button></span>").join("");
+  if(channelMode!=="add"||!channelDraftTokens.length){root.innerHTML="";return;}
+  root.innerHTML=channelDraftTokens.map(login=>"<span class='channel-chip'>@"+esc(login)+"<button type='button' data-remove-channel='"+esc(login)+"' title='Убрать'>×</button></span>").join("");
 }
 
 function previewStatus(profile){
@@ -562,6 +599,78 @@ function renderChannelPreviewCards(items){
   }).join("");
 }
 
+function requestChannelPreviews(logins){
+  const unique=[...new Set(logins)].filter(Boolean);
+  const waiting=unique.map(login=>channelPreviewPending.get(login)).filter(Boolean);
+  const missing=unique.filter(login=>!channelPreviewCache[login]&&!channelPreviewPending.has(login));
+  if(!missing.length) return Promise.all(waiting);
+  const request=Promise.resolve().then(async()=>{
+    try{
+      const result=await api().preview_channels(missing.join("\n"));
+      const returned=new Map((result.channels||[]).map(item=>[String(item.login||"").toLowerCase(),item]));
+      missing.forEach(login=>{
+        const profile=returned.get(login);
+        channelPreviewCache[login]=profile?{
+          login,
+          loaded:Boolean(profile.loaded),
+          display_name:String(profile.display_name||login),
+          avatar_url:String(profile.avatar_url||""),
+          is_live:Boolean(profile.is_live),
+          viewer_count:Number(profile.viewer_count||0),
+          error:String(profile.error||"")
+        }:{
+          login,
+          loaded:true,
+          display_name:login,
+          avatar_url:"",
+          is_live:false,
+          viewer_count:0,
+          error:"Не удалось получить данные канала"
+        };
+      });
+    }catch(error){
+      missing.forEach(login=>{
+        channelPreviewCache[login]={
+          login,
+          loaded:true,
+          display_name:login,
+          avatar_url:"",
+          is_live:false,
+          viewer_count:0,
+          error:String(error&&error.message||error||"Ошибка запроса").slice(0,160)
+        };
+      });
+    }
+    if(channelMode==="add"&&currentPage==="channel") renderChannelPreviewCards(channelDraftTokens.map(login=>channelPreviewCache[login]||{login,loaded:false}));
+  });
+  missing.forEach(login=>channelPreviewPending.set(login,request));
+  const cleanup=()=>missing.forEach(login=>{if(channelPreviewPending.get(login)===request) channelPreviewPending.delete(login);});
+  request.then(cleanup,cleanup);
+  return Promise.all([...waiting,request]);
+}
+
+function addChannelTokens(values){
+  const current=new Set(channelDraftTokens);
+  const existing=new Set(appState&&appState.channels||[]);
+  (Array.isArray(values)?values:channelTokens(values)).forEach(value=>{
+    const login=normalizeChannelToken(value);
+    if(!login||current.has(login)||existing.has(login)) return;
+    current.add(login);
+    channelDraftTokens.push(login);
+  });
+  renderChannelChips();
+  updateChannelPreview();
+}
+
+function updateChannelPreview(){
+  renderChannelChips();
+  if(channelMode!=="add") return;
+  clearTimeout(channelPreviewTimer);
+  if(!channelDraftTokens.length){$("channel-preview-list").innerHTML="";return;}
+  renderChannelPreviewCards(channelDraftTokens.map(login=>channelPreviewCache[login]||{login,loaded:false}));
+  channelPreviewTimer=setTimeout(()=>requestChannelPreviews(channelDraftTokens),160);
+}
+
 function renderEditChannelPreview(login){
   const profile=appState&&appState.channel_profiles&&appState.channel_profiles[login]?appState.channel_profiles[login]:{};
   const currency=appState&&appState.channel_currency&&appState.channel_currency[login]?appState.channel_currency[login]:{};
@@ -579,34 +688,17 @@ function renderEditChannelPreview(login){
   $("channel-preview-list").innerHTML="<article class='channel-preview-card edit-preview'><div class='channel-preview-avatar "+(avatar?"":"avatar-fallback")+"'>"+image+"<span>"+esc(display.charAt(0).toUpperCase()||"?")+"</span></div><div class='channel-preview-copy'><strong>"+esc(display)+"</strong><span>@"+esc(login)+"</span><div class='channel-preview-meta'><span class='channel-live-pill "+statusClass+"'><i class='channel-status-dot "+(live?"is-live":"") +"'></i>"+status+"</span><span class='channel-balance'>"+pointsIcon+"<b>"+points+"</b><small>"+esc(String(currency.name||"баллов"))+"</small></span></div></div></article>";
 }
 
-function updateChannelPreview(){
-  const raw=$("channel-input").value||"";
-  const tokens=channelTokens(raw);
-  renderChannelChips(tokens);
-  const request=++channelPreviewSequence;
-  clearTimeout(channelPreviewTimer);
-  if(!tokens.length){$("channel-preview-list").innerHTML="";return;}
-  const cached=(appState&&appState.channel_profiles)||{};
-  renderChannelPreviewCards(tokens.map(login=>({login,display_name:cached[login]&&cached[login].display_name||login,avatar_url:cached[login]&&cached[login].avatar_url||"",is_live:Boolean(cached[login]&&cached[login].is_live),loaded:Boolean(cached[login]&&cached[login].loaded)})));
-  channelPreviewTimer=setTimeout(async()=>{
-    try{
-      const result=await api().preview_channels(tokens.join("\n"));
-      if(request!==channelPreviewSequence||channelMode!=="add") return;
-      renderChannelPreviewCards(result.channels||[]);
-    }catch(error){}
-  },550);
-}
-
 function openChannelEditor(mode,oldChannel){
   channelMode=mode;
   editingChannel=oldChannel||"";
+  channelDraftTokens=[];
   $("channel-page-title").textContent=mode==="add"?"Добавить каналы":"Изменить канал";
-  $("channel-page-subtitle").textContent=mode==="add"?"Добавляй один или несколько каналов Twitch":"Настройки выбранного Twitch-канала";
+  $("channel-page-subtitle").textContent=mode==="add"?"Добавляй каналы по одному":"Настройки выбранного Twitch-канала";
   $("channel-input").value=oldChannel||"";
-  $("channel-input").rows=mode==="add"?3:1;
-  $("channel-input").placeholder=mode==="add"?"Логин, twitch.tv/channel или список через запятую / новую строку":"Логин или twitch.tv/channel";
+  $("channel-input").placeholder=mode==="add"?"Введи логин Twitch...":"Логин или twitch.tv/channel";
   $("channel-remove").style.display=mode==="edit"?"inline-flex":"none";
   $("save-channel").textContent=mode==="add"?"Добавить каналы":"Сохранить";
+  $("channel-input-hint").textContent=mode==="add"?"Нажми Enter, Пробел или запятую, чтобы добавить ник в список.":"Введи логин или ссылку на канал Twitch";
   $("channel-chips").innerHTML="";
   $("channel-preview-list").innerHTML="";
   setFeedback("channel-feedback","");
@@ -620,10 +712,12 @@ function openChannelEditor(mode,oldChannel){
 async function saveChannel(){
   if(!ensureStartupReady()) return;
   const raw=$("channel-input").value.trim();
-  const tokens=channelMode==="add"?channelTokens(raw):[];
-  if(channelMode==="add"&&!tokens.length){setFeedback("channel-feedback","Укажи хотя бы один корректный логин или ссылку Twitch.",true);return;}
+  const tokens=channelMode==="add"?[...new Set([...channelDraftTokens,...channelTokens(raw)])]:[];
+  if(channelMode==="add"&&!tokens.length){setFeedback("channel-feedback","Добавь хотя бы один ник в список.",true);return;}
   try{
-    const result=await api().save_channel_editor(channelMode,editingChannel,channelMode==="add"?tokens.join("\n"):raw);
+    if(channelMode==="add") await requestChannelPreviews(tokens);
+    const previews=channelMode==="add"?tokens.map(login=>channelPreviewCache[login]).filter(Boolean):[];
+    const result=await api().save_channel_editor(channelMode,editingChannel,channelMode==="add"?tokens.join("\n"):raw,previews);
     if(!result.ok){setFeedback("channel-feedback",result.message,true);return;}
     notify(result.message||"Канал сохранён.");
     channelCache="";
@@ -654,18 +748,49 @@ async function refreshChannelBranding(){
   }
 }
 
-async function removeChannel(login){
+function openDeleteConfirmation(login){
+  pendingDeleteChannel=String(login||"");
+  if(!pendingDeleteChannel) return;
+  const profile=appState&&appState.channel_profiles&&appState.channel_profiles[pendingDeleteChannel]?appState.channel_profiles[pendingDeleteChannel]:{};
+  const display=String(profile.display_name||pendingDeleteChannel);
+  const avatar=String(profile.avatar_url||"");
+  const avatarHtml=avatar?"<img src='"+esc(avatar)+"' alt='' onerror='this.remove();this.parentElement.classList.add(&quot;avatar-fallback&quot;)'>":"";
+  $("delete-confirm-channel").innerHTML="<div class='delete-confirm-avatar "+(avatar?"":"avatar-fallback")+"'>"+avatarHtml+"<span>"+esc(display.charAt(0).toUpperCase()||"?")+"</span></div><div class='delete-confirm-copy'><strong>"+esc(display)+"</strong><span>@"+esc(pendingDeleteChannel)+"</span></div>";
+  $("delete-confirm-overlay").classList.add("visible");
+  $("delete-confirm-button").disabled=false;
+  $("delete-confirm-button").textContent="Удалить";
+}
+
+function closeDeleteConfirmation(){
+  pendingDeleteChannel="";
+  $("delete-confirm-overlay").classList.remove("visible");
+  $("delete-confirm-button").disabled=false;
+  $("delete-confirm-button").textContent="Удалить";
+}
+
+function removeChannel(login){
   if(!ensureStartupReady()) return;
-  if(!confirm("Удалить канал @"+login+" из списка?")) return;
+  openDeleteConfirmation(login);
+}
+
+async function confirmDeleteChannel(){
+  const login=pendingDeleteChannel;
+  if(!login) return;
+  const button=$("delete-confirm-button");
+  button.disabled=true;
+  button.textContent="Удаление...";
   try{
     const result=await api().remove_channel(login);
-    if(!result.ok){notify(result.message||"Не удалось удалить канал.");return;}
+    if(!result.ok){notify(result.message||"Не удалось удалить канал.");button.disabled=false;button.textContent="Удалить";return;}
+    closeDeleteConfirmation();
     channelCache="";
     await poll();
     if(currentPage==="channel"&&editingChannel===login) setPage("dashboard");
     notify("Канал удалён.");
   }catch(error){
     notify(error.message||"Не удалось удалить канал.");
+    button.disabled=false;
+    button.textContent="Удалить";
   }
 }
 
@@ -799,12 +924,16 @@ function showTutorial(){
 function renderTutorialStep(){
   document.querySelectorAll(".tour-highlight").forEach(node=>node.classList.remove("tour-highlight"));
   const step=tutorialSteps[tutorialStep];
-  const target=document.querySelector(step.target);
-  if(target) target.classList.add("tour-highlight");
+  (step.targets||[step.target]).forEach(selector=>{
+    const target=document.querySelector(selector);
+    if(target) target.classList.add("tour-highlight");
+  });
+  const finalStep=tutorialStep===tutorialSteps.length-1;
   $("tutorial-step").textContent=(tutorialStep+1)+" / "+tutorialSteps.length;
   $("tutorial-title").textContent=step.title;
   $("tutorial-text").textContent=step.text;
-  $("tutorial-next").textContent=tutorialStep===tutorialSteps.length-1?"Готово":"Далее";
+  $("tutorial-next").textContent=finalStep?"Готово":"Далее";
+  $("tutorial-skip").style.display=finalStep?"none":"inline-flex";
 }
 
 function hideTutorial(save){
@@ -823,25 +952,31 @@ function nextTutorial(){
 }
 
 async function waitForStartup(){
+  const started=Date.now();
   while(true){
-    const result=await api().get_startup_state();
+    const result=await withTimeout(api().get_startup_state(),5000,"Python не отвечает на запрос состояния запуска.");
+    const phase=result&&result.phase?result.phase:"Подготовка настроек...";
+    const elapsed=Number(result&&result.elapsed||((Date.now()-started)/1000));
+    setStartupMessage(phase+" ("+elapsed.toFixed(1)+" сек.)");
     if(result&&result.ready){
       startupCompleteUi=true;
       if(result.error) notify("Ошибка загрузки конфигурации: "+result.error);
       updateFarmToggleButton(false);
       return result;
     }
-    await sleep(180);
+    if(Date.now()-started>20000) throw new Error("Подготовка приложения зависла на этапе «"+phase+"». Перезапусти приложение.");
+    await sleep(160);
   }
 }
 
 async function initialize(){
   await waitForBridge();
   await waitForStartup();
+  setStartupMessage("Загрузка профиля и списка каналов...");
   setupBetControls();
   lastLogId=0;
-  const authState=await api().get_auth_state();
-  const state=await api().get_state(0);
+  const authState=await withTimeout(api().get_auth_state(),10000,"Не удалось получить состояние авторизации.");
+  const state=await withTimeout(api().get_state(0),10000,"Не удалось загрузить состояние приложения.");
   state.authenticated=Boolean(authState.authenticated);
   state.authenticated_username=authState.username||state.authenticated_username;
   state.auth_status=authState.auth_status||state.auth_status;
@@ -855,7 +990,7 @@ async function initialize(){
   appInitialized=Boolean(authState.authenticated);
   $("startup-overlay").classList.add("hidden");
   try{
-    await api().begin_session_restore();
+    await withTimeout(api().begin_session_restore(),4000,"Проверка сохранённой сессии не запустилась вовремя.");
   }catch(error){
     notify("Не удалось запустить проверку сессии: "+(error.message||String(error)));
   }
@@ -874,6 +1009,11 @@ document.addEventListener("DOMContentLoaded",()=>{
       event.preventDefault();
       $("channel-search").focus();
       $("channel-search").select();
+    }
+    if(event.key==="Escape"&&$("delete-confirm-overlay").classList.contains("visible")){
+      closeDeleteConfirmation();
+      event.preventDefault();
+      return;
     }
     if(event.key==="Escape"&&currentPage==="channel"){
       setPage("dashboard");
@@ -906,13 +1046,42 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("channel-chips").addEventListener("click",event=>{
     const button=event.target.closest("[data-remove-channel]");
     if(!button) return;
-    const login=button.dataset.removeChannel;
-    const remaining=channelTokens($("channel-input").value).filter(item=>item!==login);
-    $("channel-input").value=remaining.join("\n");
+    channelDraftTokens=channelDraftTokens.filter(item=>item!==button.dataset.removeChannel);
     updateChannelPreview();
   });
-  $("channel-input").addEventListener("input",()=>{if(channelMode==="add") updateChannelPreview();});
+  $("channel-input").addEventListener("keydown",event=>{
+    if(channelMode!=="add") return;
+    if(event.key==="Enter"||event.key===" "||event.key===","){
+      const value=$("channel-input").value.trim();
+      if(value){
+        event.preventDefault();
+        addChannelTokens(channelTokens(value));
+        $("channel-input").value="";
+      }else if(event.key==="Enter"&&channelDraftTokens.length){
+        event.preventDefault();
+        saveChannel();
+      }else if(event.key===" "||event.key===","){
+        event.preventDefault();
+      }
+    }else if(event.key==="Backspace"&&!$("channel-input").value&&channelDraftTokens.length){
+      channelDraftTokens.pop();
+      updateChannelPreview();
+    }
+  });
+  $("channel-input").addEventListener("paste",event=>{
+    if(channelMode!=="add") return;
+    const pasted=event.clipboardData&&event.clipboardData.getData("text")||"";
+    if(/[\s,;]/.test(pasted)){
+      event.preventDefault();
+      addChannelTokens(channelTokens(pasted));
+      $("channel-input").value="";
+    }
+  });
   $("channel-remove").addEventListener("click",()=>removeChannel(editingChannel));
+  $("delete-confirm-overlay").addEventListener("click",event=>{if(event.target===$("delete-confirm-overlay"))closeDeleteConfirmation();});
+  $("delete-cancel-button").addEventListener("click",closeDeleteConfirmation);
+  $("delete-confirm-button").addEventListener("click",confirmDeleteChannel);
+  $("startup-retry").addEventListener("click",()=>window.location.reload());
   $("refresh-channel-branding").addEventListener("click",refreshChannelBranding);
   $("channel-list").addEventListener("click",event=>{
     const button=event.target.closest("button[data-action]");
@@ -955,8 +1124,12 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("copy-logs").addEventListener("click",copyLogs);
   initialize().catch(error=>{
     const message=error&&error.message?error.message:"Не удалось запустить интерфейс.";
-    $("gate-status").textContent="Ошибка запуска интерфейса: "+message;
-    $("gate-login-button").disabled=false;
-    notify(message);
+    $("startup-title").textContent="Не удалось загрузить приложение";
+    $("startup-description").textContent=message;
+    $("startup-spinner").style.display="none";
+    $("startup-retry").style.display="inline-flex";
+    $("startup-overlay").classList.remove("hidden");
+    $("startup-overlay").classList.add("startup-error");
+    $("startup-overlay").style.pointerEvents="auto";
   });
 });

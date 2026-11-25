@@ -17,7 +17,7 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
 </script>
 </head>
 <body>
-<div class="startup-overlay" id="startup-overlay"><div class="startup-card"><span class="startup-spinner"></span><div class="startup-title">Инициализация...</div><div class="startup-description">Инициализация и загрузка конфигурации...</div></div></div>
+<div class="startup-overlay" id="startup-overlay"><div class="startup-card"><span class="startup-spinner" id="startup-spinner"></span><div class="startup-title" id="startup-title">Инициализация...</div><div class="startup-description" id="startup-description">Подключение встроенного браузера...</div><button class="button button-primary startup-retry" id="startup-retry">Повторить запуск</button></div></div>
 <div class="window-frame">
   <svg class="svg-symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="i-channel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4" fill="currentColor" opacity=".13"/><rect x="3" y="4" width="18" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2.1"/><path d="m10 8 6 4-6 4z" fill="currentColor"/></symbol>
@@ -183,9 +183,11 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
           <div class="channel-modal-content">
             <div class="channel-preview-list" id="channel-preview-list"></div>
             <label class="field-label" for="channel-input">ЛОГИН ИЛИ ССЫЛКА TWITCH</label>
-            <textarea class="input channel-modal-input" id="channel-input" rows="3" placeholder="Логин, twitch.tv/channel или список через запятую / новую строку" autocomplete="off" spellcheck="false"></textarea>
-            <div class="channel-chips" id="channel-chips"></div>
-            <div class="field-hint" id="channel-input-hint">Можно вставить сразу несколько каналов — через запятую или с новой строки.</div>
+            <div class="channel-token-field">
+              <div class="channel-chips" id="channel-chips"></div>
+              <input class="input channel-token-input" id="channel-input" type="text" placeholder="Введи логин Twitch..." autocomplete="off" spellcheck="false">
+            </div>
+            <div class="field-hint" id="channel-input-hint">Нажми Enter, Пробел или запятую, чтобы добавить ник в список.</div>
             <div class="feedback" id="channel-feedback"></div>
           </div>
           <footer class="channel-modal-actions">
@@ -236,6 +238,15 @@ window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
       <div class="tutorial-title" id="tutorial-title">Каналы</div>
       <div class="tutorial-text" id="tutorial-text"></div>
       <div class="tutorial-actions"><button class="button button-soft" id="tutorial-skip">Пропустить</button><button class="button button-primary" id="tutorial-next">Далее</button></div>
+    </div>
+  </div>
+  <div class="delete-confirm-overlay" id="delete-confirm-overlay">
+    <div class="delete-confirm-card" role="dialog" aria-modal="true" aria-labelledby="delete-confirm-title">
+      <div class="delete-confirm-icon"><svg><use href="#i-trash"></use></svg></div>
+      <div class="delete-confirm-title" id="delete-confirm-title">Удалить канал?</div>
+      <div class="delete-confirm-channel" id="delete-confirm-channel"></div>
+      <div class="delete-confirm-text">Удалить канал из списка отслеживания?</div>
+      <div class="delete-confirm-actions"><button class="button button-soft" id="delete-cancel-button">Отмена</button><button class="button button-danger" id="delete-confirm-button">Удалить</button></div>
     </div>
   </div>
   <div class="toast" id="toast"></div>
