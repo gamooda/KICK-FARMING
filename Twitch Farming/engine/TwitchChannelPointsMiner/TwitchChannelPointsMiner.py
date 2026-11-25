@@ -67,6 +67,7 @@ class TwitchChannelPointsMiner:
         "running",
         "start_datetime",
         "original_streamers",
+        "streamers_lock",
         "logs_file",
         "queue_listener",
     ]
@@ -157,6 +158,7 @@ class TwitchChannelPointsMiner:
         self.running = False
         self.start_datetime = None
         self.original_streamers = []
+        self.streamers_lock = threading.RLock()
 
         self.logs_file, self.queue_listener = configure_loggers(
             self.username, logger_settings
@@ -202,6 +204,54 @@ class TwitchChannelPointsMiner:
             http_server.start()
         else:
             logger.error("Can't start analytics(), please set enable_analytics=True")
+
+    def add_streamer(self, username, channel_id=None):
+        username = str(username or "").strip().lower()
+        if not username:
+            return {"ok": False, "message": "Некорректный логин Twitch."}
+        with self.streamers_lock:
+            if not self.running or not self.twitch.running:
+                return {"ok": False, "message": "Фарм ещё запускается или уже останавливается."}
+            if any(streamer.username.lower() == username for streamer in self.streamers):
+                return {"ok": True, "message": "Канал уже находится в фарме.", "unchanged": True}
+        try:
+            streamer = Streamer(username)
+            streamer.channel_id = str(channel_id or self.twitch.get_channel_id(username))
+            streamer.settings = set_default_settings(streamer.settings, Settings.streamer_settings)
+            streamer.settings.bet = set_default_settings(streamer.settings.bet, Settings.streamer_settings.bet)
+            if streamer.settings.chat != ChatPresence.NEVER:
+                streamer.irc_chat = ThreadChat(
+                    self.username,
+                    self.twitch.twitch_login.get_auth_token(),
+                    streamer.username,
+                )
+            self.twitch.load_channel_points_context(streamer)
+            self.twitch.check_streamer_online(streamer)
+            with self.streamers_lock:
+                if not self.running or not self.twitch.running:
+                    return {"ok": False, "message": "Фарм останавливается. Повтори добавление после запуска."}
+                if any(item.username.lower() == username for item in self.streamers):
+                    return {"ok": True, "message": "Канал уже находится в фарме.", "unchanged": True}
+                self.streamers.append(streamer)
+                self.original_streamers.append(streamer.channel_points)
+                pool = self.ws_pool
+            if pool is not None:
+                pool.submit(PubsubTopic("video-playback-by-id", streamer=streamer))
+                if streamer.settings.follow_raid:
+                    pool.submit(PubsubTopic("raid", streamer=streamer))
+                if streamer.settings.make_predictions:
+                    pool.submit(PubsubTopic("predictions-channel-v1", streamer=streamer))
+                if streamer.settings.claim_moments:
+                    pool.submit(PubsubTopic("community-moments-channel-v1", streamer=streamer))
+                if streamer.settings.community_goals:
+                    pool.submit(PubsubTopic("community-points-channel-v1", streamer=streamer))
+            logger.info("Добавлен Drops-стример в активный фарм: %s", username)
+            return {"ok": True, "message": "Канал добавлен в активный фарм.", "login": username}
+        except StreamerDoesNotExistException:
+            return {"ok": False, "message": "Канал больше не существует."}
+        except Exception as error:
+            logger.exception("Could not add Drops streamer %s", username)
+            return {"ok": False, "message": str(error)[:240] or "Не удалось добавить канал."}
 
     def mine(
         self,
