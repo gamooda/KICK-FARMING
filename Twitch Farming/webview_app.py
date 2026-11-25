@@ -141,9 +141,18 @@ class EngineWorker(threading.Thread):
 
     def add_streamer(self, login, channel_id=None):
         miner = self.miner
-        if miner is None or not miner.running:
-            return {"ok": False, "message": "Фарм ещё запускается. Повтори добавление через несколько секунд."}
-        return miner.add_streamer(login, channel_id)
+        deadline = time.monotonic() + 25
+        while miner is not None and self.is_alive() and not self.stop_requested:
+            try:
+                ready = bool(miner.running and miner.twitch.twitch_login.get_auth_token())
+            except Exception:
+                ready = False
+            if ready:
+                return miner.add_streamer(login, channel_id)
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.15)
+        return {"ok": False, "message": "Фарм ещё подключается к Twitch. Повтори добавление через несколько секунд."}
 
     def request_stop(self):
         self.stop_requested = True
