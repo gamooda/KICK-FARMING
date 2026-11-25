@@ -204,7 +204,7 @@ function renderEvents(events){
   const items=Array.isArray(events)?events.slice(-40).reverse():[];
   $("event-count").textContent=String(items.length);
   const html=items.length?items.map(line=>{
-    const match=String(line).match(/^(\\d{2}:\\d{2}:\\d{2})\\s+(.+)$/);
+    const match=String(line).match(/^(\d{2}:\d{2}:\d{2})\s+(.+)$/);
     const stamp=match?match[1]:"";
     const message=match?match[2]:String(line);
     const type=/ошиб|предупрежд/i.test(message)?"event-warning":/эфире|online/i.test(message)?"event-live":"event-normal";
