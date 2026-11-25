@@ -135,7 +135,7 @@ class EngineWorker(threading.Thread):
     def run(self):
         miner = None
         try:
-            from TwitchChannelPointsMiner import TwitchChannelPointsMiner
+            from TwitchChannelPointsMiner.TwitchChannelPointsMiner import TwitchChannelPointsMiner
             from TwitchChannelPointsMiner.classes.Chat import ChatPresence
             from TwitchChannelPointsMiner.classes.Settings import Priority
             from TwitchChannelPointsMiner.classes.entities.Streamer import StreamerSettings
