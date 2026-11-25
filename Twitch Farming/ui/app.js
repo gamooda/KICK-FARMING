@@ -1445,30 +1445,38 @@ function initLogoAnimation(){
     clearTimeout(timer);
     timer=setTimeout(()=>runRandom(),2000+Math.random()*2000);
   };
-  const blink=async()=>{
+  const blink=async current=>{
+    if(current!==token)return;
     setEyes(0,0,.08,.08);
     await pause(150);
+    if(current!==token)return;
     reset();
     await pause(280);
   };
-  const doubleBlink=async()=>{
-    await blink();
+  const doubleBlink=async current=>{
+    await blink(current);
+    if(current!==token)return;
     await pause(100);
-    await blink();
+    await blink(current);
   };
-  const squint=async()=>{
+  const squint=async current=>{
+    if(current!==token)return;
     setEyes(0,0,.45,.45);
     await pause(1500+Math.random()*500);
+    if(current!==token)return;
     reset();
     await pause(280);
   };
-  const glance=async()=>{
+  const glance=async current=>{
     const directions=[[-2,0],[2,0],[2,-2],[0,2]];
     for(const [x,y] of directions){
+      if(current!==token)return;
       setEyes(x,y);
       await pause(380);
     }
+    if(current!==token)return;
     await pause(1000);
+    if(current!==token)return;
     reset();
     await pause(280);
   };
@@ -1476,7 +1484,7 @@ function initLogoAnimation(){
     const current=++token;
     const actions=[blink,doubleBlink,squint,glance];
     const action=actions[Math.floor(Math.random()*actions.length)];
-    await action();
+    await action(current);
     if(current===token&&!logo.matches(":hover"))schedule();
   };
   const hoverReaction=async()=>{
