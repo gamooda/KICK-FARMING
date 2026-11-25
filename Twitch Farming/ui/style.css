@@ -695,3 +695,40 @@ select.input option{background:#171622;color:#e8e4ef}
 }
 
 input,textarea,.log-view,.log-view *,#event-list,#event-list *,#event-list .feed-item,#event-list .feed-item *, .feedback,.feedback *, .is-error,.is-error *, .login-status,.login-status *, .startup-overlay.startup-error .startup-description,.startup-overlay.startup-error .startup-description *,[role="alert"],[role="alert"] *, .toast,.toast *{-webkit-user-select:text;user-select:text}
+
+
+.about-button{height:34px;min-height:34px;flex:0 0 34px;margin:0 0 9px;border-color:#30283d;background:#171521;color:#c8bfd5}
+.about-button svg{width:17px;height:17px;flex:0 0 17px}
+.about-button:hover{background:#241b32;border-color:#57406f;color:#f4edff}
+.about-modal-overlay{position:fixed;inset:50px 0 0;z-index:155;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(5,5,11,.76);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+.about-modal-overlay.visible{display:flex}
+.about-modal-card{position:relative;width:min(470px,100%);padding:25px;background:linear-gradient(145deg,#1c1928,#13121d 78%);border:1px solid #493958;border-radius:16px;box-shadow:0 24px 75px rgba(0,0,0,.58);animation:channel-modal-in .18s ease-out}
+.about-modal-close{position:absolute;top:13px;right:13px;width:29px;height:29px;display:flex;align-items:center;justify-content:center;border:1px solid #393044;border-radius:7px;background:#211d2c;color:#93889f;cursor:pointer;transition:background .15s,color .15s,border-color .15s}
+.about-modal-close:hover{background:#38283f;border-color:#775294;color:#fff}
+.about-modal-close svg{width:15px;height:15px}
+.about-modal-header{display:flex;align-items:center;gap:15px;padding:3px 27px 0 0}
+.about-modal-logo{width:53px;height:53px;min-width:53px;display:flex;align-items:center;justify-content:center;color:#fff;background:linear-gradient(145deg,#ad5cff,#672ce0);clip-path:polygon(12% 0,100% 0,100% 73%,68% 100%,43% 100%,43% 86%,12% 86%);filter:drop-shadow(0 3px 8px rgba(132,60,225,.32))}
+.about-modal-logo svg{width:38px;height:38px}
+.about-logo-eye{transform-box:fill-box;transform-origin:center;animation:about-eye-blink 4.1s ease-in-out infinite}
+.about-logo-eye-right{animation-delay:.12s}
+@keyframes about-eye-blink{0%,88%,92%,100%{transform:scaleY(1)}90%,91%{transform:scaleY(.08)}}
+.about-modal-heading{display:flex;flex-direction:column;gap:5px;min-width:0}
+.about-modal-kicker{color:#9875bd;font-size:8px;font-weight:900;letter-spacing:1.5px}
+.about-modal-title-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.about-modal-title-row h2{margin:0;color:#f2ecf8;font-size:19px;font-weight:850;letter-spacing:-.3px}
+.about-version{padding:4px 7px;border:1px solid #61447d;border-radius:6px;background:#30213f;color:#d6b8fa;font-size:8px;font-weight:850;letter-spacing:.4px}
+.about-modal-heading p{margin:0;color:#8e859b;font-size:9px;line-height:1.5}
+.about-modal-divider{height:1px;margin:22px 0 15px;background:linear-gradient(90deg,#493758,rgba(73,55,88,.14))}
+.about-credits{display:flex;flex-direction:column;gap:9px}
+.about-credit-row{display:flex;align-items:center;gap:11px;padding:11px 12px;border:1px solid #322b40;border-radius:9px;background:rgba(31,27,42,.72)}
+.about-credit-icon{width:34px;height:34px;min-width:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:#30223f;color:#c39af0}
+.about-credit-icon svg{width:19px;height:19px}
+.about-credit-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+.about-credit-copy span{color:#8c8199;font-size:7px;font-weight:900;letter-spacing:1px}
+.about-credit-copy strong{color:#e9e1f1;font-size:11px;font-weight:800}
+.about-modal-actions{display:flex;gap:8px;margin-top:19px}
+.about-github-button{flex:1;justify-content:center;min-width:0;gap:8px}
+.about-github-button svg{width:16px;height:16px;flex:0 0 16px}
+.about-close-button{min-width:86px;justify-content:center}
+@media(prefers-reduced-motion:reduce){.about-logo-eye{animation:none}}
+@media(max-width:480px){.about-modal-card{padding:20px}.about-modal-header{align-items:flex-start}.about-modal-actions{flex-direction:column}.about-close-button{width:100%}}
