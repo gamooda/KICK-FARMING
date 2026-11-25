@@ -1,6 +1,9 @@
 const $=id=>document.getElementById(id);
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 let appState=null;
+let pyApi=null;
+let apiReady=false;
+let apiReadyPromise=null;
 let currentPage="dashboard";
 let lastLogId=0;
 let channelMode="add";
@@ -38,18 +41,22 @@ function notify(message){
 }
 
 function api(){
-  if(!window.pywebview||!window.pywebview.api) throw new Error("Связь с приложением ещё не готова.");
-  return window.pywebview.api;
+  if(!apiReady||!pyApi) throw new Error("Связь с приложением ещё не готова.");
+  return pyApi;
 }
 
 async function waitForBridge(){
-  const started=Date.now();
-  while(Date.now()-started<20000){
-    const bridge=window.pywebview&&window.pywebview.api;
-    if(bridge&&typeof bridge.get_auth_state==="function"&&typeof bridge.get_state==="function"&&typeof bridge.login==="function") return bridge;
-    await sleep(50);
-  }
-  throw new Error("Интерфейс не получил методы Python API. Проверь WebView2 Runtime и перезапусти приложение.");
+  if(!apiReadyPromise) apiReadyPromise=window.__twitchPywebviewReadyPromise;
+  if(!apiReadyPromise) throw new Error("Событие готовности PyWebView не зарегистрировано.");
+  await apiReadyPromise;
+  const bridge=window.pywebview&&window.pywebview.api;
+  if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
+  const required=["get_auth_state","get_state","login","minimize_window","toggle_maximize_window","close_window"];
+  const missing=required.filter(name=>typeof bridge[name]!=="function");
+  if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
+  pyApi=bridge;
+  apiReady=true;
+  return pyApi;
 }
 
 function setPage(page,remember=true){
@@ -330,7 +337,7 @@ function applyState(state,initial){
 }
 
 async function poll(){
-  if(polling||!window.pywebview||!window.pywebview.api) return;
+  if(polling||!apiReady||!pyApi) return;
   polling=true;
   try{
     const authState=await api().get_auth_state();
@@ -663,7 +670,7 @@ function renderTutorialStep(){
 function hideTutorial(save){
   $("tutorial-overlay").classList.remove("visible");
   document.querySelectorAll(".tour-highlight").forEach(node=>node.classList.remove("tour-highlight"));
-  if(save&&window.pywebview&&window.pywebview.api) api().finish_tutorial();
+  if(save&&apiReady) api().finish_tutorial();
 }
 
 function nextTutorial(){

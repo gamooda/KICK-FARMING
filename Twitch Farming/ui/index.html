@@ -6,6 +6,15 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge">
 <title>Twitch Farming</title>
 <link rel="stylesheet" href="style.css">
+<script>
+window.__twitchPywebviewReady=false;
+window.__twitchPywebviewReadyPromise=new Promise(resolve=>{
+  window.addEventListener("pywebviewready",()=>{
+    window.__twitchPywebviewReady=true;
+    resolve();
+  },{once:true});
+});
+</script>
 </head>
 <body>
 <div class="window-frame">

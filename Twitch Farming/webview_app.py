@@ -285,13 +285,20 @@ class TwitchFarmingApi:
         self.pending_log_lines = []
         self.log_stop = threading.Event()
         self._load_config()
-        self._sanitize_existing_log()
         self.root_logger = logging.getLogger()
         self.root_logger.setLevel(logging.INFO)
         self.log_handler = AppLogHandler(self)
         self.root_logger.addHandler(self.log_handler)
         self.log_writer = threading.Thread(target=self._log_writer_loop, name="LogWriter", daemon=True)
         self.log_writer.start()
+        self.startup_worker = threading.Thread(target=self._startup_tasks, name="StartupTasks", daemon=True)
+        self.startup_worker.start()
+
+    def _startup_tasks(self):
+        try:
+            self._sanitize_existing_log()
+        except Exception:
+            logging.getLogger("twitch_farming.startup").exception("Startup data preparation failed")
 
     def _load_config(self):
         try:
@@ -1016,26 +1023,33 @@ class TwitchFarmingApi:
         return {"ok": False}
 
 
-    def minimize_window(self):
-        if self.window is None:
+    def _schedule_window_action(self, action, name):
+        window = self.window
+        if window is None:
             return {"ok": False, "message": "Окно ещё не готово."}
-        self.window.minimize()
+
+        def run():
+            try:
+                getattr(window, action)()
+            except Exception:
+                logging.getLogger("twitch_farming.window").exception("Window action failed: %s", action)
+
+        threading.Thread(target=run, name=name, daemon=True).start()
         return {"ok": True}
+
+    def minimize_window(self):
+        return self._schedule_window_action("minimize", "WindowMinimize")
 
     def toggle_maximize_window(self):
-        if self.window is None:
-            return {"ok": False, "message": "Окно ещё не готово."}
-        self.window_maximized = not self.window_maximized
-        if self.window_maximized:
-            self.window.maximize()
-        else:
-            self.window.restore()
-        return {"ok": True, "maximized": self.window_maximized}
+        with self.lock:
+            self.window_maximized = not self.window_maximized
+            maximized = self.window_maximized
+        result = self._schedule_window_action("maximize" if maximized else "restore", "WindowMaximize")
+        result["maximized"] = maximized
+        return result
 
     def close_window(self):
-        if self.window is not None:
-            self.window.destroy()
-        return {"ok": True}
+        return self._schedule_window_action("destroy", "WindowClose")
 
     def sync_window_maximized(self, maximized):
         self.window_maximized = bool(maximized)
@@ -1049,7 +1063,7 @@ class TwitchFarmingApi:
             if self.restore_started:
                 return
             self.restore_started = True
-        self._restore_session()
+        threading.Thread(target=self._restore_session, name="SessionRestore", daemon=True).start()
 
     def on_closing(self):
         self.stop_farm()
