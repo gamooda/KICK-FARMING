@@ -24,6 +24,16 @@ build/
 dist/
 *.spec
 pip-wheel-metadata/
+.cache/
+**/.cache/
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+*.swp
 
 # Runtime data, credentials and local configuration
 .env
