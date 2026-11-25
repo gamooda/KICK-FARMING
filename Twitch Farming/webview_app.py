@@ -88,7 +88,11 @@ class AuthWorker(threading.Thread):
             from TwitchChannelPointsMiner.classes.Twitch import Twitch
             from TwitchChannelPointsMiner.utils import get_user_agent
             self.client = Twitch(self.username, get_user_agent("CHROME"))
-            success = bool(self.client.login())
+            if self.restoring:
+                logging.getLogger("twitch_farming.auth").info("[STARTUP] Проверка сохранённой сессии Twitch...")
+                success = bool(self.client.restore_session())
+            else:
+                success = bool(self.client.login())
             self.app.auth_result(
                 self.username,
                 self.client if success else None,

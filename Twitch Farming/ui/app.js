@@ -716,7 +716,6 @@ async function waitForStartup(){
     const result=await api().get_startup_state();
     if(result&&result.ready){
       startupCompleteUi=true;
-      $("startup-overlay").classList.add("hidden");
       if(result.error) notify("Ошибка загрузки конфигурации: "+result.error);
       updateFarmToggleButton(false);
       return result;
@@ -745,6 +744,7 @@ async function initialize(){
   initialStateReady=true;
   appInitialized=Boolean(authState.authenticated);
   updateFarmToggleButton(Boolean(state.session_running));
+  $("startup-overlay").classList.add("hidden");
   setInterval(poll,900);
 }
 
