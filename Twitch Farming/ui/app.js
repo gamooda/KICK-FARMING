@@ -5,6 +5,7 @@ let pyApi=null;
 let apiReady=false;
 let apiReadyPromise=null;
 let startupCompleteUi=false;
+let initialStateReady=false;
 let farmActionPending=false;
 let currentPage="dashboard";
 let lastLogId=0;
@@ -337,7 +338,7 @@ function applyState(state,initial){
     });
     fillPreset(state.selected_preset,state.bet_settings,state.custom_presets);
   }
-  if(authenticated&&!state.tutorial_done&&!tutorialShown) showTutorial();
+  if(authenticated&&!state.tutorial_done&&!tutorialShown&&currentPage==="dashboard") showTutorial();
   if(state.tutorial_done&&tutorialShown) hideTutorial(false);
   appendLogRows(state.logs||[]);
   updateReward();
@@ -468,13 +469,13 @@ function updateFarmToggleButton(running){
   button.classList.toggle("button-primary",!running);
   button.classList.toggle("button-start",!running);
   button.classList.toggle("button-stop",running);
-  button.disabled=!startupCompleteUi||farmActionPending;
+  button.disabled=!startupCompleteUi||!initialStateReady||farmActionPending;
   button.innerHTML=running?"<svg><use href='#i-stop'></use></svg>Стоп":"<svg><use href='#i-play'></use></svg>Запустить";
   button.title=running?"Остановить сбор":"Запустить сбор";
 }
 
 function ensureStartupReady(){
-  if(startupCompleteUi) return true;
+  if(startupCompleteUi&&initialStateReady) return true;
   notify("Инициализация ещё выполняется. Меню доступно, операции станут доступны после загрузки.");
   return false;
 }
@@ -728,15 +729,22 @@ async function initialize(){
   await waitForBridge();
   await waitForStartup();
   setupBetControls();
-  const authState=await api().get_auth_state();
-  applyAuthState(authState);
   lastLogId=0;
-  if(authState.authenticated){
-    const state=await api().get_state(0);
-    applyState(state,true);
-    appInitialized=true;
-    setPage("dashboard");
-  }
+  const authState=await api().get_auth_state();
+  const state=await api().get_state(0);
+  state.authenticated=Boolean(authState.authenticated);
+  state.authenticated_username=authState.username||state.authenticated_username;
+  state.auth_status=authState.auth_status||state.auth_status;
+  state.auth_code=authState.auth_code||state.auth_code;
+  state.auth_error=authState.auth_error||state.auth_error;
+  state.worker_alive=Boolean(authState.worker_alive);
+  state.worker_state=authState.worker_state||"idle";
+  state.restore_pending=Boolean(authState.restore_pending);
+  state.elapsed=Number(authState.elapsed||0);
+  applyState(state,true);
+  initialStateReady=true;
+  appInitialized=Boolean(authState.authenticated);
+  updateFarmToggleButton(Boolean(state.session_running));
   setInterval(poll,900);
 }
 
