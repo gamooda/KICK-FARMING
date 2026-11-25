@@ -1,4 +1,3 @@
-import importlib
 import json
 import logging
 import os
@@ -294,35 +293,37 @@ class TwitchFarmingApi:
         self.log_writer = threading.Thread(target=self._log_writer_loop, name="LogWriter", daemon=True)
         self.log_writer.start()
     def _startup_tasks(self):
+        logger = logging.getLogger("twitch_farming.startup")
+        started = time.monotonic()
         try:
             APP_DIR.mkdir(parents=True, exist_ok=True)
+            logger.info("[STARTUP] Чтение конфигурации...")
             self._load_config()
             self._sanitize_existing_log()
-            importlib.import_module("TwitchChannelPointsMiner")
-            importlib.import_module("TwitchChannelPointsMiner.classes.Twitch")
-            importlib.import_module("TwitchChannelPointsMiner.utils")
         except Exception as error:
             self.startup_error = str(error) or error.__class__.__name__
-            logging.getLogger("twitch_farming.startup").exception("Startup initialization failed")
+            logger.exception("Startup configuration failed")
         try:
             self._restore_session()
         except Exception as error:
             if not self.startup_error:
                 self.startup_error = str(error) or error.__class__.__name__
-            logging.getLogger("twitch_farming.startup").exception("Session restore could not be started")
+            logger.exception("Session restore could not be started")
+        logger.info("[STARTUP] Интерфейс готов за %.2f сек. Проверка Twitch продолжается в фоне.", time.monotonic() - started)
         self._notify_startup_complete()
 
     def _notify_startup_complete(self):
         payload = json.dumps({"ok": not bool(self.startup_error), "message": self.startup_error}, ensure_ascii=False)
-        for _ in range(30):
+        script = "if(typeof window.onPythonStartupComplete==='function'){window.onPythonStartupComplete(" + payload + ");true}else{false}"
+        for _ in range(100):
             try:
                 window = self.window
-                if window is not None:
-                    window.evaluate_js("window.onPythonStartupComplete && window.onPythonStartupComplete(" + payload + ")")
+                if window is not None and window.evaluate_js(script) is not False:
                     return
             except Exception:
                 pass
             time.sleep(0.1)
+        logging.getLogger("twitch_farming.startup").error("Could not notify JavaScript that startup is complete")
 
     def _load_config(self):
         try:
