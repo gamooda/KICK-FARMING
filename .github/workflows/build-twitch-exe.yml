@@ -8,6 +8,7 @@ on:
     paths:
       - "Twitch Farming/**"
       - ".github/workflows/build-twitch-exe.yml"
+      - ".github/scripts/startup-smoke-test.cjs"
 
 permissions:
   contents: write
