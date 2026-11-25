@@ -527,9 +527,11 @@ class TwitchChannelPointsMiner:
                     pass
         if self.ws_pool is not None:
             self.ws_pool.end()
+        if self.ws_pool is not None:
+            self.ws_pool.join()
         for thread in [self.minute_watcher_thread, self.sync_campaigns_thread]:
-            if thread is not None and thread is not threading.current_thread() and thread.is_alive() and time.monotonic() < deadline:
-                thread.join(timeout=min(1.0, max(0, deadline - time.monotonic())))
+            if thread is not None and thread is not threading.current_thread() and thread.is_alive():
+                thread.join()
         for streamer in self.streamers:
             try:
                 if streamer.mutex.acquire(blocking=False):
