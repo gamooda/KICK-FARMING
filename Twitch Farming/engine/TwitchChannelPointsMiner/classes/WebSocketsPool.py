@@ -106,8 +106,14 @@ class WebSocketsPool:
 
     def join(self):
         current = __import__("threading").current_thread()
-        for thread in list(self.threads):
-            if thread is not current and thread.is_alive():
+        while True:
+            active = [
+                thread for thread in list(self.threads)
+                if thread is not current and thread.is_alive()
+            ]
+            if not active:
+                break
+            for thread in active:
                 thread.join()
         self.threads = [thread for thread in self.threads if thread.is_alive()]
 
