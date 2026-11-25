@@ -417,3 +417,31 @@ select.input option{background:#171622;color:#e8e4ef}
   .delete-confirm-card{padding:19px 16px 15px}
   .channel-token-input.input{min-width:95px}
 }
+
+
+.brand-eye-blink{transform-box:fill-box;transform-origin:center;animation:brand-eye-blink 5.2s infinite}
+@keyframes brand-eye-blink{0%,88%,100%{transform:scaleY(1)}89%,91%{transform:scaleY(.07)}90%,92%{transform:scaleY(1)}}
+.followers-panel{display:flex;flex-direction:column;flex:1;min-height:0;padding:14px;background:#14141f;border:1px solid #2b2738;border-radius:10px;overflow:hidden}
+.followers-toolbar{height:30px;min-height:30px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-bottom:1px solid #302a3e;padding:0 2px 8px}
+.followers-updated{color:#837b91;font-size:9px;white-space:nowrap}
+.followers-status{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:42px;padding:9px 3px;color:#a79eb5;font-size:10px;line-height:1.5}
+.followers-status.is-error{color:#f0a1ad}
+.followers-status-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.followers-status-actions .button{height:28px;font-size:9px}
+.followers-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));align-content:start;gap:9px;flex:1;min-height:0;overflow:auto;padding:5px 3px 3px;scrollbar-width:thin;scrollbar-color:#59436f transparent}
+.follower-card{display:flex;align-items:center;gap:10px;min-width:0;min-height:76px;padding:9px 10px;background:linear-gradient(145deg,#1d1a2b,#171622 68%);border:1px solid #393047;border-radius:10px;transition:background .15s,border-color .15s}
+.follower-card:hover{background:linear-gradient(145deg,#282039,#1b1828 70%);border-color:#76519f}
+.follower-avatar{width:46px;height:46px;min-width:46px;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:50%;border:2px solid #74519c;background:#292337;color:#e3caff;font-size:17px;font-weight:900}
+.follower-avatar img{display:block;width:100%;height:100%;object-fit:cover}
+.follower-info{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.follower-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#f3eff9;font-size:11px;font-weight:850}
+.follower-login{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#898198;font-size:9px}
+.follower-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;color:#82798f;font-size:8px}
+.follower-live{color:#ff91a7;font-weight:900;letter-spacing:.35px}
+.follower-live-dot{width:6px;height:6px;display:inline-block;margin-right:3px;border-radius:50%;background:#fb5577;box-shadow:0 0 6px rgba(251,85,119,.5)}
+.follower-add{height:28px;min-width:73px;flex:0 0 auto;padding:0 9px;font-size:9px}
+.follower-add:disabled{opacity:.65;cursor:default}
+.followers-empty{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:170px;gap:6px;color:#8e859a;text-align:center;font-size:10px}
+.followers-empty strong{color:#ddd5e9;font-size:12px}
+@media(max-width:900px){.followers-grid{grid-template-columns:repeat(auto-fill,minmax(205px,1fr))}}
+@media(max-width:600px){.followers-panel{padding:10px}.followers-grid{grid-template-columns:1fr}.followers-status{align-items:flex-start;flex-direction:column}}
