@@ -30,6 +30,8 @@ let pendingLogRows=[];
 let pollErrorShown=false;
 let tutorialShown=false;
 let appInitialized=false;
+let followersPollTimer=null;
+let followersLoadSequence=0;
 let tutorialStep=0;
 const tutorialSteps=[
   {title:"Добавление каналов",text:"Нажми + и добавь Twitch-каналы по логину или ссылке. Аватары, имена и статус трансляции загрузятся автоматически.",target:".channels-panel"},
@@ -73,11 +75,22 @@ async function waitForBridge(){
   await withTimeout(apiReadyPromise,120000,"WebView2 не запустился за 120 секунд. Проверь Microsoft Edge WebView2 Runtime.");
   const bridge=window.pywebview&&window.pywebview.api;
   if(!bridge||typeof bridge!=="object") throw new Error("PyWebView сообщил о готовности, но Python API не передан в окно.");
-  const required=["get_auth_state","get_state","get_startup_state","mark_frontend_ready","restart_app","begin_session_restore","login","minimize_window","toggle_maximize_window","close_window"];
+  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","mark_frontend_ready","restart_app","begin_session_restore","login","get_followed_channels_state","refresh_followed_channels","add_followed_channel","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
   apiReady=true;
+  try{
+    const navigation=performance.getEntriesByType("navigation")[0]||{};
+    const timing=bridge.record_frontend_timing({
+      dom_ready_ms:Number(navigation.domContentLoadedEventEnd||0),
+      load_ms:Number(navigation.loadEventEnd||0),
+      bridge_ready_ms:Number(performance.now()||0)
+    });
+    if(timing&&typeof timing.catch==="function") timing.catch(error=>console.warn("Startup timing report failed:",error));
+  }catch(error){
+    console.warn("Startup timing report failed:",error);
+  }
   try{
     const ready=bridge.mark_frontend_ready();
     if(ready&&typeof ready.catch==="function") ready.catch(error=>console.warn("Frontend ready signal failed:",error));
@@ -99,11 +112,12 @@ function setPage(page,remember=true){
     item.classList.toggle("active",visible);
   });
   document.querySelectorAll(".nav-button").forEach(item=>item.classList.remove("active"));
-  const navMap={dashboard:"nav-dashboard",settings:"nav-settings",bets:"nav-predictions",logs:"nav-events",channel:"nav-dashboard"};
+  const navMap={dashboard:"nav-dashboard",settings:"nav-settings",bets:"nav-predictions",logs:"nav-events",followers:"nav-followers",channel:"nav-dashboard"};
   const active=$(navMap[page]||"nav-dashboard");
   if(active) active.classList.add("active");
   updateReward();
   if(page==="logs") loadLogs();
+  if(page==="followers") loadFollowedChannels(false);
 }
 
 function navigateHistory(direction){
@@ -220,6 +234,134 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
   $("add-channel").disabled=running;
   filterChannelCards();
 }
+
+
+function renderFollowedChannels(state){
+  const list=Array.isArray(state&&state.channels)?state.channels:[];
+  const tracked=new Set(appState&&Array.isArray(appState.channels)?appState.channels:[]);
+  const running=Boolean(appState&&appState.session_running);
+  $("followers-count").textContent=String(list.length);
+  $("followers-subtitle").textContent="Каналы, на которые подписан @"+String(appState&&(appState.authenticated_username||appState.username)||"Twitch");
+  const updated=Number(state&&state.updated_at||0);
+  $("followers-updated").textContent=updated?"Обновлено "+new Date(updated*1000).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}):"";
+  const status=$("followers-status");
+  status.classList.toggle("is-error",Boolean(state&&state.error));
+  if(state&&state.loading){
+    status.innerHTML="Загружаю подписки Twitch… Найдено: "+Number(state.found_count||0);
+  }else if(state&&state.error){
+    status.innerHTML="<span>"+esc(state.error)+"</span>"+(state.requires_reauth?"<div class='followers-status-actions'><button class='button button-primary' data-followers-action='reauth'>Переподключить Twitch</button></div>":"");
+  }else if(state&&state.loaded){
+    status.textContent=list.length?"Найдено подписок: "+list.length+". Нажми «Добавить», чтобы включить канал в автоматический сбор.":"У этого аккаунта пока нет подписок.";
+  }else{
+    status.textContent="Список подписок ещё не загружен. Нажми «Обновить».";
+  }
+  const root=$("followers-list");
+  if(!list.length){
+    root.innerHTML=state&&state.loading?"<div class='followers-empty'><strong>Загрузка подписок</strong><span>Получаю список каналов из Twitch…</span></div>":state&&state.error?"":"<div class='followers-empty'><strong>Подписок пока нет</strong><span>Здесь появятся каналы, на которые подписан текущий аккаунт.</span></div>";
+    return;
+  }
+  root.innerHTML=list.map(item=>{
+    const login=String(item.login||"").toLowerCase();
+    const name=String(item.display_name||login);
+    const avatar=String(item.avatar_url||"");
+    const initial=esc(name.charAt(0).toUpperCase()||"?");
+    const image=avatar.startsWith("https://")?"<img loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.remove()'>":"";
+    const live=Boolean(item.is_live);
+    const followed=String(item.followed_at||"");
+    const followedTime=followed?timeAgo(Date.parse(followed)/1000):"";
+    const meta=live?"<span class='follower-live'><i class='follower-live-dot'></i>В ЭФИРЕ"+(Number(item.viewer_count||0)?" · "+Number(item.viewer_count).toLocaleString("ru-RU")+" зрителей":"")+"</span>":followedTime?"Подписка · "+esc(followedTime):"Подписка Twitch";
+    const added=tracked.has(login);
+    const disabled=added||running;
+    const buttonText=added?"Добавлен":running?"Сбор запущен":"Добавить";
+    return "<article class='follower-card' data-login='"+esc(login)+"'><div class='follower-avatar'>"+image+initial+"</div><div class='follower-info'><strong class='follower-name'>"+esc(name)+"</strong><span class='follower-login'>@"+esc(login)+"</span><div class='follower-meta'>"+meta+"</div></div><button class='button "+(added?"button-soft":"button-primary")+" follower-add' data-followers-action='add' data-login='"+esc(login)+"' "+(disabled?"disabled":"")+">"+buttonText+"</button></article>";
+  }).join("");
+}
+
+function stopFollowedPolling(){
+  if(followersPollTimer!==null){
+    clearInterval(followersPollTimer);
+    followersPollTimer=null;
+  }
+}
+
+function watchFollowedChannels(sequence){
+  stopFollowedPolling();
+  followersPollTimer=setInterval(async()=>{
+    if(sequence!==followersLoadSequence){
+      stopFollowedPolling();
+      return;
+    }
+    try{
+      const state=await api().get_followed_channels_state();
+      if(currentPage==="followers") renderFollowedChannels(state);
+      if(!state.loading) stopFollowedPolling();
+    }catch(error){
+      stopFollowedPolling();
+      if(currentPage==="followers") notify(error.message||"Не удалось обновить фолловеров.");
+    }
+  },900);
+}
+
+async function loadFollowedChannels(force=false){
+  if(!apiReady||!pyApi) return;
+  if(!appState||!appState.authenticated){
+    $("followers-status").textContent="Сначала подключи аккаунт Twitch.";
+    return;
+  }
+  const sequence=++followersLoadSequence;
+  const refresh=$("refresh-followers");
+  if(refresh&&force){
+    refresh.disabled=true;
+    refresh.textContent="Загрузка…";
+  }
+  try{
+    let state=await withTimeout(api().get_followed_channels_state(),10000,"Twitch API не ответил.");
+    renderFollowedChannels(state);
+    if(state.loading){
+      watchFollowedChannels(sequence);
+      return;
+    }
+    if(force||!state.loaded){
+      const result=await withTimeout(api().refresh_followed_channels(Boolean(force)),10000,"Не удалось запустить загрузку подписок.");
+      if(!result.ok){
+        notify(result.message||"Не удалось загрузить фолловеров.");
+        return;
+      }
+      state=await api().get_followed_channels_state();
+      renderFollowedChannels(state);
+      if(state.loading) watchFollowedChannels(sequence);
+    }
+  }catch(error){
+    $("followers-status").textContent=error.message||"Не удалось загрузить фолловеров.";
+    $("followers-status").classList.add("is-error");
+  }finally{
+    if(refresh){
+      refresh.disabled=false;
+      refresh.innerHTML="<svg><use href='#i-refresh'></use></svg>Обновить";
+    }
+  }
+}
+
+async function addFollowedChannel(login,button){
+  if(!login||!apiReady) return;
+  if(button) button.disabled=true;
+  try{
+    const result=await withTimeout(api().add_followed_channel(login),15000,"Twitch не ответил на добавление канала.");
+    if(!result.ok){
+      notify(result.message||"Не удалось добавить канал.");
+      if(button) button.disabled=false;
+      return;
+    }
+    notify(result.message||"Канал добавлен в автоматический сбор.");
+    await poll();
+    const state=await api().get_followed_channels_state();
+    renderFollowedChannels(state);
+  }catch(error){
+    notify(error.message||"Не удалось добавить канал.");
+    if(button) button.disabled=false;
+  }
+}
+
 
 function timeAgo(timestamp){
   const seconds=Math.max(0,Math.floor(Date.now()/1000-Number(timestamp||0)));
@@ -1052,7 +1194,19 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("nav-predictions").addEventListener("click",openBetSettings);
   $("nav-chat").addEventListener("click",()=>focusOption("chat","nav-chat"));
   $("nav-events").addEventListener("click",()=>setPage("logs"));
+  $("nav-followers").addEventListener("click",()=>setPage("followers"));
   $("nav-settings").addEventListener("click",()=>setPage("settings"));
+  $("refresh-followers").addEventListener("click",()=>loadFollowedChannels(true));
+  $("page-followers").addEventListener("click",event=>{
+    const button=event.target.closest("[data-followers-action]");
+    if(!button) return;
+    const action=button.dataset.followersAction;
+    if(action==="add") addFollowedChannel(button.dataset.login,button);
+    if(action==="reauth"){
+      const username=appState&&(appState.authenticated_username||appState.username);
+      if(username) loginUser(username);
+    }
+  });
   $("open-folder").addEventListener("click",openFolder);
   $("add-channel").addEventListener("click",()=>openChannelEditor("add",""));
   $("page-channel").addEventListener("click",event=>{if(event.target===$("page-channel"))setPage("dashboard");});
