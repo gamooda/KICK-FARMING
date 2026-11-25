@@ -303,14 +303,12 @@ class TwitchFarmingApi:
         except Exception as error:
             self.startup_error = str(error) or error.__class__.__name__
             logger.exception("Startup configuration failed")
+        logger.info("[STARTUP] Интерфейс готов за %.2f сек.", time.monotonic() - started)
+        self._notify_startup_complete()
         try:
             self._restore_session()
-        except Exception as error:
-            if not self.startup_error:
-                self.startup_error = str(error) or error.__class__.__name__
+        except Exception:
             logger.exception("Session restore could not be started")
-        logger.info("[STARTUP] Интерфейс готов за %.2f сек. Проверка Twitch продолжается в фоне.", time.monotonic() - started)
-        self._notify_startup_complete()
 
     def _notify_startup_complete(self):
         payload = json.dumps({"ok": not bool(self.startup_error), "message": self.startup_error}, ensure_ascii=False)
