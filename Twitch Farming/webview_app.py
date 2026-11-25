@@ -518,13 +518,14 @@ class TwitchFarmingApi:
                     return {"ok": False, "message": "Канал больше не найден."}
                 if channel != old and channel in self.channels:
                     return {"ok": False, "message": "Этот канал уже есть в списке."}
+                if channel == old:
+                    return {"ok": True, "message": "Канал не изменён.", "added": [], "unchanged": True}
                 self.channels[self.channels.index(old)] = channel
                 self.online_channels.discard(old)
                 self.channel_profiles.pop(old, None)
                 self.channel_balances.pop(old, None)
-                if channel != old:
-                    self.channel_points_branding_cache.pop(old, None)
-                added = [channel] if channel != old else []
+                self.channel_points_branding_cache.pop(old, None)
+                added = [channel]
             else:
                 tokens = re.split(r"[\n,;]+", str(raw_value or ""))
                 normalized = list(dict.fromkeys(self.normalize_channel(item) for item in tokens))
