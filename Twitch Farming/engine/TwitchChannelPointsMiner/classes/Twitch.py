@@ -335,42 +335,80 @@ class Twitch(object):
             self.__chuncked_sleep(random_sleep * 60, chunk_size=chunk_size)
 
     def post_gql_request(self, json_data):
+        request_items = json_data if isinstance(json_data, list) else [json_data]
+        operation_names = [
+            str(item.get("operationName") or "batch")
+            for item in request_items
+            if isinstance(item, dict)
+        ]
+        operation = ", ".join(dict.fromkeys(operation_names)) or "batch"
+        is_drops_query = any(
+            name in {"Inventory", "ViewerDropsDashboard", "DropCampaignDetails"}
+            for name in operation_names
+        )
+        response = None
         try:
             token = self.twitch_login.get_auth_token()
+            headers = {
+                "Authorization": f"OAuth {token}",
+                "Client-Id": CLIENT_ID,
+                "Client-Session-Id": self.client_session,
+                "Client-Version": self.update_client_version(),
+                "User-Agent": self.user_agent,
+                "X-Device-Id": self.device_id,
+            }
             response = requests.post(
                 GQLOperations.url,
                 json=json_data,
-                headers={
-                    "Authorization": f"OAuth {token}",
-                    "Client-Id": CLIENT_ID,
-                    "Client-Session-Id": self.client_session,
-                    "Client-Version": self.update_client_version(),
-                    "User-Agent": self.user_agent,
-                    "X-Device-Id": self.device_id,
-                },
+                headers=headers,
                 timeout=7,
             )
             if response.status_code == 401 and self._reauthenticate_after_expiry(token):
                 token = self.twitch_login.get_auth_token()
+                headers["Authorization"] = f"OAuth {token}"
                 response = requests.post(
                     GQLOperations.url,
                     json=json_data,
-                    headers={
-                        "Authorization": f"OAuth {token}",
-                        "Client-Id": CLIENT_ID,
-                        "Client-Session-Id": self.client_session,
-                        "Client-Version": self.update_client_version(),
-                        "User-Agent": self.user_agent,
-                        "X-Device-Id": self.device_id,
-                    },
+                    headers=headers,
                     timeout=7,
                 )
-            operation = json_data.get("operationName", "batch") if isinstance(json_data, dict) else "batch"
             logger.debug(f"GQLOperations {operation} · HTTP {response.status_code}")
-            return response.json()
+            if is_drops_query and response.status_code >= 400:
+                logger.warning(
+                    f"GQLOperations {operation} · HTTP {response.status_code} · Ответ Twitch: {response.text[:2500]}"
+                )
+            payload = response.json()
+            errors = []
+            if isinstance(payload, dict):
+                errors = payload.get("errors") or []
+            elif isinstance(payload, list):
+                errors = [
+                    item.get("errors")
+                    for item in payload
+                    if isinstance(item, dict) and item.get("errors")
+                ]
+            if is_drops_query and errors and response.status_code < 400:
+                logger.warning(
+                    f"GQLOperations {operation} · Ошибка GraphQL · Ответ Twitch: {str(payload)[:2500]}"
+                )
+            return payload
         except requests.exceptions.RequestException as error:
-            operation = json_data.get("operationName", "batch") if isinstance(json_data, dict) else "batch"
-            logger.error(f"Error with GQLOperations ({operation}): {error}")
+            response_text = str(getattr(getattr(error, "response", None), "text", "") or "")[:2500]
+            if is_drops_query:
+                logger.warning(
+                    f"GQLOperations {operation} · Ошибка запроса: {error} · Ответ Twitch: {response_text}"
+                )
+            else:
+                logger.error(f"Error with GQLOperations ({operation}): {error}")
+            return {}
+        except ValueError as error:
+            response_text = str(getattr(response, "text", "") or "")[:2500]
+            if is_drops_query:
+                logger.warning(
+                    f"GQLOperations {operation} · Некорректный JSON: {error} · Ответ Twitch: {response_text}"
+                )
+            else:
+                logger.error(f"Invalid JSON from GQLOperations ({operation}): {error}")
             return {}
 
     # Request for Integrity Token
@@ -955,54 +993,113 @@ class Twitch(object):
         except (ValueError, KeyError):
             return []
 
-    def __get_inventory(self):
-        response = self.post_gql_request(GQLOperations.Inventory)
-        try:
-            return (
-                response["data"]["currentUser"]["inventory"] if response != {} else {}
-            )
-        except (ValueError, KeyError, TypeError):
-            return {}
-
-    def __get_drops_dashboard(self, status=None):
-        response = self.post_gql_request(GQLOperations.ViewerDropsDashboard)
-        campaigns = (
-            response.get("data", {})
-            .get("currentUser", {})
-            .get("dropCampaigns", [])
-            or []
+    def _warn_drops_response(self, operation, reason, response):
+        logger.warning(
+            f"{operation}: {reason}. Ответ Twitch: {str(response)[:2500]}"
         )
 
-        if status is not None:
-            campaigns = (
-                list(filter(lambda x: x["status"] == status.upper(), campaigns)) or []
-            )
+    def __get_inventory(self):
+        json_data = copy.deepcopy(GQLOperations.Inventory)
+        response = self.post_gql_request(json_data)
+        if not isinstance(response, dict):
+            self._warn_drops_response("Inventory", "неожиданный формат ответа", response)
+            return {}
+        if response.get("errors"):
+            self._warn_drops_response("Inventory", "Twitch вернул GraphQL-ошибку", response)
+        current_user = (response.get("data") or {}).get("currentUser")
+        inventory = current_user.get("inventory") if isinstance(current_user, dict) else None
+        if not isinstance(inventory, dict):
+            self._warn_drops_response("Inventory", "в ответе отсутствует data.currentUser.inventory", response)
+            return {}
+        progress = inventory.get("dropCampaignsInProgress")
+        if not isinstance(progress, list):
+            self._warn_drops_response("Inventory", "отсутствует массив dropCampaignsInProgress", response)
+            inventory["dropCampaignsInProgress"] = []
+        elif not progress:
+            self._warn_drops_response("Inventory", "массив dropCampaignsInProgress пуст", response)
+        return inventory
 
+    def __get_drops_dashboard(self, status=None):
+        json_data = copy.deepcopy(GQLOperations.ViewerDropsDashboard)
+        response = self.post_gql_request(json_data)
+        if not isinstance(response, dict):
+            self._warn_drops_response("ViewerDropsDashboard", "неожиданный формат ответа", response)
+            return []
+        if response.get("errors"):
+            self._warn_drops_response("ViewerDropsDashboard", "Twitch вернул GraphQL-ошибку", response)
+        current_user = (response.get("data") or {}).get("currentUser")
+        if not isinstance(current_user, dict):
+            self._warn_drops_response("ViewerDropsDashboard", "в ответе отсутствует data.currentUser", response)
+            return []
+        campaigns = current_user.get("dropCampaigns")
+        if not isinstance(campaigns, list):
+            self._warn_drops_response("ViewerDropsDashboard", "отсутствует массив dropCampaigns", response)
+            return []
+        if not campaigns:
+            self._warn_drops_response("ViewerDropsDashboard", "массив dropCampaigns пуст", response)
+            return []
+        if status is not None:
+            requested_status = str(status).upper()
+            filtered = [
+                item for item in campaigns
+                if isinstance(item, dict) and str(item.get("status") or "").upper() == requested_status
+            ]
+            if not filtered:
+                statuses = sorted({
+                    str(item.get("status") or "UNKNOWN")
+                    for item in campaigns
+                    if isinstance(item, dict)
+                })
+                self._warn_drops_response(
+                    "ViewerDropsDashboard",
+                    f"нет кампаний со статусом {requested_status}; полученные статусы: {statuses}",
+                    response,
+                )
+            campaigns = filtered
         return campaigns
 
     def __get_campaigns_details(self, campaigns):
         result = []
         chunks = create_chunks(campaigns, 20)
+        last_response = None
         for chunk in chunks:
             json_data = []
             for campaign in chunk:
-                json_data.append(copy.deepcopy(
-                    GQLOperations.DropCampaignDetails))
+                json_data.append(copy.deepcopy(GQLOperations.DropCampaignDetails))
                 json_data[-1]["variables"] = {
                     "dropID": campaign["id"],
                     "channelLogin": f"{self.twitch_login.get_user_id()}",
                 }
-
             response = self.post_gql_request(json_data)
+            last_response = response
             if not isinstance(response, list):
-                logger.debug("Unexpected campaigns response format, skipping chunk")
+                self._warn_drops_response(
+                    "DropCampaignDetails",
+                    "Twitch вернул неожиданный формат списка деталей кампаний",
+                    response,
+                )
                 continue
-            for r in response:
+            for item in response:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("errors"):
+                    self._warn_drops_response(
+                        "DropCampaignDetails",
+                        "ошибка при получении деталей кампании",
+                        item,
+                    )
+                    continue
                 drop_campaign = (
-                    r.get("data", {}).get("user", {}).get("dropCampaign", None)
+                    item.get("data", {}).get("user", {}).get("dropCampaign")
                 )
                 if drop_campaign is not None:
                     result.append(drop_campaign)
+        if campaigns and len(result) < len(campaigns):
+            self._warn_drops_response(
+                "DropCampaignDetails",
+                f"получены детали только для {len(result)} из {len(campaigns)} кампаний",
+                last_response,
+            )
         return result
 
     def __sync_campaigns(self, campaigns):
