@@ -1190,6 +1190,7 @@ class TwitchFarmingApi:
                 if item.pop("avatar_url", ""):
                     cleared += 1
         self.refresh_channel_profiles()
+        self.refresh_followed_channels(force=True)
         return {"ok": True, "cleared": cleared, "message": "Кэш аватарок очищен. Профили обновляются."}
 
     def clear_currency_cache(self):
@@ -1819,6 +1820,16 @@ class TwitchFarmingApi:
                 self.refresh_channel_profiles()
             top_channels, channel_balances, channel_currency = self._refresh_channel_balances_locked()
             logs = [dict(item) for item in self.log_records if item["id"] > after]
+            avatar_cache_logins = {
+                login for login, profile in self.channel_profiles.items()
+                if profile.get("avatar_url")
+            }
+            avatar_cache_logins.update(
+                str(item.get("login") or "").lower()
+                for item in self.followed_channels
+                if item.get("avatar_url") and item.get("login")
+            )
+            avatar_cache_count = len(avatar_cache_logins) + int(bool(self.account_profile.get("avatar_url")))
             return {
                 "username": self.username,
                 "channels": list(self.channels),
@@ -1827,7 +1838,7 @@ class TwitchFarmingApi:
                 "options": dict(self.options),
                 "app_settings": dict(self.app_settings),
                 "cache_stats": {
-                    "avatars": sum(1 for item in self.channel_profiles.values() if item.get("avatar_url")) + int(bool(self.account_profile.get("avatar_url"))),
+                    "avatars": avatar_cache_count,
                     "currency_icons": sum(1 for item in self.channel_points_branding_cache.values() if item.get("icon_url")),
                 },
                 "bet_settings": dict(self.bet_settings),
