@@ -8,181 +8,215 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="window-bar">
-  <div class="window-brand" id="window-drag-region">
-    <div class="window-brand-mark"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><path fill="#24183d" d="M17 13h5v13h-5zm11 0h5v13h-5z"/></svg></div>
-    <div class="window-brand-copy"><strong>TWITCH FARMING</strong><span>CHANNEL POINTS CONTROL</span></div>
-    <span class="window-brand-live"><i></i> LIVE DESK</span>
-  </div>
-  <label class="window-search">
-    <span class="ui-icon icon-search"></span>
-    <input id="channel-search" type="search" placeholder="Поиск каналов..." autocomplete="off" spellcheck="false">
-    <kbd>CTRL K</kbd>
-  </label>
-</header>
-<section class="login-gate visible" id="login-gate">
-  <div class="login-card">
-    <div class="login-brand">
-      <div class="login-logo"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><path fill="#171327" d="M17 13h5v13h-5zm11 0h5v13h-5z"/></svg></div>
-      <div><div class="login-brand-title">TWITCH</div><div class="login-brand-subtitle">F A R M I N G</div></div>
+<div class="window-frame">
+  <svg class="svg-symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="i-channel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4" fill="currentColor" opacity=".13"/><rect x="3" y="4" width="18" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m10 8 6 4-6 4z" fill="currentColor"/></symbol>
+    <symbol id="i-drops" viewBox="0 0 24 24"><path d="M4 9h16v11H4z" fill="currentColor" opacity=".14"/><path d="M3.5 9h17v11h-17zM12 9v11M3.5 12.5h17M12 9c-4.8 0-6.2-1.1-6.2-3.1 0-1.2.9-2 2-2 2.1 0 4 5.1 4.2 5.1Zm0 0c4.8 0 6.2-1.1 6.2-3.1 0-1.2-.9-2-2-2-2.1 0-4 5.1-4.2 5.1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 2.8 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3.1-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9z" fill="currentColor" opacity=".17"/><path d="m12 2.8 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3.1-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z" fill="currentColor" opacity=".15"/><path d="M7 4h10v5a5 5 0 0 1-10 0zM7 6H4v2a4 4 0 0 0 4 4m9-6h3v2a4 4 0 0 1-4 4m-4 1v4m-4 3h8m-7-3h6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 19V13h4v6zm6 0V8h4v11zm6 0V4h4v15z" fill="currentColor" opacity=".2"/><path d="M3 20h18M4 12.5l5-4 4 2 7-7M16 3.5h4v4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2h9A3.5 3.5 0 0 1 20 5.5v7a3.5 3.5 0 0 1-3.5 3.5H10l-5.5 4v-4.7A3.5 3.5 0 0 1 4 12z" fill="currentColor" opacity=".16"/><path d="M4 5.5A3.5 3.5 0 0 1 7.5 2h9A3.5 3.5 0 0 1 20 5.5v7a3.5 3.5 0 0 1-3.5 3.5H10l-5.5 4v-4.7A3.5 3.5 0 0 1 4 12z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 9h.01M12 9h.01M16 9h.01" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="currentColor" opacity=".12"/><rect x="3.5" y="5" width="17" height="16" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7.5 3v4M16.5 3v4M4 9.5h16M8 13h2m3 0h2m-7 4h2m3 0h2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="m9.8 2.9 4.4 0 .7 2.3 2 .8 2.1-1.1 3.1 3.1-1.1 2.1.8 2 .3.1-.3.1-.8 2 1.1 2.1-3.1 3.1-2.1-1.1-2 .8-.7 2.3H9.8l-.7-2.3-2-.8L5 19.5l-3.1-3.1L3 14.3l-.8-2 .8-2-1.1-2.1L5 5.1l2.1 1.1 2-.8z" fill="currentColor" opacity=".15"/><path d="m9.8 2.9 4.4 0 .7 2.3 2 .8 2.1-1.1 3.1 3.1-1.1 2.1.8 2 .3.1-.3.1-.8 2 1.1 2.1-3.1 3.1-2.1-1.1-2 .8-.7 2.3H9.8l-.7-2.3-2-.8L5 19.5l-3.1-3.1L3 14.3l-.8-2 .8-2-1.1-2.1L5 5.1l2.1 1.1 2-.8z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="12.2" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-diamond" viewBox="0 0 24 24"><path d="m12 2.8 8.7 8.3L12 21.2l-8.7-10.1z" fill="currentColor" opacity=".23"/><path d="m12 2.8 8.7 8.3L12 21.2l-8.7-10.1zM3.3 11.1h17.4M8 3.7l-1.2 7.4L12 21.2l5.2-10.1L16 3.7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gift" viewBox="0 0 24 24"><path d="M4 10h16v11H4z" fill="currentColor" opacity=".2"/><path d="M3 8h18v4H3zM5 12v9h14v-9M12 8v13M12 8C7 8 5.5 6.9 5.5 5c0-1.1.8-2 2-2C10 3 12 8 12 8Zm0 0c5 0 6.5-1.1 6.5-3 0-1.1-.8-2-2-2C14 3 12 8 12 8Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4.6 4.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="m14.5 5-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="m9.5 5 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M5.5 9A7.2 7.2 0 0 1 18 6l2 2M4 16l2 2a7.2 7.2 0 0 0 12.5-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="m4 16.8-.8 4 4-.8L19.7 7.5a2.1 2.1 0 0 0-3-3zM14.8 6.5l3 3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9 7V4h6v3m-8 0 1 13h8l1-13M10 10v7m4-7v7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-minimize" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-maximize" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-restore" viewBox="0 0 24 24"><rect x="8" y="4" width="12" height="13" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M5 8v12h11" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z" fill="currentColor"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 4h12l3 3v13H4V4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 4v6h8V4M8 20v-6h8v6" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  </svg>
+  <header class="window-bar">
+    <div class="window-nav">
+      <button class="window-nav-button" id="window-back" title="Назад"><svg><use href="#i-left"></use></svg></button>
+      <button class="window-nav-button" id="window-forward" title="Вперёд"><svg><use href="#i-right"></use></svg></button>
     </div>
-    <div class="login-title">Подключи аккаунт Twitch</div>
-    <div class="login-description">Авторизация проходит на официальном сайте Twitch. Пароль вводить в приложении не нужно.</div>
-    <input class="input login-input" id="gate-username" type="text" placeholder="Логин Twitch" autocomplete="off" spellcheck="false">
-    <button class="button button-primary login-submit" id="gate-login-button">Подключить Twitch</button>
-    <div class="login-status" id="gate-status">Введи логин и подключи аккаунт, чтобы открыть приложение.</div>
-    <div class="login-security">Сессия сохраняется локально на этом компьютере.</div>
-  </div>
-</section>
-<div class="app-shell auth-hidden" id="app-shell">
-<aside class="sidebar">
-  <div class="brand">
-    <div class="brand-mark"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><path fill="#191427" d="M17 13h5v13h-5zm11 0h5v13h-5z"/></svg></div>
-    <div><div class="brand-title">TWITCH</div><div class="brand-subtitle">FARMING</div></div>
-  </div>
-  <div class="side-caption">НАВИГАЦИЯ</div>
-  <nav class="nav">
-    <button class="nav-button active" id="nav-dashboard" data-page="dashboard"><span class="nav-icon"><span class="ui-icon icon-dashboard"></span></span><span>Панель управления</span></button>
-    <button class="nav-button" id="nav-logs" data-page="logs"><span class="nav-icon"><span class="ui-icon icon-logs"></span></span><span>Журнал событий</span></button>
-  </nav>
-  <div class="sidebar-spacer"></div>
-  <section class="sidebar-account" id="sidebar-account">
-    <div class="sidebar-account-heading">АККАУНТ TWITCH</div>
-    <div class="sidebar-account-row">
-      <div class="sidebar-account-avatar" id="account-avatar"><span>?</span></div>
-      <div class="sidebar-account-details">
-        <div class="sidebar-account-name" id="account-display-name">Twitch</div>
-        <div class="sidebar-account-login" id="account-login">@—</div>
-        <div class="sidebar-account-state"><span class="account-state-dot" id="account-state-dot"></span><span id="account-state">ПОДКЛЮЧЕНО</span></div>
+    <label class="window-search">
+      <svg><use href="#i-search"></use></svg>
+      <input id="channel-search" type="search" placeholder="Поиск каналов..." autocomplete="off" spellcheck="false">
+      <kbd>CTRL K</kbd>
+    </label>
+    <div class="window-drag pywebview-drag-region"></div>
+    <div class="window-controls">
+      <button class="window-control" id="window-minimize" title="Свернуть"><svg><use href="#i-minimize"></use></svg></button>
+      <button class="window-control" id="window-maximize" title="Развернуть"><svg><use href="#i-maximize"></use></svg></button>
+      <button class="window-control window-close" id="window-close" title="Закрыть"><svg><use href="#i-close"></use></svg></button>
+    </div>
+  </header>
+  <section class="login-gate visible" id="login-gate">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="login-logo"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><path fill="#171327" d="M17 13h5v13h-5zm11 0h5v13h-5z"/></svg></div>
+        <div><div class="login-brand-title">TWITCH</div><div class="login-brand-subtitle">F A R M I N G</div></div>
       </div>
-      <button class="account-connect-button" id="account-connect-button" title="Переподключить Twitch"><span class="ui-icon icon-refresh"></span></button>
+      <div class="login-title">Подключи аккаунт Twitch</div>
+      <div class="login-description">Авторизация проходит на официальном сайте Twitch. Пароль вводить в приложении не нужно.</div>
+      <input class="input login-input" id="gate-username" type="text" placeholder="Логин Twitch" autocomplete="off" spellcheck="false">
+      <button class="button button-primary login-submit" id="gate-login-button">Подключить Twitch</button>
+      <div class="login-status" id="gate-status">Введи логин и подключи аккаунт, чтобы открыть приложение.</div>
+      <div class="login-security">Сессия сохраняется локально на этом компьютере.</div>
     </div>
   </section>
-  <div class="sidebar-footer">PyWebView · Windows</div>
-</aside>
-<main class="main-content">
-  <section class="page active" id="page-dashboard">
-    <header class="page-header">
-      <div><div class="page-title">Панель управления</div><div class="page-subtitle">Просмотр трансляций и автоматический сбор наград</div></div>
-      <button class="button button-soft header-folder" id="open-folder">Папка с данными</button>
-    </header>
-    <section class="ranking-panel panel">
-      <div class="ranking-heading">
-        <div><div class="ranking-title">ТОП КАНАЛОВ ПО БАЛАНСУ</div><div class="ranking-subtitle">Текущие Channel Points на каналах</div></div>
-        <span class="ranking-live"><i></i> ОБНОВЛЯЕТСЯ С ФАРМОМ</span>
+  <div class="app-shell auth-hidden" id="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M6 4h38v28L30 46H21V38H10L6 34Z"/><path fill="#211338" d="M17 13h5v13h-5zm11 0h5v13h-5z"/></svg></div>
+        <div class="brand-title">TWITCH<br><span>FARMING</span></div>
       </div>
-      <div class="top-channel-list" id="top-channel-list"><div class="ranking-empty">Баланс появится после загрузки каналов</div></div>
-    </section>
-    <div class="dashboard-grid">
-      <section class="panel channels-panel">
-        <div class="panel-heading">
-          <div class="section-heading">КАНАЛЫ ДЛЯ ПРОСМОТРА</div>
-          <button class="button button-add" id="add-channel" title="Добавить канал"><span class="ui-icon icon-add"></span></button>
+      <div class="side-caption">МЕНЮ</div>
+      <nav class="nav">
+        <button class="nav-button active" id="nav-dashboard"><svg><use href="#i-channel"></use></svg><span>Каналы</span></button>
+        <button class="nav-button" id="nav-drops"><svg><use href="#i-drops"></use></svg><span>Drops</span></button>
+        <button class="nav-button" id="nav-bonuses"><svg><use href="#i-star"></use></svg><span>Бонусы</span></button>
+        <button class="nav-button" id="nav-raids"><svg><use href="#i-trophy"></use></svg><span>Рейды</span></button>
+        <button class="nav-button" id="nav-predictions"><svg><use href="#i-chart"></use></svg><span>Прогнозы</span></button>
+        <button class="nav-button" id="nav-chat"><svg><use href="#i-chat"></use></svg><span>IRC-чат</span></button>
+        <button class="nav-button" id="nav-events"><svg><use href="#i-calendar"></use></svg><span>События</span></button>
+        <button class="nav-button" id="nav-settings"><svg><use href="#i-settings"></use></svg><span>Настройки</span></button>
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <section class="sidebar-account" id="sidebar-account">
+        <div class="sidebar-account-avatar" id="account-avatar"><span>?</span></div>
+        <div class="sidebar-account-details">
+          <div class="sidebar-account-name" id="account-display-name">Twitch</div>
+          <div class="sidebar-account-login" id="account-login">@—</div>
+          <div class="sidebar-account-state"><span class="account-state-dot" id="account-state-dot"></span><span id="account-state">ПОДКЛЮЧЕНО</span></div>
         </div>
-        <div class="channel-list" id="channel-list"></div>
+        <button class="account-connect-button" id="account-connect-button" title="Переподключить Twitch"><svg><use href="#i-refresh"></use></svg></button>
       </section>
-      <section class="panel automation-panel">
-        <div class="section-heading">АВТОМАТИЗАЦИЯ</div>
-        <div class="options-list">
-          <label class="check-row"><input type="checkbox" id="opt-claim_drops"><span class="check-box"></span><span class="automation-icon ui-icon icon-drops"></span><span>Twitch Drops</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-watch_streak"><span class="check-box"></span><span class="automation-icon ui-icon icon-streak"></span><span>Серии просмотров</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-claim_moments"><span class="check-box"></span><span class="automation-icon ui-icon icon-moments"></span><span>Моменты</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-follow_raid"><span class="check-box"></span><span class="automation-icon ui-icon icon-raid"></span><span>Рейды</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-make_predictions"><span class="check-box"></span><span class="automation-icon ui-icon icon-stats"></span><span>Прогнозы</span></label>
-          <label class="check-row"><input type="checkbox" id="opt-chat"><span class="check-box"></span><span class="automation-icon ui-icon icon-chat"></span><span>IRC-чат</span></label>
-        </div>
-        <button class="button button-soft bet-open" id="open-bets"><span class="ui-icon icon-settings button-icon"></span><span>Прогнозы · Оптимальный</span></button>
+    </aside>
+    <main class="main-content">
+      <section class="page dashboard-page active" id="page-dashboard">
+        <header class="dashboard-toolbar">
+          <div><div class="page-title">Каналы</div><div class="page-subtitle">Автоматический сбор Channel Points</div></div>
+          <div class="dashboard-toolbar-right">
+            <div class="session-status"><i id="session-dot"></i><span id="session-label">ОСТАНОВЛЕН</span></div>
+            <div class="mini-stats">
+              <span><b id="points-value">0</b><small>очков</small></span>
+              <span><b id="online-value">0</b><small>эфира</small></span>
+              <span><b id="events-value">0</b><small>событий</small></span>
+            </div>
+            <button class="button button-primary button-start" id="start-button"><svg><use href="#i-play"></use></svg>Запустить</button>
+            <button class="button button-stop" id="stop-button" disabled><svg><use href="#i-stop"></use></svg>Стоп</button>
+          </div>
+        </header>
+        <section class="channels-panel panel">
+          <div class="panel-heading">
+            <div class="section-heading">КАНАЛЫ ДЛЯ ПРОСМОТРА <span class="heading-count" id="channel-count">0</span></div>
+            <button class="button button-add" id="add-channel" title="Добавить канал">＋</button>
+          </div>
+          <div class="channel-list" id="channel-list"></div>
+        </section>
+        <section class="feed-grid">
+          <section class="feed-panel panel">
+            <div class="feed-heading"><div><svg class="feed-heading-icon"><use href="#i-diamond"></use></svg><span>Последние награды</span></div><span class="feed-count" id="reward-count">0</span></div>
+            <div class="feed-list" id="reward-list"></div>
+          </section>
+          <section class="feed-panel panel">
+            <div class="feed-heading"><div><svg class="feed-heading-icon"><use href="#i-star"></use></svg><span>События</span></div><span class="feed-count" id="event-count">0</span></div>
+            <div class="feed-list" id="event-list"></div>
+          </section>
+        </section>
+        <div class="reward-banner" id="reward-banner"><div class="reward-text" id="reward-text"></div></div>
       </section>
-    </div>
-    <div class="action-row">
-      <button class="button button-primary action-main" id="start-button">▶　Запустить</button>
-      <button class="button button-soft action-stop" id="stop-button" disabled>■　Стоп</button>
-      <button class="button button-soft" id="save-button">Сохранить</button>
-      <div class="action-spacer"></div>
-      <button class="button button-soft" id="logs-shortcut"><span class="ui-icon icon-logs button-icon"></span>Логи</button>
-    </div>
-    <div class="stats-grid">
-      <div class="stat-card"><div class="stat-title">ПОЛУЧЕНО ЗА СЕССИЮ</div><div class="stat-value purple" id="points-value">0</div></div>
-      <div class="stat-card"><div class="stat-title">КАНАЛЫ В ЭФИРЕ</div><div class="stat-value green" id="online-value">0</div></div>
-      <div class="stat-card"><div class="stat-title">СОБЫТИЯ</div><div class="stat-value blue" id="events-value">0</div></div>
-    </div>
-    <div class="reward-banner" id="reward-banner"><span class="ui-icon icon-gift reward-icon"></span><div><div class="reward-title">НАГРАДА ПОЛУЧЕНА</div><div class="reward-text" id="reward-text"></div></div></div>
-    <section class="panel activity-panel">
-      <div class="panel-heading">
-        <div class="section-heading section-heading-icon"><span class="ui-icon icon-gift"></span>ПОСЛЕДНИЕ НАГРАДЫ И СОБЫТИЯ</div>
-      </div>
-      <div class="event-list" id="event-list"></div>
-    </section>
-  </section>
-  <section class="page" id="page-logs">
-    <header class="page-header">
-      <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-logs">←　Назад</button><div><div class="page-title">Журнал событий</div><div class="page-subtitle">Секреты авторизации и IP-адреса скрываются автоматически.</div></div></div>
-    </header>
-    <section class="panel logs-panel">
-      <div class="logs-toolbar">
-        <div class="section-heading section-heading-icon"><span class="ui-icon icon-logs"></span>ЛОГИ ПРИЛОЖЕНИЯ</div>
-        <button class="button button-mini" id="copy-logs">Копировать</button>
-      </div>
-      <pre class="log-view" id="log-view"></pre>
-    </section>
-  </section>
-  <section class="page" id="page-channel">
-    <header class="page-header">
-      <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-channel">←　Назад</button><div><div class="page-title" id="channel-page-title">Добавить канал</div><div class="page-subtitle">Управление каналами Twitch для фарма</div></div></div>
-    </header>
-    <section class="panel editor-panel">
-      <div class="section-heading">КАНАЛ TWITCH</div>
-      <input class="input editor-input" id="channel-input" type="text" placeholder="Логин или twitch.tv/channel" autocomplete="off" spellcheck="false">
-      <div class="field-hint">Введи логин канала или ссылку Twitch.</div>
-      <div class="feedback" id="channel-feedback"></div>
-      <div class="editor-actions"><button class="button button-soft" id="cancel-channel">Отмена</button><button class="button button-primary" id="save-channel">Сохранить</button></div>
-    </section>
-  </section>
-  <section class="page" id="page-bets">
-    <header class="page-header">
-      <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-bets">←　Назад</button><div><div class="page-title">Настройки прогнозов</div><div class="page-subtitle">Стратегия автоматического размещения баллов</div></div></div>
-    </header>
-    <section class="panel bet-panel">
-      <div class="section-heading">СТРАТЕГИЯ АВТОМАТИЧЕСКИХ ПРОГНОЗОВ</div>
-      <label class="field-label" for="preset-select">ПРЕСЕТ</label>
-      <select class="input" id="preset-select"></select>
-      <div class="bet-fields">
-        <label class="field"><span>Стратегия выбора</span><select class="input" id="bet-strategy"></select></label>
-        <label class="field"><span>Процент баланса</span><input class="input" id="bet-percentage" type="number" min="0" max="100" step="0.1"></label>
-        <label class="field"><span>Порог SMART, %</span><input class="input" id="bet-percentage_gap" type="number" min="0" max="100" step="0.1"></label>
-        <label class="field"><span>Максимум очков за прогноз</span><input class="input" id="bet-max_points" type="number" min="0" step="1"></label>
-        <label class="field"><span>Минимальный баланс</span><input class="input" id="bet-minimum_points" type="number" min="0" step="1"></label>
-        <label class="field"><span>Когда размещать прогноз</span><select class="input" id="bet-delay_mode"><option>FROM_START</option><option>FROM_END</option><option>PERCENTAGE</option></select></label>
-        <label class="field"><span>Задержка / доля таймера</span><input class="input" id="bet-delay" type="number" min="0" step="0.1"></label>
-        <label class="field"><span>Параметр фильтра</span><select class="input" id="bet-filter_by"></select></label>
-        <label class="field"><span>Условие фильтра</span><select class="input" id="bet-filter_condition"><option>GT</option><option>GTE</option><option>LT</option><option>LTE</option></select></label>
-        <label class="field"><span>Значение фильтра</span><input class="input" id="bet-filter_value" type="number" step="0.1"></label>
-      </div>
-      <div class="bet-checks">
-        <label class="check-row"><input type="checkbox" id="bet-filter_enabled"><span class="check-box"></span><span>Использовать числовой фильтр участия</span></label>
-        <label class="check-row"><input type="checkbox" id="bet-stealth_mode"><span class="check-box"></span><span>Скрытная ставка</span></label>
-      </div>
-      <div class="feedback" id="bet-feedback">Настройки применяются при следующем запуске сбора.</div>
-    </section>
-    <div class="preset-actions">
-      <input class="input preset-name" id="preset-name" placeholder="Название пресета">
-      <button class="button button-soft" id="load-preset">Загрузить</button>
-      <button class="button button-soft" id="save-preset">Сохранить пресет</button>
-      <button class="button button-danger" id="delete-preset">Удалить</button>
-      <button class="button button-primary" id="apply-bets">Применить</button>
-    </div>
-  </section>
-</main>
-</div>
-<div class="tutorial-overlay" id="tutorial-overlay">
-  <div class="tutorial-card">
-    <div class="tutorial-step" id="tutorial-step">1 / 3</div>
-    <div class="tutorial-title" id="tutorial-title">Каналы</div>
-    <div class="tutorial-text" id="tutorial-text"></div>
-    <div class="tutorial-actions"><button class="button button-soft" id="tutorial-skip">Пропустить</button><button class="button button-primary" id="tutorial-next">Далее</button></div>
+      <section class="page" id="page-logs">
+        <header class="subpage-header">
+          <button class="button button-soft back-button" id="back-from-logs"><svg><use href="#i-left"></use></svg>Назад</button>
+          <div><div class="page-title">События и журнал</div><div class="page-subtitle">Технические сообщения фарм-движка</div></div>
+        </header>
+        <section class="panel logs-panel">
+          <div class="logs-toolbar"><div class="section-heading">ЖУРНАЛ ПРИЛОЖЕНИЯ</div><button class="button button-mini" id="copy-logs">Копировать</button></div>
+          <pre class="log-view" id="log-view"></pre>
+        </section>
+      </section>
+      <section class="page" id="page-settings">
+        <header class="subpage-header">
+          <div><div class="page-title">Настройки</div><div class="page-subtitle">Управление автоматизацией Twitch Farming</div></div>
+          <button class="button button-soft" id="open-folder">Папка с данными</button>
+        </header>
+        <section class="panel settings-panel">
+          <div class="panel-heading"><div class="section-heading">АВТОМАТИЗАЦИЯ</div><span class="settings-note">Изменения сохраняются отдельно</span></div>
+          <div class="options-list">
+            <label class="check-row option-row" id="row-claim_drops"><input type="checkbox" id="opt-claim_drops"><span class="check-box"></span><svg><use href="#i-drops"></use></svg><span>Twitch Drops</span><small>Автоматически забирать награды</small></label>
+            <label class="check-row option-row" id="row-watch_streak"><input type="checkbox" id="opt-watch_streak"><span class="check-box"></span><svg><use href="#i-star"></use></svg><span>Серии просмотров</span><small>Поддерживать streak</small></label>
+            <label class="check-row option-row" id="row-claim_moments"><input type="checkbox" id="opt-claim_moments"><span class="check-box"></span><svg><use href="#i-diamond"></use></svg><span>Моменты</span><small>Автоматически забирать моменты</small></label>
+            <label class="check-row option-row" id="row-follow_raid"><input type="checkbox" id="opt-follow_raid"><span class="check-box"></span><svg><use href="#i-trophy"></use></svg><span>Рейды</span><small>Переходить за стримером</small></label>
+            <label class="check-row option-row" id="row-make_predictions"><input type="checkbox" id="opt-make_predictions"><span class="check-box"></span><svg><use href="#i-chart"></use></svg><span>Прогнозы</span><small>Автоматическое участие</small></label>
+            <label class="check-row option-row" id="row-chat"><input type="checkbox" id="opt-chat"><span class="check-box"></span><svg><use href="#i-chat"></use></svg><span>IRC-чат</span><small>Подключаться к чату эфира</small></label>
+          </div>
+          <div class="settings-actions">
+            <button class="button button-soft" id="open-bets"><svg><use href="#i-settings"></use></svg>Настроить прогнозы</button>
+            <button class="button button-primary" id="save-button"><svg><use href="#i-save"></use></svg>Сохранить настройки</button>
+          </div>
+          <div class="feedback" id="settings-feedback"></div>
+        </section>
+      </section>
+      <section class="page" id="page-channel">
+        <header class="subpage-header">
+          <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-channel"><svg><use href="#i-left"></use></svg>Назад</button><div><div class="page-title" id="channel-page-title">Добавить канал</div><div class="page-subtitle">Управление каналами Twitch</div></div></div>
+        </header>
+        <section class="panel editor-panel">
+          <div class="section-heading">КАНАЛ TWITCH</div>
+          <input class="input editor-input" id="channel-input" type="text" placeholder="Логин или twitch.tv/channel" autocomplete="off" spellcheck="false">
+          <div class="field-hint">Введи логин канала или ссылку Twitch.</div>
+          <div class="feedback" id="channel-feedback"></div>
+          <div class="editor-actions"><button class="button button-soft" id="cancel-channel">Отмена</button><button class="button button-primary" id="save-channel">Сохранить</button></div>
+        </section>
+      </section>
+      <section class="page" id="page-bets">
+        <header class="subpage-header">
+          <div class="page-heading-group"><button class="button button-soft back-button" id="back-from-bets"><svg><use href="#i-left"></use></svg>Назад</button><div><div class="page-title">Настройки прогнозов</div><div class="page-subtitle">Стратегия автоматического размещения баллов</div></div></div>
+        </header>
+        <section class="panel bet-panel">
+          <div class="section-heading">СТРАТЕГИЯ АВТОМАТИЧЕСКИХ ПРОГНОЗОВ</div>
+          <label class="field-label" for="preset-select">ПРЕСЕТ</label>
+          <select class="input" id="preset-select"></select>
+          <div class="bet-fields">
+            <label class="field"><span>Стратегия выбора</span><select class="input" id="bet-strategy"></select></label>
+            <label class="field"><span>Процент баланса</span><input class="input" id="bet-percentage" type="number" min="0" max="100" step="0.1"></label>
+            <label class="field"><span>Порог SMART, %</span><input class="input" id="bet-percentage_gap" type="number" min="0" max="100" step="0.1"></label>
+            <label class="field"><span>Максимум очков за прогноз</span><input class="input" id="bet-max_points" type="number" min="0" step="1"></label>
+            <label class="field"><span>Минимальный баланс</span><input class="input" id="bet-minimum_points" type="number" min="0" step="1"></label>
+            <label class="field"><span>Когда размещать прогноз</span><select class="input" id="bet-delay_mode"><option>FROM_START</option><option>FROM_END</option><option>PERCENTAGE</option></select></label>
+            <label class="field"><span>Задержка / доля таймера</span><input class="input" id="bet-delay" type="number" min="0" step="0.1"></label>
+            <label class="field"><span>Параметр фильтра</span><select class="input" id="bet-filter_by"></select></label>
+            <label class="field"><span>Условие фильтра</span><select class="input" id="bet-filter_condition"><option>GT</option><option>GTE</option><option>LT</option><option>LTE</option></select></label>
+            <label class="field"><span>Значение фильтра</span><input class="input" id="bet-filter_value" type="number" step="0.1"></label>
+          </div>
+          <div class="bet-checks">
+            <label class="check-row"><input type="checkbox" id="bet-filter_enabled"><span class="check-box"></span><span>Использовать числовой фильтр участия</span></label>
+            <label class="check-row"><input type="checkbox" id="bet-stealth_mode"><span class="check-box"></span><span>Скрытная ставка</span></label>
+          </div>
+          <div class="feedback" id="bet-feedback">Настройки применяются при следующем запуске сбора.</div>
+          <div class="preset-actions">
+            <input class="input preset-name" id="preset-name" placeholder="Название пресета">
+            <button class="button button-soft" id="load-preset">Загрузить</button>
+            <button class="button button-soft" id="save-preset">Сохранить пресет</button>
+            <button class="button button-danger" id="delete-preset">Удалить</button>
+            <button class="button button-primary" id="apply-bets">Применить</button>
+          </div>
+        </section>
+      </section>
+    </main>
   </div>
+  <div class="tutorial-overlay" id="tutorial-overlay">
+    <div class="tutorial-card">
+      <div class="tutorial-step" id="tutorial-step">1 / 3</div>
+      <div class="tutorial-title" id="tutorial-title">Каналы</div>
+      <div class="tutorial-text" id="tutorial-text"></div>
+      <div class="tutorial-actions"><button class="button button-soft" id="tutorial-skip">Пропустить</button><button class="button button-primary" id="tutorial-next">Далее</button></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
 </div>
-<div class="toast" id="toast"></div>
 <script src="app.js"></script>
 </body>
 </html>
