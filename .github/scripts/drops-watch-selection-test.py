@@ -54,6 +54,11 @@ dispatch_streamers = [
 ]
 dispatch_watcher = Twitch.__new__(Twitch)
 dispatch_watcher.running = True
+dispatch_watcher._watch_rotation_cursor = 0
+dispatch_watcher._watch_rotation_started_at = 0.0
+dispatch_watcher._watch_rotation_signature = None
+dispatch_watcher._watch_online_signature = ()
+dispatch_watcher.active_watch_channels = []
 dispatched = []
 worker_counts = []
 
@@ -73,7 +78,7 @@ class RecordingExecutor:
         function(streamer)
         future.set_result(None)
         dispatched.append(streamer.username)
-        if len(dispatched) == len(dispatch_streamers):
+        if len(dispatched) == 2:
             dispatch_watcher.running = False
         return future
 
@@ -93,8 +98,88 @@ with (
 ):
     dispatch_watcher.send_minute_watched_events(dispatch_streamers, None)
 
-assert dispatched == [streamer.username for streamer in dispatch_streamers]
-assert worker_counts == [len(dispatch_streamers)]
+assert dispatched == [streamer.username for streamer in dispatch_streamers[:2]]
+assert worker_counts == [2]
+assert any(
+    "Отправка minute-watched: 2 слота из 10 онлайн-каналов" in message
+    and all(f"@dispatch_{index}" in message for index in range(10))
+    and "@dispatch_0" in message
+    and "@dispatch_1" in message
+    for message in dispatch_logs
+)
+
+def make_rotation_streamer(username, active_drop=False):
+    campaign = SimpleNamespace(
+        in_inventory=True,
+        drops=[SimpleNamespace(is_claimed=False)] if active_drop else [],
+    )
+    return SimpleNamespace(
+        username=username,
+        is_online=True,
+        settings=SimpleNamespace(claim_drops=True),
+        stream=SimpleNamespace(campaigns=[campaign] if active_drop else []),
+    )
+
+
+rotation_watcher = Twitch.__new__(Twitch)
+rotation_watcher._watch_rotation_cursor = 0
+rotation_watcher._watch_rotation_started_at = 0.0
+rotation_watcher._watch_rotation_signature = None
+rotation_watcher._watch_online_signature = ()
+rotation_watcher.active_watch_channels = []
+rotation_channels = [
+    make_rotation_streamer(f"round_{index}")
+    for index in range(1, 6)
+]
+assert [
+    streamer.username
+    for streamer in rotation_watcher._select_minute_watched_streamers(rotation_channels, 100)
+] == ["round_1", "round_2"]
+assert [
+    streamer.username
+    for streamer in rotation_watcher._select_minute_watched_streamers(rotation_channels, 429)
+] == ["round_1", "round_2"]
+assert [
+    streamer.username
+    for streamer in rotation_watcher._select_minute_watched_streamers(rotation_channels, 430)
+] == ["round_3", "round_4"]
+assert [
+    streamer.username
+    for streamer in rotation_watcher._select_minute_watched_streamers(rotation_channels, 760)
+] == ["round_5", "round_1"]
+
+priority_watcher = Twitch.__new__(Twitch)
+priority_watcher._watch_rotation_cursor = 0
+priority_watcher._watch_rotation_started_at = 0.0
+priority_watcher._watch_rotation_signature = None
+priority_watcher._watch_online_signature = ()
+priority_watcher.active_watch_channels = []
+priority_streamer = make_rotation_streamer("drops_priority", True)
+priority_drop = priority_streamer.stream.campaigns[0].drops[0]
+priority_channels = [
+    make_rotation_streamer("first"),
+    make_rotation_streamer("second"),
+    priority_streamer,
+    make_rotation_streamer("third"),
+    make_rotation_streamer("fourth"),
+]
+assert [
+    streamer.username
+    for streamer in priority_watcher._select_minute_watched_streamers(priority_channels, 100)
+] == ["drops_priority", "first"]
+assert [
+    streamer.username
+    for streamer in priority_watcher._select_minute_watched_streamers(priority_channels, 430)
+] == ["drops_priority", "second"]
+assert [
+    streamer.username
+    for streamer in priority_watcher._select_minute_watched_streamers(priority_channels, 760)
+] == ["drops_priority", "third"]
+priority_drop.is_claimed = True
+assert [
+    streamer.username
+    for streamer in priority_watcher._select_minute_watched_streamers(priority_channels, 761)
+] == ["first", "second"]
 assert any(
     f"Отправка minute-watched для {len(dispatch_streamers)} онлайн-каналов:" in message
     and all(streamer.username in message for streamer in dispatch_streamers)

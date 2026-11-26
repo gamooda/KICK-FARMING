@@ -360,9 +360,10 @@ async function saveChannelCardSwap(sourceLogin,targetLogin){
   }
 }
 
-function renderChannels(channels,online,running,profiles,watchStatuses,balances,currencies){
+function renderChannels(channels,online,running,profiles,watchStatuses,balances,currencies,watchSlots){
   if(running||!channels.includes(selectedChannelForMove)) selectedChannelForMove="";
-  const signature=JSON.stringify([channels,online,running,profiles,watchStatuses,balances,currencies]);
+  const activeWatchSlots=Array.isArray(watchSlots)?watchSlots:[];
+  const signature=JSON.stringify([channels,online,running,profiles,watchStatuses,balances,currencies,activeWatchSlots]);
   if(signature===channelCache) return;
   channelCache=signature;
   const root=$("channel-list");
@@ -392,13 +393,15 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
     const watchFresh=watch&&Date.now()/1000-Number(watch.updated_at||0)<120;
     const watchLabels={selected:"Смотрит",request:"Запрос…",accepted:"Принят",error:"Ошибка"};
     const watchMarkup=watchFresh&&watchLabels[watch.state]?"<span class='channel-watch-state "+esc(watch.state)+"'>"+esc(watchLabels[watch.state]+(watch.detail?" · "+watch.detail:""))+"</span>":"";
+    const watchSlotIndex=running?activeWatchSlots.indexOf(login):-1;
+    const watchSlotMarkup=watchSlotIndex>=0?"<span class='channel-watch-slot'><svg viewBox='0 0 24 24' aria-hidden='true'><path d='M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z'></path><circle cx='12' cy='12' r='2.6'></circle></svg><strong>СМОТРИМ · СЛОТ "+(watchSlotIndex+1)+"</strong></span>":"";
     const initial=esc(displayName.charAt(0).toUpperCase()||"?");
     const avatarMarkup="<div class='channel-avatar "+(avatar?"":"avatar-fallback")+"'>"+(avatar?"<img draggable='false' loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.parentElement.classList.add(\"avatar-fallback\");this.remove()'>":"")+"<span class='avatar-initial'>"+initial+"</span></div>";
     const pointsText=points===null?"—":points.toLocaleString("ru-RU");
     const liveClass=live?"is-live":profile.error?"is-error":loaded?"is-offline":"is-pending";
     const extra=live&&viewers?"<span class='channel-viewers'>"+viewers.toLocaleString("ru-RU")+" зрителей</span>":watchMarkup;
     const searchKey=esc((login+" "+displayName).toLowerCase());
-    return "<article class='channel-card' data-channel='"+esc(login)+"' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть на Twitch'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Редактировать'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button channel-move-button' data-action='move' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Переместить канал' aria-label='Переместить канал' aria-pressed='false'>⋮⋮</button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
+    return "<article class='channel-card' data-channel='"+esc(login)+"' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть на Twitch'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Редактировать'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button channel-move-button' data-action='move' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Переместить канал' aria-label='Переместить канал' aria-pressed='false'>⋮⋮</button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div>"+watchSlotMarkup+"<div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
   }).join("");
   $("add-channel").disabled=running;
   updateChannelMoveHighlights();
@@ -724,7 +727,7 @@ function applyState(state,initial){
   $("online-value").textContent=String((state.online_channels||[]).length);
   $("events-value").textContent=String(state.event_total||0);
   if(initial) startupLog("INFO","Отрисовка списка каналов");
-  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{},state.channel_balances||{},state.channel_currency||{});
+  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{},state.channel_balances||{},state.channel_currency||{},state.watch_slots||[]);
   if(initial) startupLog("INFO","Отрисовка последних наград и загрузка иконок валюты");
   renderRewards(state.rewards||[],state.channel_currency||{});
   if(initial) startupLog("INFO","Отрисовка ленты событий");

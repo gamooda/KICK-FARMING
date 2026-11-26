@@ -50,6 +50,9 @@ JsonType = Dict[str, Any]
 
 
 class Twitch(object):
+    WATCH_SLOT_COUNT = 2
+    WATCH_ROTATION_INTERVAL = 330.0
+
     __slots__ = [
         "cookies_file",
         "user_agent",
@@ -62,6 +65,11 @@ class Twitch(object):
         "client_version",
         "twilight_build_id_pattern",
         "auth_lock",
+        "_watch_rotation_cursor",
+        "_watch_rotation_started_at",
+        "_watch_rotation_signature",
+        "_watch_online_signature",
+        "active_watch_channels",
     ]
 
     def __init__(self, username, user_agent, password=None):
@@ -77,6 +85,11 @@ class Twitch(object):
         )
         self.running = True
         self.auth_lock = threading.Lock()
+        self._watch_rotation_cursor = 0
+        self._watch_rotation_started_at = 0.0
+        self._watch_rotation_signature = None
+        self._watch_online_signature = ()
+        self.active_watch_channels = []
         # self.integrity = None
         # self.integrity_expire = 0
         self.client_session = token_hex(16)
@@ -718,7 +731,75 @@ class Twitch(object):
                 f"WATCH_STATUS: {streamer.username}|error|Ошибка отправки minute-watched: {type(error).__name__}."
             )
 
+    @staticmethod
+    def _has_active_inventory_drop(streamer):
+        settings = getattr(streamer, "settings", None)
+        if getattr(settings, "claim_drops", False) is not True:
+            return False
+        stream = getattr(streamer, "stream", None)
+        for campaign in getattr(stream, "campaigns", []) or []:
+            if getattr(campaign, "in_inventory", False) is not True:
+                continue
+            if any(
+                not getattr(drop, "is_claimed", False)
+                for drop in (getattr(campaign, "drops", []) or [])
+            ):
+                return True
+        return False
+
+    def _select_minute_watched_streamers(self, online_streamers, now=None):
+        current_time = time.monotonic() if now is None else float(now)
+        online = list(online_streamers or [])
+        if not online:
+            self._watch_rotation_cursor = 0
+            self._watch_rotation_started_at = current_time
+            self._watch_rotation_signature = None
+            return []
+
+        priority_streamer = next(
+            (
+                streamer
+                for streamer in online
+                if self._has_active_inventory_drop(streamer)
+            ),
+            None,
+        )
+        rotating_streamers = [
+            streamer for streamer in online if streamer is not priority_streamer
+        ]
+        rotating_slots = self.WATCH_SLOT_COUNT - int(priority_streamer is not None)
+        signature = (
+            str(priority_streamer.username).lower() if priority_streamer else "",
+            tuple(str(streamer.username).lower() for streamer in rotating_streamers),
+        )
+
+        if signature != self._watch_rotation_signature:
+            self._watch_rotation_signature = signature
+            self._watch_rotation_cursor = 0
+            self._watch_rotation_started_at = current_time
+        elif (
+            rotating_streamers
+            and rotating_slots > 0
+            and len(rotating_streamers) > rotating_slots
+            and current_time - self._watch_rotation_started_at >= self.WATCH_ROTATION_INTERVAL
+        ):
+            self._watch_rotation_cursor = (
+                self._watch_rotation_cursor + rotating_slots
+            ) % len(rotating_streamers)
+            self._watch_rotation_started_at = current_time
+
+        selected = [priority_streamer] if priority_streamer is not None else []
+        selected_count = min(rotating_slots, len(rotating_streamers))
+        selected.extend(
+            rotating_streamers[
+                (self._watch_rotation_cursor + offset) % len(rotating_streamers)
+            ]
+            for offset in range(selected_count)
+        )
+        return selected
+
     def send_minute_watched_events(self, streamers, priority, chunk_size=3):
+        watch_streak_counters = {}
         while self.running:
             cycle_started = time.monotonic()
             try:
@@ -728,22 +809,83 @@ class Twitch(object):
                     streamer = streamers[index]
                     if streamer.stream.update_required():
                         self.check_streamer_online(streamer)
+
                 online_streamers = [
                     streamers[index]
                     for index in self._get_online_streamer_indices(streamers)
                 ]
-                if online_streamers and self.running:
-                    online_names = ", ".join(f"@{streamer.username}" for streamer in online_streamers)
-                    logger.info(
-                        f"Отправка minute-watched для {len(online_streamers)} онлайн-каналов: {online_names}"
+                previous_slots = set(self.active_watch_channels)
+                current_streak_counters = {}
+                for streamer in online_streamers:
+                    history = getattr(streamer, "history", {}) or {}
+                    streak = history.get("WATCH_STREAK", {}) if isinstance(history, dict) else {}
+                    try:
+                        current_streak_counters[str(streamer.username).lower()] = int(
+                            streak.get("counter", 0)
+                        )
+                    except (AttributeError, TypeError, ValueError):
+                        current_streak_counters[str(streamer.username).lower()] = 0
+
+                streak_rewarded = any(
+                    current_streak_counters.get(username, 0)
+                    > watch_streak_counters.get(username, 0)
+                    for username in previous_slots
+                )
+                watch_streak_counters = current_streak_counters
+                if streak_rewarded:
+                    self._watch_rotation_started_at = (
+                        time.monotonic() - self.WATCH_ROTATION_INTERVAL
                     )
+                    logger.info(
+                        "Получен WATCH_STREAK на активном слоте; запускаю досрочную ротацию."
+                    )
+
+                selected_streamers = self._select_minute_watched_streamers(
+                    online_streamers
+                )
+                selected_names = [
+                    str(streamer.username).lower()
+                    for streamer in selected_streamers
+                ]
+                online_signature = tuple(
+                    str(streamer.username).lower()
+                    for streamer in online_streamers
+                )
+                if (
+                    selected_names != self.active_watch_channels
+                    or online_signature != self._watch_online_signature
+                ):
+                    self.active_watch_channels = selected_names
+                    self._watch_online_signature = online_signature
+                    online_names = ", ".join(
+                        f"@{streamer.username}" for streamer in online_streamers
+                    ) or "нет"
+                    slot_details = "; ".join(
+                        f"{index}. @{streamer.username}"
+                        + (
+                            " [Drops]"
+                            if self._has_active_inventory_drop(streamer)
+                            else ""
+                        )
+                        for index, streamer in enumerate(selected_streamers, start=1)
+                    ) or "нет активных слотов"
+                    logger.info(
+                        f"Отправка minute-watched: {len(selected_streamers)} слота из "
+                        f"{len(online_streamers)} онлайн-каналов; пул: {online_names}; "
+                        f"активно: {slot_details}"
+                    )
+
+                if selected_streamers and self.running:
                     with ThreadPoolExecutor(
-                        max_workers=len(online_streamers),
+                        max_workers=len(selected_streamers),
                         thread_name_prefix="twitch-watch",
                     ) as executor:
                         futures = {
-                            executor.submit(self._send_minute_watched_for_streamer, streamer): streamer
-                            for streamer in online_streamers
+                            executor.submit(
+                                self._send_minute_watched_for_streamer,
+                                streamer,
+                            ): streamer
+                            for streamer in selected_streamers
                         }
                         for future in as_completed(futures):
                             streamer = futures[future]
@@ -751,9 +893,11 @@ class Twitch(object):
                                 future.result()
                             except Exception as error:
                                 logger.error(
-                                    f"Unexpected watch error for @{streamer.username}: {type(error).__name__}: {error}",
+                                    f"Unexpected watch error for @{streamer.username}: "
+                                    f"{type(error).__name__}: {error}",
                                     exc_info=True,
                                 )
+
                 self.__chuncked_sleep(
                     max(0, 10 - (time.monotonic() - cycle_started)),
                     chunk_size=chunk_size,
@@ -761,6 +905,7 @@ class Twitch(object):
             except Exception:
                 logger.error("Exception raised in send minute watched", exc_info=True)
                 self.__chuncked_sleep(2, chunk_size=chunk_size)
+        self.active_watch_channels = []
 
     # === CHANNEL POINTS / PREDICTION === #
     # Load the amount of current points for a channel, check if a bonus is available

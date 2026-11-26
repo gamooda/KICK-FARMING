@@ -776,3 +776,7 @@ input,textarea,.log-view,.log-view *,#event-list,#event-list *,#event-list .feed
   .dashboard-toolbar-right{flex:1 1 100%;justify-content:flex-start}
   .mini-stats{display:none}
 }
+
+.channel-watch-slot{width:max-content;max-width:100%;display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:4px 7px;border:1px solid #7045a3;border-radius:6px;background:linear-gradient(100deg,#392451,#271d38);color:#d8b8ff;font-size:7px;font-weight:900;letter-spacing:.45px;white-space:nowrap;box-shadow:0 0 10px rgba(155,103,220,.13)}
+.channel-watch-slot svg{width:12px;height:12px;flex:0 0 12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.channel-watch-slot strong{font-size:7px;font-weight:900}

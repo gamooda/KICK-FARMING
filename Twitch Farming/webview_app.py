@@ -1977,6 +1977,14 @@ class TwitchFarmingApi:
             ):
                 self.refresh_channel_profiles()
             top_channels, channel_balances, channel_currency = self._refresh_channel_balances_locked()
+            watch_slots = []
+            if self.session_running:
+                engine = self.engine_worker
+                miner = getattr(engine, "miner", None) if engine is not None else None
+                twitch_client = getattr(miner, "twitch", None) if miner is not None else None
+                watch_slots = list(
+                    getattr(twitch_client, "active_watch_channels", []) or []
+                )
             logs = [dict(item) for item in self.log_records if item["id"] > after]
             avatar_cache_logins = {
                 login for login, profile in self.channel_profiles.items()
@@ -1993,6 +2001,7 @@ class TwitchFarmingApi:
                 "channels": list(self.channels),
                 "online_channels": sorted(self.online_channels),
                 "watch_status": {key: dict(value) for key, value in self.watch_status.items()},
+                "watch_slots": watch_slots,
                 "options": dict(self.options),
                 "app_settings": dict(self.app_settings),
                 "cache_stats": {
