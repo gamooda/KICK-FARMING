@@ -116,7 +116,7 @@ def install_crash_handlers():
 install_crash_handlers()
 
 
-DEFAULT_BET_SETTINGS = {DEFAULT_BET_SETTINGS = {
+DEFAULT_BET_SETTINGS = {
     "strategy": "SMART",
     "percentage": 5,
     "percentage_gap": 20,
