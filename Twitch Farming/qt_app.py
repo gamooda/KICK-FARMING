@@ -834,6 +834,7 @@ class ChannelCard(QFrame):
         currency = currency if isinstance(currency, dict) else {}
         self.setObjectName("channelCard")
         self.setMinimumWidth(190)
+        self.setMinimumHeight(185)
         self.setFixedHeight(232)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1257,16 +1258,23 @@ class CampaignCard(QFrame):
             game_data.get("boxArtURL")
             or game_data.get("boxArtUrl")
             or game_data.get("box_art_url")
+            or game_data.get("game_box_art_url")
             or game_data.get("box_art")
         )
         image_candidates = (
-            campaign.get("boxArtURL"),
-            campaign.get("boxArtUrl"),
             campaign.get("box_art_url"),
+            campaign.get("boxArtURL"),
+            campaign.get("game_box_art_url"),
+            campaign.get("image_url"),
+            campaign.get("game.boxArtURL"),
+            campaign.get("boxArtUrl"),
             campaign.get("game_image_url"),
             campaign.get("gameImageURL"),
             campaign.get("gameImageUrl"),
             nested_box_art,
+            game_data.get("boxArtURL"),
+            game_data.get("box_art_url"),
+            game_data.get("game_box_art_url"),
             game_data.get("image_url"),
             game_data.get("imageURL")
         )
@@ -1274,7 +1282,9 @@ class CampaignCard(QFrame):
             if isinstance(candidate, dict):
                 candidate = candidate.get("url") or candidate.get("url2x") or candidate.get("src") or ""
             candidate = str(candidate or "").strip()
-            candidate = candidate.replace("{width}", "88").replace("{height}", "116").replace("%7Bwidth%7D", "88").replace("%7Bheight%7D", "116")
+            candidate = candidate.replace("{width}", "144").replace("{height}", "192").replace("%7Bwidth%7D", "144").replace("%7Bheight%7D", "192").replace("%7bwidth%7d", "144").replace("%7bheight%7d", "192")
+            if candidate.startswith("//"):
+                candidate = "https:" + candidate
             if candidate.startswith("https://"):
                 game_image_url = candidate
                 break
@@ -1322,9 +1332,11 @@ class CampaignCard(QFrame):
         for drop in campaign.get("visible_drops", []):
             reward_row = QFrame()
             reward_row.setObjectName("dropRewardRow")
+            reward_row.setMinimumHeight(112)
+            reward_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             reward_layout = QVBoxLayout(reward_row)
-            reward_layout.setContentsMargins(8, 8, 8, 8)
-            reward_layout.setSpacing(0)
+            reward_layout.setContentsMargins(10, 10, 10, 10)
+            reward_layout.setSpacing(6)
 
             reward_header = QHBoxLayout()
             reward_header.setSpacing(8)
@@ -1355,7 +1367,6 @@ class CampaignCard(QFrame):
             status.setObjectName("dropReceivedBadge" if received else "dropProgressBadge")
             reward_header.addWidget(status, 0, Qt.AlignmentFlag.AlignTop)
             reward_layout.addLayout(reward_header)
-            reward_layout.addSpacing(6)
 
             bar = QProgressBar()
             bar.setObjectName("dropProgressBar")
@@ -1957,6 +1968,8 @@ class MainWindow(QMainWindow):
     def _build_channels_page(self):
         page = QWidget()
         page.setObjectName("pageContent")
+        page.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(18, 14, 18, 12)
         layout.setSpacing(7)
@@ -2030,20 +2043,13 @@ class MainWindow(QMainWindow):
         self.channels_grid.setVerticalSpacing(12)
         self.channels_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         for column in range(6):
-            self.channels_grid.setColumnStretch(column, 1 if column < 2 else 0)
+            self.channels_grid.setColumnStretch(column, 1)
         self._channel_columns = 0
         self.channels_wrap = QWidget()
         self.channels_wrap.setObjectName("scrollContent")
-        self.channels_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.channels_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.channels_wrap.setLayout(self.channels_grid)
-        self.channels_scroll = QScrollArea()
-        self.channels_scroll.setObjectName("channelsScroll")
-        self.channels_scroll.setWidgetResizable(True)
-        self.channels_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.channels_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.channels_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.channels_scroll.setWidget(self.channels_wrap)
-        layout.addWidget(self.channels_scroll, 1)
+        layout.addWidget(self.channels_wrap)
 
         feeds = QHBoxLayout()
         feeds.setContentsMargins(0, 0, 0, 0)
@@ -2056,7 +2062,16 @@ class MainWindow(QMainWindow):
         feeds_row.setLayout(feeds)
         feeds_row.setFixedHeight(148)
         layout.addWidget(feeds_row)
-        self.stack.addWidget(page)
+
+        scroll = QScrollArea()
+        scroll.setObjectName("pageScroll")
+        scroll.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        scroll.setWidgetResizable(True)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(page)
+        self.channels_scroll = scroll
+        self.stack.addWidget(scroll)
 
 
     def _feed_panel(self, title):
@@ -3024,7 +3039,7 @@ class MainWindow(QMainWindow):
                 self._clear_layout(child)
 
     def _channel_grid_column_count(self):
-        width = self.channels_scroll.viewport().width() if hasattr(self, "channels_scroll") else self.width() - 280
+        width = self.channels_wrap.width() if hasattr(self, "channels_wrap") and self.channels_wrap.width() > 0 else (self.channels_scroll.viewport().width() - 36 if hasattr(self, "channels_scroll") else self.width() - 316)
         spacing = max(12, self.channels_grid.horizontalSpacing() if hasattr(self, "channels_grid") else 12)
         minimum_card_width = 190
         return max(1, min(6, int((max(1, width) + spacing) // (minimum_card_width + spacing))))
