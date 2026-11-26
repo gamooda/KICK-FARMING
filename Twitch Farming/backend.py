@@ -546,7 +546,8 @@ class DropsInventoryWorker(threading.Thread):
                     if isinstance(game, dict) else (game or campaign.get("gameName") or campaign.get("gameDisplayName") or "")
                 ).strip()
                 if not game_name:
-                    continue
+                    game_name = "Twitch"
+                campaign["game"] = game_name
                 campaign_status = str(campaign.get("status") or "").strip().upper()
                 if campaign_status in ("EXPIRED", "ENDED", "COMPLETED", "CANCELLED", "CANCELED", "INACTIVE", "SCHEDULED"):
                     continue

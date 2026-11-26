@@ -455,6 +455,18 @@ snapshot_dashboard = {
                 {"node": {"campaign": snapshot_campaign_no_image}},
                 {"node": {"campaign": snapshot_campaign_marvel}},
                 {"node": {"campaign": {
+                    "id": "global-twitch-rewards",
+                    "status": "ACTIVE",
+                    "name": "Twitch Global Rewards",
+                    "game": None,
+                    "timeBasedDrops": [{
+                        "id": "global-badge-drop",
+                        "name": "Global Twitch Badge",
+                        "requiredMinutesWatched": 30,
+                        "benefitEdges": [{"benefit": {"name": "Global Badge", "benefitType": "BADGE"}}],
+                    }],
+                }}},
+                {"node": {"campaign": {
                     "id": "campaign-paid-subs-goal",
                     "status": "ACTIVE",
                     "name": "Paid subs goal campaign",
@@ -490,7 +502,7 @@ with (
     patch.object(Twitch, "_warn_drops_response", lambda self, *args: None),
 ):
     snapshot = snapshot_client.get_drop_inventory_snapshot()
-assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-no-image", "marvel-rivals", "campaign-upcoming", "campaign-empty-status"}
+assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-no-image", "marvel-rivals", "campaign-upcoming", "campaign-empty-status", "campaign-in-progress", "pokemon-evolutions", "global-twitch-rewards"}
 campaigns_by_id = {campaign["id"]: campaign for campaign in snapshot}
 assert campaigns_by_id["campaign-one"]["started"] is True
 assert campaigns_by_id["campaign-one"]["in_inventory"] is True
@@ -499,14 +511,17 @@ assert campaigns_by_id["marvel-rivals"]["name"] == "Marvel Rivals"
 assert campaigns_by_id["marvel-rivals"]["status"] == "ACTIVE"
 assert campaigns_by_id["campaign-upcoming"]["status"] == "UPCOMING"
 assert campaigns_by_id["campaign-empty-status"]["status"] == "ACTIVE"
-for excluded in ("campaign-three", "campaign-in-progress", "pokemon-evolutions", "campaign-empty-timebased", "campaign-paid-subs-goal"):
+assert campaigns_by_id["campaign-in-progress"]["game"] == "Twitch"
+assert campaigns_by_id["pokemon-evolutions"]["game"] == "Twitch"
+assert campaigns_by_id["global-twitch-rewards"]["game"] == "Twitch"
+for excluded in ("campaign-three", "campaign-empty-timebased", "campaign-paid-subs-goal"):
     assert excluded not in campaigns_by_id, f"Invalid Drops campaign must be hidden: {excluded}"
 snapshot_drops = {
     drop["id"]: drop
     for campaign in snapshot
     for drop in campaign["drops"]
 }
-assert set(snapshot_drops) == {"badge-drop", "game-drop", "drop-no-image", "marvel-emote-drop", "upcoming-drop", "empty-status-drop"}
+assert set(snapshot_drops) == {"badge-drop", "game-drop", "drop-no-image", "marvel-emote-drop", "upcoming-drop", "empty-status-drop", "available-emote-drop", "pokemon-drop", "global-badge-drop"}
 assert snapshot_drops["badge-drop"]["category"] == "twitch"
 assert snapshot_drops["marvel-emote-drop"]["category"] == "twitch"
 assert snapshot_drops["game-drop"]["category"] == "game"
@@ -514,6 +529,7 @@ assert all(drop["is_time_based"] for drop in snapshot_drops.values())
 assert snapshot_drops["drop-no-image"]["image_url"] == ""
 assert snapshot_drops["upcoming-drop"]["image_url"] == "https://example.test/upcoming-box.png"
 assert snapshot_drops["empty-status-drop"]["image_url"] == "https://example.test/empty-status.png"
+assert snapshot_drops["global-badge-drop"]["benefit"] == "Global Badge"
 assert snapshot_drops["badge-drop"]["is_twitch_view"] is True
 assert snapshot_drops["game-drop"]["is_twitch_view"] is False
 assert snapshot_drops["marvel-emote-drop"]["claimed"] is False

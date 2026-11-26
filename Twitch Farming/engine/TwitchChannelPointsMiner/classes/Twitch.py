@@ -1641,7 +1641,7 @@ class Twitch(object):
             else:
                 game_name = str(raw_game or "").strip()
             if not game_name:
-                continue
+                game_name = "Twitch"
             drops = [drop for drop in drops if drop.get("is_time_based")]
             if not drops:
                 continue
