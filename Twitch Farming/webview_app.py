@@ -19,6 +19,7 @@ if not getattr(sys, "frozen", False):
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "Twitch Farming"
 LOCAL_APP_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "Twitch Farming"
+WEBVIEW_PROFILE_DIR = LOCAL_APP_DIR / "WebView2"
 CONFIG_FILE = APP_DIR / "config.json"
 LOG_DIR = APP_DIR / "logs"
 LOG_FILE = LOG_DIR / "TwitchFarming.log"
@@ -37,16 +38,22 @@ def _ui_candidate_directories():
     if getattr(sys, "frozen", False):
         executable_dir = Path(sys.executable).resolve().parent
         candidates.append(executable_dir / "ui")
-        candidates.append(RESOURCE_DIR / "ui")
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.append(Path(meipass).resolve() / "ui")
     else:
         candidates.append(Path(__file__).resolve().parent / "ui")
+    legacy_cache = (APP_DIR / "ui").resolve()
     unique = []
     seen = set()
     for candidate in candidates:
-        key = str(candidate.resolve()).casefold()
+        resolved = candidate.resolve()
+        key = os.path.normcase(str(resolved))
+        if key == os.path.normcase(str(legacy_cache)):
+            continue
         if key not in seen:
             seen.add(key)
-            unique.append(candidate)
+            unique.append(resolved)
     return unique
 
 
@@ -2896,10 +2903,12 @@ def main():
             f"TwitchFarmingApi.__init__: {api_init_ms:.2f} мс",
         )
 
+        index_url = (UI_DIR / "index.html").resolve().as_uri() + "?build=" + quote(APP_VERSION, safe="")
+        write_boot_log("INFO", "Профиль WebView2: " + str(WEBVIEW_PROFILE_DIR))
         window_started = time.perf_counter()
         window = webview.create_window(
             "Twitch Farming",
-            url=str(UI_DIR / "index.html"),
+            url=index_url,
             js_api=api,
             width=1180,
             height=800,
@@ -2946,6 +2955,7 @@ def main():
                 func=on_loaded,
                 gui="edgechromium",
                 private_mode=False,
+                storage_path=str(WEBVIEW_PROFILE_DIR),
                 icon=str(ICON_FILE) if ICON_FILE.is_file() else None,
                 debug=False,
             )
