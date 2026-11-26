@@ -1262,7 +1262,7 @@ def _campaign_game_art_url(campaign):
         or game_data.get("game_id")
         or ""
     ).strip()
-    if re.fullmatch(r"\\d+", game_id):
+    if re.fullmatch(r"\d+", game_id):
         return "https://static-cdn.jtvnw.net/ttv-boxart/" + game_id + "-144x192.jpg"
     return ""
 
