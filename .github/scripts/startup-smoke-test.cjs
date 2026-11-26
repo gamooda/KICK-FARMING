@@ -133,7 +133,7 @@ if (!workflow.includes("GITHUB_RUN_NUMBER") || !versionInfo.includes("APP_VERSIO
 }
 const mainFunctionIndex = backend.indexOf("def main():");
 const backendModuleHeader = mainFunctionIndex >= 0 ? backend.slice(0, mainFunctionIndex) : backend;
-if (/^\\s*import webview\\s*$/m.test(backendModuleHeader) ||
+if (/^\s*import webview\s*$/m.test(backendModuleHeader) ||
     !backend.includes("        import webview") ||
     backend.includes("_start_native_splash") ||
     backend.includes("NativeStartupSplash") ||
@@ -184,7 +184,7 @@ for (const filter of ["all_campaigns", "started", "twitch_view"]) {
     throw new Error("Drops inventory filter is missing: " + filter);
   }
 }
-if (!source.includes("drop.is_time_based") || !source.includes("campaign.started||item.in_inventory") ||
+if (!source.includes("drop.is_time_based") || !source.includes("item=>Boolean(item.started||item.in_inventory)") ||
     !source.includes("function isFreeWatchDrop(")) {
   throw new Error("Drops campaign filtering does not separate started inventory and time-based Twitch rewards.");
 }
