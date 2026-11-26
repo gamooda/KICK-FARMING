@@ -54,7 +54,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Qt smoke tests failed." }
           python ".github/scripts/drops-watch-selection-test.py"
           if ($LASTEXITCODE -ne 0) { throw "Drops watch-selection tests failed." }
-          python -c "from importlib.metadata import packages_distributions; d=packages_distributions(); assert 'PySide6' in d and 'PySide6-Essentials' in d['PySide6'], 'PySide6-Essentials is not installed'; assert 'webview' not in d and 'clr' not in d, 'Legacy WebView/pythonnet packages are installed'"
+          python -c "from importlib.metadata import distributions; names={str(item.metadata.get('Name') or '').lower() for item in distributions()}; assert 'pyside6-essentials' in names, 'PySide6-Essentials is not installed'; assert not ({'pywebview','pythonnet','pystray'} & names), 'Legacy GUI packages are installed'"
 
       - name: Build native Qt executable
         shell: pwsh
