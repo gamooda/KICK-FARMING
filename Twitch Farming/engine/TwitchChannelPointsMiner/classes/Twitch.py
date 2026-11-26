@@ -1401,6 +1401,45 @@ class Twitch(object):
                 or ""
             )
 
+        def claim_value(value, key=""):
+            if key in ("claimedAt", "claimed_at", "claimedDate", "claimed_date", "claimDate", "claim_date"):
+                return str(value or "").strip().lower() not in ("", "0", "false", "none", "null")
+            if key in ("claimStatus", "claim_status", "dropStatus", "drop_status"):
+                return str(value or "").strip().upper() in (
+                    "CLAIMED", "ALREADY_CLAIMED", "DROP_INSTANCE_ALREADY_CLAIMED", "SUCCESS", "COMPLETED"
+                )
+            if isinstance(value, str):
+                return value.strip().lower() in ("1", "true", "yes", "on", "claimed", "success", "completed")
+            return bool(value)
+
+        def merge_drop_data(existing, incoming):
+            merged = dict(existing)
+            claim_keys = {
+                "claimed", "isClaimed", "is_claimed", "isRewardClaimed", "rewardClaimed",
+                "claimedAt", "claimed_at", "claimedDate", "claimed_date", "claimDate", "claim_date",
+                "claimStatus", "claim_status", "dropStatus", "drop_status",
+            }
+            progress_keys = {
+                "currentMinutesWatched", "current_minutes_watched", "watchedMinutes",
+                "watched_minutes", "minutesWatched",
+            }
+            for key, value in incoming.items():
+                if value is None or value == [] or value == {} or value == "":
+                    continue
+                previous = merged.get(key)
+                if isinstance(previous, dict) and isinstance(value, dict):
+                    merged[key] = merge_drop_data(previous, value)
+                elif key in claim_keys and (claim_value(previous, key) or claim_value(value, key)):
+                    merged[key] = True if key not in ("claimedAt", "claimed_at", "claimedDate", "claimed_date", "claimDate", "claim_date", "claimStatus", "claim_status", "dropStatus", "drop_status") else (previous or value)
+                elif key in progress_keys:
+                    try:
+                        merged[key] = max(int(previous or 0), int(value or 0))
+                    except (TypeError, ValueError):
+                        merged[key] = value
+                else:
+                    merged[key] = value
+            return merged
+
         def merge_nonempty(target, source):
             for key, value in source.items():
                 if value is not None and value != [] and value != {} and value != "":
@@ -1413,7 +1452,8 @@ class Twitch(object):
                             by_id = {}
                             for row in existing + incoming:
                                 row_id = str(row.get("id") or row.get("dropID") or id(row))
-                                by_id[row_id] = row
+                                previous = by_id.get(row_id)
+                                by_id[row_id] = merge_drop_data(previous, row) if previous else dict(row)
                             target[key] = list(by_id.values())
 
         dashboard_campaigns = collection_items(current_user.get("dropCampaigns"))
@@ -1608,13 +1648,27 @@ class Twitch(object):
                         or raw_drop.get("currentMinutesWatched")
                         or raw_drop.get("current_minutes_watched")
                     )
-                    claimed = any((
-                        safe_bool(progress.get("isClaimed")),
-                        safe_bool(raw_drop.get("isClaimed")),
-                        safe_bool(drop.get("isClaimed")),
-                        safe_bool(drop.get("claimed")),
-                        safe_bool(progress.get("claimedAt")),
-                    ))
+                    def claim_state(source):
+                        if not isinstance(source, dict):
+                            return False
+                        for key in ("claimed", "isClaimed", "is_claimed", "isRewardClaimed", "rewardClaimed"):
+                            if claim_value(source.get(key), key):
+                                return True
+                        for key in ("claimedAt", "claimed_at", "claimedDate", "claimed_date", "claimDate", "claim_date", "claimStatus", "claim_status", "dropStatus", "drop_status"):
+                            if claim_value(source.get(key), key):
+                                return True
+                        return False
+
+                    claim_sources = (
+                        progress,
+                        raw_drop,
+                        drop,
+                        raw_drop.get("self"),
+                        drop.get("self"),
+                        raw_drop.get("progress"),
+                        drop.get("progress"),
+                    )
+                    claimed = any(claim_state(source) for source in claim_sources)
                     benefit_edges = (
                         drop.get("benefitEdges")
                         or raw_drop.get("benefitEdges")
@@ -1870,6 +1924,77 @@ class Twitch(object):
                     result[login] = ids
                 except (AttributeError, KeyError, TypeError):
                     result[login] = []
+        return result
+
+    def get_drops_streams_for_game(self, game_slug, game_id="", limit=30):
+        slug = str(game_slug or "").strip().lower()
+        if not slug:
+            return []
+        try:
+            page_limit = max(1, min(30, int(limit or 30)))
+        except (TypeError, ValueError):
+            page_limit = 30
+        request_data = copy.deepcopy(GQLOperations.GameDirectory)
+        request_data["variables"] = {
+            "limit": page_limit,
+            "slug": slug,
+            "imageWidth": 50,
+            "includeCostreaming": False,
+            "options": {
+                "broadcasterLanguages": [],
+                "freeformTags": None,
+                "includeRestricted": ["SUB_ONLY_LIVE"],
+                "recommendationsContext": {"platform": "web"},
+                "sort": "RELEVANCE",
+                "systemFilters": ["DROPS_ENABLED"],
+                "tags": [],
+                "requestID": "JIRA-VXP-2397",
+            },
+            "sortTypeIsRecency": False,
+        }
+        try:
+            response = self.post_gql_request(request_data)
+        except Exception as error:
+            logger.warning("GameDirectory Drops lookup failed for %s: %s", slug, error)
+            return []
+        if not isinstance(response, dict) or response.get("errors"):
+            self._warn_drops_response(
+                "GameDirectory",
+                f"не удалось получить эфиры с Drops для категории {slug}",
+                response,
+            )
+            return []
+        game = (response.get("data") or {}).get("game") or {}
+        streams = game.get("streams") or {}
+        edges = streams.get("edges") or []
+        result = []
+        for edge in edges if isinstance(edges, list) else []:
+            if not isinstance(edge, dict):
+                continue
+            node = edge.get("node") or {}
+            broadcaster = node.get("broadcaster") or {}
+            if not isinstance(node, dict) or not isinstance(broadcaster, dict):
+                continue
+            login = str(broadcaster.get("login") or "").strip().lower()
+            channel_id = str(broadcaster.get("id") or "")
+            if not login or not channel_id:
+                continue
+            stream_game = node.get("game") or game
+            if not isinstance(stream_game, dict):
+                stream_game = {}
+            try:
+                viewers = max(0, int(node.get("viewersCount") or node.get("viewers") or 0))
+            except (TypeError, ValueError):
+                viewers = 0
+            result.append({
+                "user_login": login,
+                "user_id": channel_id,
+                "user_name": str(broadcaster.get("displayName") or login),
+                "game_id": str(stream_game.get("id") or game_id or ""),
+                "game_name": str(stream_game.get("displayName") or stream_game.get("name") or slug),
+                "viewer_count": viewers,
+                "started_at": str(node.get("startedAt") or ""),
+            })
         return result
 
     def claim_drop(self, drop):
