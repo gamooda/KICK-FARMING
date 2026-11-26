@@ -422,7 +422,7 @@ class ChannelCard(QFrame):
         balance_row.setSpacing(5)
 
         self.currency_icon = QLabel("✦")
-        self.currency_icon.setFixedSize(16, 16)
+        self.currency_icon.setFixedSize(24, 24)
         self.currency_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.currency_icon.setObjectName("channelCurrencyIcon")
         balance_row.addWidget(self.currency_icon)
@@ -432,13 +432,13 @@ class ChannelCard(QFrame):
         balance_row.addWidget(points)
 
         currency_name = QLabel(str(currency.get("name") or "Channel Points"))
-        currency_name.setObjectName("mutedText")
+        currency_name.setObjectName("channelCurrencyName")
         currency_name.setMinimumWidth(0)
         currency_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         balance_row.addWidget(currency_name, 1)
 
         details.addLayout(balance_row)
-        root.addLayout(details, 1)
+        root.addLayout(details, 1, Qt.AlignmentFlag.AlignVCenter)
 
         right = QVBoxLayout()
         right.setContentsMargins(0, 0, 0, 0)
@@ -1153,8 +1153,9 @@ class MainWindow(QMainWindow):
         QLabel#campaignImage { background:#241D36; border-radius:8px; color:#A98AFF; font-weight:800; }
         QLabel#rewardIcon { background:#242034; border-radius:8px; color:#E7D6FF; }
         QLabel#channelName { color:#FFFFFF; font-size:15px; font-weight:700; }
-        QLabel#channelBalance { color:#F2EDFF; font-size:11px; font-weight:800; }
-        QLabel#channelCurrencyIcon { background:#6D4CB4; border:1px solid #A78BE7; border-radius:8px; color:#FFFFFF; font-size:9px; font-weight:900; padding:0; }
+        QLabel#channelBalance { color:#FFFFFF; font-size:14px; font-weight:700; }
+        QLabel#channelCurrencyName { color:#BDB7C9; font-size:14px; font-weight:500; }
+        QLabel#channelCurrencyIcon { background:transparent; border:none; border-radius:0; color:#D8C7F6; font-size:18px; font-weight:900; padding:0; }
         QLabel#liveBadge, QLabel#offlineBadge, QLabel#watchBadge, QLabel#temporaryBadge, QLabel#purpleBadge { font-size:8px; font-weight:900; padding:3px 5px; border-radius:5px; }
         QLabel#liveBadge { color:#FF8593; background:#36202A; }
         QLabel#offlineBadge { color:#8C8799; background:#252530; }
