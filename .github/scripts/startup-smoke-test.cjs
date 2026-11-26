@@ -80,7 +80,7 @@ if (!html.includes("bridge.record_startup_debug_batch(batch)") ||
     html.includes("bridge.record_startup_debug(item.level,item.line)")) {
   throw new Error("Startup diagnostics are not buffered into 280ms batches.");
 }
-if (!source.includes('"record_startup_debug_batch"') || !source.includes("await sleep(280);")) {
+if (!source.includes('"record_startup_debug_batch"') || !source.includes("await sleep(300);")) {
   throw new Error("Frontend startup polling is not using the batched diagnostic API and reduced cadence.");
 }
 if (!backend.includes("def get_startup_status(") ||
