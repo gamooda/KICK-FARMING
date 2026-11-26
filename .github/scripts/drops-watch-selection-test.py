@@ -351,6 +351,14 @@ snapshot_campaign_two = {
                     "benefit": {"name": "Weapon Skin", "benefitType": "GAME_ITEM", "imageAssetURL": "https://example.test/weapon.png"}
                 }],
             }
+        }, {
+            "node": {
+                "id": "paid-subs-goal",
+                "name": "Paid subscription goal",
+                "dropType": "SUBSGOAL",
+                "subsGoal": {"required": 1},
+                "benefitEdges": [{"benefit": {"name": "Subscription", "benefitType": "SUBSGOAL"}}],
+            }
         }]
     },
 }
@@ -446,17 +454,32 @@ snapshot_dashboard = {
                 {"node": {"campaign": snapshot_campaign_no_time_drops}},
                 {"node": {"campaign": snapshot_campaign_no_image}},
                 {"node": {"campaign": snapshot_campaign_marvel}},
+                {"node": {"campaign": {
+                    "id": "campaign-paid-subs-goal",
+                    "status": "ACTIVE",
+                    "name": "Paid subs goal campaign",
+                    "game": {"id": "63", "displayName": "Paid Game"},
+                    "timeBasedDrops": [{"id": "only-subs-goal", "name": "Paid goal", "dropType": "SUBSGOAL", "subsGoal": {"required": 2}}],
+                }}},
             ],
         },
         "extraCampaigns": {
             "rewardCampaignsAvailableToUser": {
-                "nodes": [{"campaign": {
-                    "id": "campaign-upcoming",
-                    "status": "UPCOMING",
-                    "name": "Upcoming campaign",
-                    "game": {"id": "40", "displayName": "Upcoming Game"},
-                    "timeBasedDrops": [{"id": "upcoming-drop", "name": "Upcoming"}],
-                }}],
+                "nodes": [
+                    {"campaign": {
+                        "id": "campaign-upcoming",
+                        "status": "UPCOMING",
+                        "name": "Upcoming campaign",
+                        "game": {"id": "40", "displayName": "Upcoming Game"},
+                        "timeBasedDrops": [{"id": "upcoming-drop", "name": "Upcoming", "boxArtURL": "https://example.test/upcoming-box.png"}],
+                    }},
+                    {"campaign": {
+                        "id": "campaign-empty-status",
+                        "name": "Campaign with empty status",
+                        "game": {"id": "41", "displayName": "Empty Status Game"},
+                        "timeBasedDrops": [{"id": "empty-status-drop", "name": "Empty Status Reward", "imageURL": "https://example.test/empty-status.png"}],
+                    }},
+                ],
             },
         },
     }
@@ -467,26 +490,30 @@ with (
     patch.object(Twitch, "_warn_drops_response", lambda self, *args: None),
 ):
     snapshot = snapshot_client.get_drop_inventory_snapshot()
-assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "marvel-rivals"}
+assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-no-image", "marvel-rivals", "campaign-upcoming", "campaign-empty-status"}
 campaigns_by_id = {campaign["id"]: campaign for campaign in snapshot}
 assert campaigns_by_id["campaign-one"]["started"] is True
 assert campaigns_by_id["campaign-one"]["in_inventory"] is True
 assert campaigns_by_id["campaign-two"]["started"] is False
 assert campaigns_by_id["marvel-rivals"]["name"] == "Marvel Rivals"
 assert campaigns_by_id["marvel-rivals"]["status"] == "ACTIVE"
-for excluded in ("campaign-three", "campaign-in-progress", "pokemon-evolutions", "campaign-empty-timebased", "campaign-no-image", "campaign-upcoming"):
+assert campaigns_by_id["campaign-upcoming"]["status"] == "UPCOMING"
+assert campaigns_by_id["campaign-empty-status"]["status"] == "ACTIVE"
+for excluded in ("campaign-three", "campaign-in-progress", "pokemon-evolutions", "campaign-empty-timebased", "campaign-paid-subs-goal"):
     assert excluded not in campaigns_by_id, f"Invalid Drops campaign must be hidden: {excluded}"
 snapshot_drops = {
     drop["id"]: drop
     for campaign in snapshot
     for drop in campaign["drops"]
 }
-assert set(snapshot_drops) == {"badge-drop", "game-drop", "marvel-emote-drop"}
+assert set(snapshot_drops) == {"badge-drop", "game-drop", "drop-no-image", "marvel-emote-drop", "upcoming-drop", "empty-status-drop"}
 assert snapshot_drops["badge-drop"]["category"] == "twitch"
 assert snapshot_drops["marvel-emote-drop"]["category"] == "twitch"
 assert snapshot_drops["game-drop"]["category"] == "game"
 assert all(drop["is_time_based"] for drop in snapshot_drops.values())
-assert all(drop["image_url"].startswith("https://") for drop in snapshot_drops.values())
+assert snapshot_drops["drop-no-image"]["image_url"] == ""
+assert snapshot_drops["upcoming-drop"]["image_url"] == "https://example.test/upcoming-box.png"
+assert snapshot_drops["empty-status-drop"]["image_url"] == "https://example.test/empty-status.png"
 assert snapshot_drops["badge-drop"]["is_twitch_view"] is True
 assert snapshot_drops["game-drop"]["is_twitch_view"] is False
 assert snapshot_drops["marvel-emote-drop"]["claimed"] is False
@@ -494,5 +521,7 @@ assert snapshot_drops["marvel-emote-drop"]["watched_minutes"] == 12
 assert snapshot_drops["marvel-emote-drop"]["is_twitch_view"] is True
 assert all(drop["type"] == "watch" for drop in snapshot_drops.values())
 assert "paid-drop" not in snapshot_drops
+assert "paid-subs-goal" not in snapshot_drops
+assert "only-subs-goal" not in snapshot_drops
 
 print("Multi-channel watch, full Drops inventory parsing, reward categories and Twitch Drops HLS tests passed.")

@@ -533,10 +533,60 @@ class DropsInventoryWorker(threading.Thread):
             campaigns_by_id = {}
             catalog_targets = []
             followed_logins = {str(item.get("login") or "").lower() for item in followed}
-            for campaign in raw_campaigns:
+            for raw_campaign in raw_campaigns if isinstance(raw_campaigns, list) else []:
+                if not isinstance(raw_campaign, dict):
+                    continue
+                campaign = dict(raw_campaign)
                 campaign_id = str(campaign.get("id") or "")
                 if not campaign_id:
                     continue
+                game = campaign.get("game")
+                game_name = str(
+                    (game.get("displayName") or game.get("name") or "")
+                    if isinstance(game, dict) else (game or campaign.get("gameName") or campaign.get("gameDisplayName") or "")
+                ).strip()
+                if not game_name:
+                    continue
+                campaign_status = str(campaign.get("status") or "").strip().upper()
+                if campaign_status in ("EXPIRED", "ENDED", "COMPLETED", "CANCELLED", "CANCELED", "INACTIVE", "SCHEDULED"):
+                    continue
+                paid_types = ("SUBSCRIPTION", "SUB", "SUBSGOAL", "SUBS_GOAL", "SUBSCRIPTION_GOAL")
+                image_keys = ("image_url", "imageURL", "imageUrl", "imageAssetURL", "boxArtURL", "boxArtUrl", "url")
+                normalized_drops = []
+                raw_drops = campaign.get("drops", [])
+                for raw_drop in raw_drops if isinstance(raw_drops, list) else []:
+                    if not isinstance(raw_drop, dict):
+                        continue
+                    source_type = str(raw_drop.get("source_type") or raw_drop.get("drop_type") or raw_drop.get("dropType") or raw_drop.get("type") or "").strip().upper()
+                    category = str(raw_drop.get("category") or "").strip().upper()
+                    benefit_types = raw_drop.get("benefit_types") or [raw_drop.get("benefit_type") or ""]
+                    if not isinstance(benefit_types, (list, tuple, set)):
+                        benefit_types = [benefit_types]
+                    paid_fields = any(
+                        raw_drop.get(key) not in (None, "", False, 0)
+                        for key in ("requiredSubscriptionTier", "subscriptionTier", "subsGoal", "subs_goal", "subscriptionGoal", "subscription_goal")
+                    )
+                    paid_flags = any(
+                        str(raw_drop.get(key) or "").strip().lower() in ("1", "true", "yes", "on")
+                        for key in ("paid", "is_subscription", "isSubscription")
+                    )
+                    paid_benefit = any(str(value or "").strip().upper() in paid_types for value in benefit_types)
+                    if source_type in paid_types or category in ("SUBSCRIPTION", "PAID", "SUBSCRIBER") or paid_fields or paid_flags or paid_benefit:
+                        continue
+                    if "is_time_based" in raw_drop and not raw_drop.get("is_time_based"):
+                        continue
+                    normalized_drop = dict(raw_drop)
+                    image_url = ""
+                    for key in image_keys:
+                        candidate = str(raw_drop.get(key) or "").strip()
+                        if candidate.startswith("https://"):
+                            image_url = candidate
+                            break
+                    normalized_drop["image_url"] = image_url
+                    normalized_drops.append(normalized_drop)
+                if not normalized_drops:
+                    continue
+                campaign["drops"] = normalized_drops
                 allowed = set(str(value) for value in campaign.get("allowed_channel_ids") or [])
                 game_id = str(campaign.get("game_id") or "")
                 candidates = []
@@ -564,10 +614,7 @@ class DropsInventoryWorker(threading.Thread):
                 candidates.sort(key=lambda item: (item["uptime_seconds"], item["viewer_count"]), reverse=True)
                 candidates = candidates[:3]
                 item = dict(campaign)
-                item["watch_drops"] = [
-                    drop for drop in item.get("drops", [])
-                    if str(drop.get("type") or "watch").lower() != "subscription"
-                ]
+                item["watch_drops"] = list(normalized_drops)
                 item["streamers"] = candidates
                 item["streamer_source"] = "followers" if candidates else ""
                 campaigns_by_id[campaign_id] = item

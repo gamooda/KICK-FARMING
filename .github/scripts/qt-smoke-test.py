@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "Twitch Farming"
 sys.path.insert(0, str(APP))
 
-from qt_app import eligible_twitch_campaigns, eligible_watch_campaigns, format_duration
+from qt_app import eligible_twitch_campaigns, eligible_watch_campaigns, format_duration, log_entry_matches_level
 
 
 def check(condition, message):
@@ -20,6 +20,7 @@ sample = [
         "status": "ACTIVE",
         "started": True,
         "name": "Twitch profile rewards",
+        "game": "Test Game",
         "drops": [
             {"id": "badge", "name": "Badge", "category": "twitch", "is_twitch_view": True, "image_url": "https://example.test/badge.png", "claimed": False},
             {"id": "emote", "name": "Emote", "category": "twitch", "is_twitch_view": True, "image_url": "https://example.test/emote.png", "claimed": False},
@@ -59,6 +60,7 @@ edge_case_campaigns = eligible_watch_campaigns([
     {
         "id": "in-progress",
         "status": "IN_PROGRESS",
+        "game": "Test Game",
         "drops": [
             {"id": "free-string-flags", "type": "WATCH", "claimed": "false", "paid": "false", "is_subscription": "false", "image_url": "https://example.test/free.png"},
             {"id": "subscription", "type": "SUBSCRIPTION", "claimed": False},
@@ -68,7 +70,24 @@ edge_case_campaigns = eligible_watch_campaigns([
 ])
 check(len(edge_case_campaigns) == 1, "Available campaigns outside ACTIVE must still be listed.")
 check([drop["id"] for drop in edge_case_campaigns[0]["visible_drops"]] == ["free-string-flags"], "String false flags must not hide free drops; subscription rewards must stay hidden.")
-check(not eligible_watch_campaigns([{"id": "iconless", "status": "ACTIVE", "drops": [{"id": "placeholder", "category": "game", "image_url": ""}]}]), "Rewards without a real image must not produce campaign cards.")
+relaxed_campaigns = eligible_watch_campaigns([
+    {"id": "upcoming", "status": "UPCOMING", "game": "Upcoming Game", "drops": [{"id": "box-art", "boxArtURL": "https://example.test/box.png"}]},
+    {"id": "empty-status", "status": "", "game": "Game With Empty Status", "drops": [{"id": "image-url", "imageURL": "https://example.test/reward.png"}]},
+    {"id": "unknown-no-game", "status": "UNKNOWN", "game": None, "drops": [{"id": "junk", "image_url": "https://example.test/junk.png"}]},
+])
+check([item["id"] for item in relaxed_campaigns] == ["upcoming", "empty-status"], "Upcoming and empty-status campaigns with a game and time-based rewards must stay visible; unknown campaigns without a game must be hidden.")
+relaxed_drops = {drop["id"]: drop for campaign in relaxed_campaigns for drop in campaign["visible_drops"]}
+check(relaxed_drops["box-art"]["image_url"] == "https://example.test/box.png", "boxArtURL must be accepted as a reward image.")
+check(relaxed_drops["image-url"]["image_url"] == "https://example.test/reward.png", "imageURL must be accepted as a reward image.")
+check(not eligible_watch_campaigns([{"id": "paid-goal", "status": "ACTIVE", "game": "Paid Game", "drops": [{"id": "subs-goal", "source_type": "SUBSGOAL"}]}]), "Subscription goals must remain excluded.")
+check(log_entry_matches_level("2026 [iNfO] +100 points", "INFO"), "INFO filter must detect a case-insensitive level marker.")
+check(log_entry_matches_level("2026 [WARNING] reconnect", "INFO / Важные"), "Important logs must include warnings.")
+check(log_entry_matches_level("2026 [ERROR] failed", "INFO / Важные"), "Important logs must include errors.")
+check(not log_entry_matches_level("2026 [DEBUG] trace", "INFO / Важные"), "Important logs must hide only DEBUG records.")
+check(log_entry_matches_level("2026 [dEbUg] trace", "DEBUG"), "DEBUG filter must detect a case-insensitive level marker.")
+check(log_entry_matches_level("2026 +50 → channel - Reason: WATCH", "INFO / Важные"), "Unmarked point accrual lines must remain visible in important logs.")
+iconless_campaigns = eligible_watch_campaigns([{"id": "iconless", "status": "ACTIVE", "game": "Image Missing Game", "drops": [{"id": "placeholder", "category": "game", "image_url": ""}]}])
+check(len(iconless_campaigns) == 1 and iconless_campaigns[0]["visible_drops"][0]["image_url"] == "", "Campaigns and rewards without an image must remain visible for the gift fallback.")
 check([item["login"] for item in result[0]["streamers"]] == ["longstream", "medium", "highview"], "Long-running streams must be recommended first.")
 check(format_duration(3660) == "1 ч 1 мин", "Stream uptime must be formatted.")
 check(format_duration(0) == "0 мин", "Zero uptime must be formatted.")
@@ -112,7 +131,7 @@ check('setContentsMargins(10 if title == "Последние награды" els
 check('QLabel#slotAvatar, QLabel#miniAvatar { background:transparent; border:0;' in qt, "Slot and follower avatars must not have square frames.")
 check("in configured" in qt and 'QFrame#followerCard[added="true"]' in qt, "Added followers must be sorted and highlighted.")
 check("followerAddedButton" in qt and "followerAddButton" in qt, "Added and not-added follower buttons must be visually distinct.")
-check("starting new https connection" in qt and "head /v1/segment" in qt, "INFO and Main log filters must suppress network debug traces.")
+check("def log_entry_matches_level" in qt and "INFO / Важные" in qt, "Log filters must parse severity markers and default to INFO / Important.")
 check("def _set_header_status_notice" in qt and '_show_dialog("Обновление"' not in qt, "Update status must stay in the main titlebar.")
 
 check("events_output" not in qt, "The duplicate event-log text area must be removed.")

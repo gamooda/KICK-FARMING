@@ -1414,7 +1414,7 @@ class Twitch(object):
             if not campaign_id:
                 continue
             status = str(campaign.get("status") or campaign.get("campaignStatus") or "").strip().upper()
-            if status not in ("", "ACTIVE", "IN_PROGRESS", "STARTED"):
+            if status in ("EXPIRED", "ENDED", "COMPLETED", "CANCELLED", "CANCELED", "INACTIVE", "SCHEDULED"):
                 continue
             if not status:
                 status = "ACTIVE"
@@ -1450,7 +1450,7 @@ class Twitch(object):
             if isinstance(item, dict) and campaign_id_of(item)
         }
         drop_sources = ("timeBasedDrops", "time_based_drops", "gameEventDrops", "drops")
-        image_keys = ("imageAssetURL", "imageUrl", "imageURL", "image_url", "url")
+        image_keys = ("imageAssetURL", "imageUrl", "imageURL", "image_url", "boxArtURL", "boxArtUrl", "url")
 
         def safe_int(value):
             try:
@@ -1502,13 +1502,22 @@ class Twitch(object):
                     unlock = drop.get("unlockRequirements") or raw_drop.get("unlockRequirements") or {}
                     if not isinstance(unlock, dict):
                         unlock = {}
-                    paid_fields = (
-                        drop.get("requiredSubscriptionTier")
-                        or drop.get("subscriptionTier")
-                        or unlock.get("requiredSubscriptionTier")
-                        or unlock.get("subscriptionTier")
+                    paid_fields = any(
+                        value not in (None, "", False, 0)
+                        for value in (
+                            drop.get("requiredSubscriptionTier"),
+                            drop.get("subscriptionTier"),
+                            unlock.get("requiredSubscriptionTier"),
+                            unlock.get("subscriptionTier"),
+                            drop.get("subsGoal"),
+                            raw_drop.get("subsGoal"),
+                            drop.get("subs_goal"),
+                            raw_drop.get("subs_goal"),
+                            drop.get("subscriptionGoal"),
+                            raw_drop.get("subscriptionGoal"),
+                        )
                     )
-                    if source_drop_type in ("SUBSCRIPTION", "SUB") or paid_fields:
+                    if source_drop_type in ("SUBSCRIPTION", "SUB", "SUBSGOAL", "SUBS_GOAL", "SUBSCRIPTION_GOAL") or paid_fields:
                         continue
                     drop_id = str(drop.get("id") or raw_drop.get("id") or "")
                     unique_id = drop_id or str(id(raw_drop))
@@ -1584,6 +1593,8 @@ class Twitch(object):
                             if candidate.startswith("https://"):
                                 image_url = candidate
                                 break
+                    if any(value in ("SUBSCRIPTION", "SUB", "SUBSGOAL", "SUBS_GOAL", "SUBSCRIPTION_GOAL") for value in benefit_types):
+                        continue
                     if not benefit_names:
                         summary = drop.get("summary") or raw_drop.get("summary") or ""
                         if isinstance(summary, str) and summary.strip():
@@ -1631,10 +1642,7 @@ class Twitch(object):
                 game_name = str(raw_game or "").strip()
             if not game_name:
                 continue
-            drops = [
-                drop for drop in drops
-                if drop.get("is_time_based") and str(drop.get("image_url") or "").startswith("https://")
-            ]
+            drops = [drop for drop in drops if drop.get("is_time_based")]
             if not drops:
                 continue
             allow = campaign.get("allow")

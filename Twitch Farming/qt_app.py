@@ -562,8 +562,13 @@ def _flag_enabled(value):
 
 
 def _campaign_available(campaign):
-    status = str(campaign.get("status") or "ACTIVE").strip().upper()
-    return status not in ("EXPIRED", "ENDED", "COMPLETED", "CANCELLED", "CANCELED", "INACTIVE", "UPCOMING", "SCHEDULED")
+    status = str(campaign.get("status") or "").strip().upper()
+    if status in ("EXPIRED", "ENDED", "COMPLETED", "CANCELLED", "CANCELED", "INACTIVE", "SCHEDULED"):
+        return False
+    game = campaign.get("game")
+    if isinstance(game, dict):
+        game = game.get("displayName") or game.get("name")
+    return bool(str(game or "").strip())
 
 
 def _eligible_free_drops(campaign):
@@ -572,22 +577,33 @@ def _eligible_free_drops(campaign):
         raw_drops = raw_drops.get("nodes") or raw_drops.get("edges") or []
         raw_drops = [item.get("node", item) if isinstance(item, dict) else item for item in raw_drops]
     result = []
+    paid_types = ("SUBSCRIPTION", "SUB", "SUBSGOAL", "SUBS_GOAL", "SUBSCRIPTION_GOAL")
+    image_keys = ("image_url", "imageURL", "imageUrl", "imageAssetURL", "boxArtURL", "boxArtUrl", "url")
     for item in raw_drops if isinstance(raw_drops, list) else []:
         if not isinstance(item, dict):
             continue
         if _flag_enabled(item.get("claimed")):
             continue
-        if not str(item.get("image_url") or "").startswith("https://"):
+        drop_type = str(item.get("source_type") or item.get("drop_type") or item.get("dropType") or item.get("type") or "watch").strip().upper()
+        category = str(item.get("category") or "").strip().upper()
+        benefit_types = item.get("benefit_types") or [item.get("benefit_type") or ""]
+        if not isinstance(benefit_types, (list, tuple, set)):
+            benefit_types = [benefit_types]
+        if drop_type in paid_types or any(str(value or "").strip().upper() in paid_types for value in benefit_types):
             continue
-        drop_type = str(item.get("type") or item.get("drop_type") or "watch").strip().lower()
-        category = str(item.get("category") or "").strip().lower()
-        if drop_type in ("subscription", "sub", "paid", "subscriber", "paid_subscription"):
+        if category in ("SUBSCRIPTION", "PAID", "SUBSCRIBER"):
             continue
-        if category in ("subscription", "paid", "subscriber"):
+        if any(_flag_enabled(item.get(key)) for key in ("is_subscription", "paid", "subsGoal", "subs_goal", "subscriptionGoal", "subscription_goal")):
             continue
-        if _flag_enabled(item.get("is_subscription")) or _flag_enabled(item.get("paid")):
-            continue
-        result.append(dict(item))
+        normalized = dict(item)
+        image_url = ""
+        for key in image_keys:
+            candidate = str(item.get(key) or "").strip()
+            if candidate.startswith("https://"):
+                image_url = candidate
+                break
+        normalized["image_url"] = image_url
+        result.append(normalized)
     return result
 
 
@@ -648,6 +664,21 @@ def format_duration(seconds):
     return f"{minutes} мин"
 
 
+def _log_entry_severity(line, fallback="INFO"):
+    match = re.search(r"\[(DEBUG|INFO|WARNING|ERROR|CRITICAL|FATAL)\]", str(line or ""), re.IGNORECASE)
+    return match.group(1).upper() if match else str(fallback or "INFO").upper()
+
+
+def log_entry_matches_level(line, level, fallback="INFO"):
+    severity = _log_entry_severity(line, fallback)
+    selected = str(level or "INFO / Важные")
+    if selected in ("INFO / Важные", "Основные"):
+        return severity != "DEBUG"
+    if selected == "Все уровни":
+        return True
+    return severity == selected.upper()
+
+
 class CampaignCard(QFrame):
     def __init__(self, campaign, image_cache, add_callback, parent=None, add_enabled=True):
         super().__init__(parent)
@@ -683,7 +714,7 @@ class CampaignCard(QFrame):
             reward_image.setFixedSize(44, 44)
             reward_image.setObjectName("rewardIcon")
             reward_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            reward_image.setText("★")
+            reward_image.setText("🎁")
             row.addWidget(reward_image)
             details = QVBoxLayout()
             reward_name = QLabel(str(drop.get("name") or drop.get("benefit") or "Награда Twitch"))
@@ -1656,7 +1687,7 @@ class MainWindow(QMainWindow):
         self.log_search.textChanged.connect(self._render_logs)
         row.addWidget(self.log_search, 1)
         self.log_level = QComboBox()
-        self.log_level.addItems(["Основные", "Все уровни", "INFO", "WARNING", "ERROR", "DEBUG"])
+        self.log_level.addItems(["INFO / Важные", "Все уровни", "INFO", "WARNING", "ERROR", "DEBUG"])
         self.log_level.setCurrentIndex(0)
         self.log_level.currentIndexChanged.connect(self._render_logs)
         row.addWidget(self.log_level)
@@ -2565,27 +2596,15 @@ class MainWindow(QMainWindow):
             "CRITICAL": "#FF657E",
             "FATAL": "#FF657E"
         }
-        debug_signatures = (
-            "[debug]",
-            "starting new https connection",
-            "starting new http connection",
-            "httpsconnectionpool(",
-            "httpconnectionpool(",
-            "urllib3.connectionpool",
-            "head /v1/segment",
-            "get /v1/segment",
-        )
         rendered = []
         for item in rows[-500:]:
             line = str(item.get("line") or item.get("message") or item)
             lower_line = line.lower()
-            severity = str(item.get("level") or "INFO").upper()
-            looks_debug = severity == "DEBUG" or any(marker in lower_line for marker in debug_signatures)
+            fallback_level = item.get("level") if isinstance(item, dict) else "INFO"
+            severity = _log_entry_severity(line, fallback_level)
             if search and search not in lower_line:
                 continue
-            if level in ("Основные", "INFO") and looks_debug:
-                continue
-            if level not in ("Основные", "Все уровни") and severity != level:
+            if not log_entry_matches_level(line, level, fallback_level):
                 continue
             color = colors.get(severity, "#C8C2D4")
             rendered.append(f'<div style="color:{color}; white-space:pre-wrap;">{html.escape(line)}</div>')
