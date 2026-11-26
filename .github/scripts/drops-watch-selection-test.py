@@ -86,10 +86,14 @@ class RecordingExecutor:
         return future
 
 
-dispatch_watcher._send_minute_watched_for_streamer = lambda streamer: None
 setattr(dispatch_watcher, "_Twitch__chuncked_sleep", lambda *args, **kwargs: None)
 dispatch_logs = []
 with (
+    patch.object(
+        Twitch,
+        "_send_minute_watched_for_streamer",
+        lambda self, streamer: None,
+    ),
     patch(
         "TwitchChannelPointsMiner.classes.Twitch.ThreadPoolExecutor",
         RecordingExecutor,
