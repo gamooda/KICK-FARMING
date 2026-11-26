@@ -1,3 +1,4 @@
+import ctypes
 import hashlib
 import html
 import json
@@ -13,7 +14,7 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QEasingCurve, QPoint, QRect, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QPainter, QPainterPath, QPen, QPixmap, QIcon
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
 
 from backend import APP_DIR, APP_VERSION, DEFAULT_APP_SETTINGS, DEFAULT_BET_SETTINGS, DEFAULT_OPTIONS, FILTER_KEYS, ICON_FILE, OPTION_NAMES, STRATEGIES, TwitchFarmingApi
 
@@ -23,6 +24,34 @@ REPOSITORY_URL = "https://github.com/gamooda/KICK-FARMING"
 RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 UI_ICON_ATLAS = RESOURCE_ROOT / "assets" / "ui_icons.png"
 UI_ICON_CELLS = {"logo": 0, "channels": 1, "drops": 2, "bonuses": 3, "rewards": 4, "predictions": 5, "irc": 6, "events": 7, "settings": 8}
+APP_ICON_FILE = RESOURCE_ROOT / "assets" / "app.ico"
+_INSTANCE_MUTEX_HANDLE = None
+
+
+def acquire_single_instance():
+    global _INSTANCE_MUTEX_HANDLE
+    if sys.platform != "win32":
+        return True
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_mutex = kernel32.CreateMutexW
+    create_mutex.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
+    create_mutex.restype = ctypes.c_void_p
+    ctypes.set_last_error(0)
+    handle = create_mutex(None, 1, "Local\\TwitchFarmingQt6SingleInstance")
+    error = ctypes.get_last_error()
+    if not handle:
+        raise OSError(error, "Не удалось создать mutex экземпляра приложения.")
+    if error == 183:
+        kernel32.CloseHandle(handle)
+        return False
+    _INSTANCE_MUTEX_HANDLE = handle
+    return True
+
+
+class QPushButton(QtPushButton):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
 
 class TaskSignals(QObject):
@@ -118,7 +147,7 @@ class ImageCache(QObject):
         if data.lstrip().startswith(b"<svg") or b"<svg" in data[:500]:
             renderer = QSvgRenderer(QByteArray(data))
             if renderer.isValid():
-                pixmap = QPixmap(128, 128)
+                pixmap = QPixmap(256, 256)
                 pixmap.fill(Qt.GlobalColor.transparent)
                 painter = QPainter(pixmap)
                 renderer.render(painter)
@@ -127,10 +156,11 @@ class ImageCache(QObject):
             pixmap.loadFromData(data)
         if pixmap.isNull():
             return
-        size = label.size()
-        edge = max(24, min(size.width(), size.height()))
-        pixmap = pixmap.scaled(edge, edge, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
+        width = max(24, label.width() or label.minimumWidth() or label.sizeHint().width())
+        height = max(24, label.height() or label.minimumHeight() or label.sizeHint().height())
+        edge = max(24, min(width, height))
         if circular:
+            scaled = pixmap.scaled(edge, edge, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
             result = QPixmap(edge, edge)
             result.fill(Qt.GlobalColor.transparent)
             painter = QPainter(result)
@@ -138,9 +168,13 @@ class ImageCache(QObject):
             path = QPainterPath()
             path.addEllipse(0, 0, edge, edge)
             painter.setClipPath(path)
-            painter.drawPixmap(0, 0, pixmap)
+            source_rect = QRect(max(0, (scaled.width() - edge) // 2), max(0, (scaled.height() - edge) // 2), edge, edge)
+            painter.drawPixmap(QRect(0, 0, edge, edge), scaled, source_rect)
             painter.end()
             pixmap = result
+        else:
+            pixmap = pixmap.scaled(edge, edge, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setPixmap(pixmap)
 
 
@@ -296,6 +330,9 @@ class SwitchCheckBox(QCheckBox):
 
     def sizeHint(self):
         return QSize(self.fontMetrics().horizontalAdvance(self.text()) + 54, 30)
+
+    def hitButton(self, position):
+        return self.rect().contains(position)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -733,6 +770,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setObjectName("mainWindow")
         self.setWindowTitle(APP_TITLE)
+        if APP_ICON_FILE.is_file():
+            self.setWindowIcon(QIcon(str(APP_ICON_FILE)))
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setMinimumSize(980, 660)
         self.resize(1140, 760)
@@ -762,6 +801,8 @@ class MainWindow(QMainWindow):
         self._last_preset_signature = None
         self._active_panel_target = 0
         self._modal_overlay = None
+        self._startup_restore_requested = False
+        self._account_profile_request_user = ""
         self.api.update_install_callback = self.installRequested.emit
         self.installRequested.connect(self._install_ready)
         self.ui_icon_atlas = QPixmap(str(UI_ICON_ATLAS))
@@ -839,11 +880,22 @@ class MainWindow(QMainWindow):
             side.addWidget(button)
             self.nav_buttons.append(button)
         side.addStretch()
-        self.account_sidebar = QLabel("●  АККАУНТ НЕ ПОДКЛЮЧЁН")
+        account_footer = QFrame()
+        account_footer.setObjectName("accountFooter")
+        account_footer_row = QHBoxLayout(account_footer)
+        account_footer_row.setContentsMargins(7, 6, 7, 6)
+        account_footer_row.setSpacing(7)
+        self.account_avatar_sidebar = QLabel("T")
+        self.account_avatar_sidebar.setObjectName("accountAvatar")
+        self.account_avatar_sidebar.setFixedSize(34, 34)
+        self.account_avatar_sidebar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        account_footer_row.addWidget(self.account_avatar_sidebar)
+        self.account_sidebar = QLabel("АККАУНТ НЕ ПОДКЛЮЧЁН")
         self.account_sidebar.setObjectName("sidebarAccount")
         self.account_sidebar.setWordWrap(True)
-        self.account_sidebar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        side.addWidget(self.account_sidebar)
+        self.account_sidebar.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        account_footer_row.addWidget(self.account_sidebar, 1)
+        side.addWidget(account_footer)
         self.version_sidebar = QLabel("v" + APP_VERSION)
         self.version_sidebar.setObjectName("sidebarVersion")
         self.version_sidebar.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -860,6 +912,7 @@ class MainWindow(QMainWindow):
         self._build_logs_page()
         self._build_about_page()
         self._navigate(0)
+        self._build_initialization_overlay(shell)
         for widget_type in (QScrollBar, QLineEdit, QTextEdit, QComboBox):
             for widget in self.findChildren(widget_type):
                 widget.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
@@ -869,6 +922,59 @@ class MainWindow(QMainWindow):
         if self.channel_search_text and self.current_page != 0:
             self._navigate(0)
         self._render_channels()
+
+    def _build_initialization_overlay(self, parent):
+        self.initialization_overlay = QFrame(parent)
+        self.initialization_overlay.setObjectName("initializationOverlay")
+        outer = QVBoxLayout(self.initialization_overlay)
+        outer.setContentsMargins(20, 20, 20, 20)
+        outer.addStretch()
+        row = QHBoxLayout()
+        row.addStretch()
+        card = QFrame()
+        card.setObjectName("initializationCard")
+        card.setMinimumWidth(330)
+        card.setMaximumWidth(430)
+        box = QVBoxLayout(card)
+        box.setContentsMargins(26, 24, 26, 24)
+        box.setSpacing(12)
+        logo = TwitchLogo(self.ui_icon_atlas.copy(0, 0, 48, 48) if not self.ui_icon_atlas.isNull() else QPixmap())
+        box.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.initialization_title = QLabel("Инициализация...")
+        self.initialization_title.setObjectName("initializationTitle")
+        self.initialization_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        box.addWidget(self.initialization_title)
+        self.initialization_text = QLabel("Подготавливаем данные и проверяем сохранённую сессию Twitch.")
+        self.initialization_text.setObjectName("initializationText")
+        self.initialization_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.initialization_text.setWordWrap(True)
+        box.addWidget(self.initialization_text)
+        self.initialization_progress = QProgressBar()
+        self.initialization_progress.setRange(0, 0)
+        self.initialization_progress.setTextVisible(False)
+        self.initialization_progress.setFixedHeight(5)
+        box.addWidget(self.initialization_progress)
+        self.initialization_close = QPushButton("Закрыть приложение")
+        self.initialization_close.setObjectName("dangerButton")
+        self.initialization_close.clicked.connect(QApplication.quit)
+        self.initialization_close.hide()
+        box.addWidget(self.initialization_close)
+        row.addWidget(card, 0, Qt.AlignmentFlag.AlignCenter)
+        row.addStretch()
+        outer.addLayout(row)
+        outer.addStretch()
+        self.initialization_overlay.setGeometry(parent.rect())
+        self.initialization_overlay.show()
+        self.initialization_overlay.raise_()
+
+    def _show_initialization_error(self, message):
+        self.initialization_title.setText("Не удалось запустить приложение")
+        self.initialization_text.setText(str(message or "Неизвестная ошибка")[:500])
+        self.initialization_progress.hide()
+        self.initialization_close.show()
+        self.initialization_overlay.show()
+        self.initialization_overlay.raise_()
+
 
     def _style(self):
         return """
@@ -883,6 +989,16 @@ class MainWindow(QMainWindow):
         QPushButton#windowControl { background:transparent; border:0; color:#A8A2B9; font-size:15px; border-radius:6px; }
         QPushButton#windowControl:hover { background:#282438; color:white; }
         QPushButton#windowControl:last-child:hover { background:#A83D55; }
+        QFrame#initializationOverlay { background:rgba(8,8,14,238); border:0; }
+        QFrame#initializationCard { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #211B31,stop:1 #151420); border:1px solid #51406D; border-radius:16px; }
+        QLabel#initializationTitle { color:#F7F2FF; font-size:18px; font-weight:900; }
+        QLabel#initializationText { color:#AAA2B9; font-size:11px; }
+        QProgressBar { background:#242331; border:0; border-radius:3px; }
+        QProgressBar::chunk { background:#9958EE; border-radius:3px; }
+        QFrame#accountFooter { background:#191724; border:1px solid #322A43; border-radius:9px; }
+        QLabel#accountAvatar, QLabel#accountAvatarLarge { background:#29243A; border:1px solid #5B477B; border-radius:26px; color:#D3BEFF; font-size:12px; font-weight:900; }
+        QLabel#accountAvatar { border-radius:17px; }
+        QLabel#accountAvatarLarge { border-radius:26px; font-size:16px; }
         QFrame#sidebar { background:#11101B; border:0; border-right:1px solid #2B263D; border-radius:0; }
         QLabel#brandText { color:#F5F1FF; font-size:11px; font-weight:900; letter-spacing:1px; }
         QLabel#brandSub { color:#A98AFF; font-size:9px; font-weight:900; letter-spacing:2px; }
@@ -890,7 +1006,7 @@ class MainWindow(QMainWindow):
         QPushButton#navButton:hover { background:#211D31; color:#FFFFFF; border-color:#302944; }
         QPushButton#navButton:checked { background:#352253; border-color:#65448F; color:#E7D8FF; }
         QPushButton#navButton:checked:hover { background:#3B275F; }
-        QLabel#sidebarAccount { background:#171E22; border:1px solid #263B34; border-radius:7px; color:#78D8AB; font-size:9px; font-weight:800; padding:6px 4px; }
+        QLabel#sidebarAccount { color:#D8D1E5; font-size:9px; font-weight:800; padding:1px 0; }
         QLabel#sidebarVersion { color:#6E687D; font-size:9px; padding:3px; }
         QStackedWidget#pageStack { background:#0C0C15; border:0; }
         QWidget#pageContent { background:#0C0C15; }
@@ -937,6 +1053,7 @@ class MainWindow(QMainWindow):
         QPushButton#smallDanger { color:#A9A2B4; background:transparent; border:0; border-radius:6px; font-size:17px; }
         QPushButton#smallDanger:hover { color:#FF8593; background:#38212B; }
         QPushButton#dangerButton { background:#3A202B; border:1px solid #673343; color:#FF9BA7; padding:6px 10px; border-radius:7px; font-size:10px; }
+        QPushButton:focus { outline:none; border:none; }
         QLineEdit, QTextEdit, QComboBox { background:#11111A; border:1px solid #343143; border-radius:7px; padding:6px 8px; color:#F4F1F9; selection-background-color:#7142B7; font-size:11px; }
         QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color:#8750D9; background:#171522; }
         QComboBox { padding-right:24px; }
@@ -946,12 +1063,14 @@ class MainWindow(QMainWindow):
         QAbstractScrollArea, QAbstractScrollArea::viewport, QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget, QScrollArea QWidget#scrollContent { background-color:#0C0C15; border:0; }
         QScrollBar:vertical { background:transparent; width:6px; margin:1px 0; border:0; }
         QScrollBar::handle:vertical { background:#2A2A36; border-radius:3px; min-height:24px; }
-        QScrollBar::handle:vertical:hover { background:#514662; }
+        QScrollBar::handle:vertical:hover { background:#3E3E4E; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; border:0; }
         QScrollBar:horizontal { background:transparent; height:6px; margin:0 1px; border:0; }
         QScrollBar::handle:horizontal { background:#2A2A36; border-radius:3px; min-width:24px; }
-        QScrollBar::handle:horizontal:hover { background:#514662; }
+        QScrollBar::handle:horizontal:hover { background:#3E3E4E; }
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width:0; border:0; }
+        QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical, QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal { width:0; height:0; }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical, QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background:transparent; }
         QPushButton#dropsFilter { background:#171720; border:1px solid #302D3A; color:#AFAABD; padding:6px 8px; border-radius:7px; font-size:10px; font-weight:700; }
         QPushButton#dropsFilter:hover { background:#211D2D; border-color:#514064; color:#E6D9FF; }
         QPushButton#dropsFilter:checked { background:#302345; border-color:#7655A5; color:#E1D0FF; }
@@ -999,7 +1118,21 @@ class MainWindow(QMainWindow):
         return scroll_layout
 
     def _build_channels_page(self):
-        layout = self._page("Каналы", "Управление каналами, двумя активными слотами просмотра и сбором наград.")
+        page = QWidget()
+        page.setObjectName("pageContent")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(18, 14, 18, 12)
+        layout.setSpacing(7)
+        header = QVBoxLayout()
+        header.setSpacing(2)
+        title = QLabel("Каналы")
+        title.setObjectName("pageTitle")
+        header.addWidget(title)
+        subtitle = QLabel("Управление каналами, двумя активными слотами просмотра и сбором наград.")
+        subtitle.setObjectName("pageSubtitle")
+        subtitle.setWordWrap(True)
+        header.addWidget(subtitle)
+        layout.addLayout(header)
         top = QHBoxLayout()
         self.farm_status = QLabel("● НЕ ЗАПУЩЕН")
         self.farm_status.setObjectName("titleStatus")
@@ -1020,11 +1153,13 @@ class MainWindow(QMainWindow):
         self.active_panel = QFrame()
         self.active_panel.setObjectName("panel")
         panel_layout = QVBoxLayout(self.active_panel)
-        panel_layout.setContentsMargins(14, 12, 14, 12)
+        panel_layout.setContentsMargins(12, 9, 12, 9)
+        panel_layout.setSpacing(5)
         heading = QLabel("АКТИВНЫЙ ФАРМ СЕЙЧАС")
         heading.setObjectName("sectionEyebrow")
         panel_layout.addWidget(heading)
         slots = QHBoxLayout()
+        slots.setSpacing(8)
         self.slot_layout = slots
         self.slot_cards = []
         for number in (1, 2):
@@ -1040,9 +1175,9 @@ class MainWindow(QMainWindow):
         self.active_animation.finished.connect(self._active_panel_animation_finished)
         layout.addWidget(self.active_panel)
         row = QHBoxLayout()
-        title = QLabel("Список каналов")
-        title.setObjectName("sectionTitle")
-        row.addWidget(title)
+        channel_heading = QLabel("Список каналов")
+        channel_heading.setObjectName("sectionTitle")
+        row.addWidget(channel_heading)
         row.addStretch()
         self.selection_hint = QLabel("Выбери две карточки по очереди, чтобы поменять их местами.")
         self.selection_hint.setObjectName("smallMuted")
@@ -1055,26 +1190,49 @@ class MainWindow(QMainWindow):
         for column in range(3):
             self.channels_grid.setColumnStretch(column, 1)
         self.channels_wrap = QWidget()
+        self.channels_wrap.setObjectName("scrollContent")
         self.channels_wrap.setLayout(self.channels_grid)
-        layout.addWidget(self.channels_wrap)
+        self.channels_scroll = QScrollArea()
+        self.channels_scroll.setObjectName("channelsScroll")
+        self.channels_scroll.setWidgetResizable(True)
+        self.channels_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.channels_scroll.setWidget(self.channels_wrap)
+        layout.addWidget(self.channels_scroll, 1)
         feeds = QHBoxLayout()
+        feeds.setContentsMargins(0, 0, 0, 0)
+        feeds.setSpacing(10)
         self.rewards_feed = self._feed_panel("Последние награды")
         self.events_feed = self._feed_panel("События")
         feeds.addWidget(self.rewards_feed, 1)
         feeds.addWidget(self.events_feed, 1)
-        layout.addLayout(feeds)
+        feeds_row = QWidget()
+        feeds_row.setLayout(feeds)
+        feeds_row.setFixedHeight(178)
+        layout.addWidget(feeds_row)
+        self.stack.addWidget(page)
 
     def _feed_panel(self, title):
         frame = QFrame()
         frame.setObjectName("feedCard")
         box = QVBoxLayout(frame)
-        box.setContentsMargins(14, 12, 14, 12)
+        box.setContentsMargins(10, 8, 10, 7)
+        box.setSpacing(5)
         heading = QLabel(title)
         heading.setObjectName("sectionTitle")
         box.addWidget(heading)
-        frame.feed_layout = QVBoxLayout()
-        frame.feed_layout.setSpacing(7)
-        box.addLayout(frame.feed_layout)
+        scroll = QScrollArea()
+        scroll.setObjectName("feedScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        content = QWidget()
+        content.setObjectName("feedContent")
+        content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        frame.feed_layout = QVBoxLayout(content)
+        frame.feed_layout.setContentsMargins(0, 0, 4, 0)
+        frame.feed_layout.setSpacing(6)
+        scroll.setWidget(content)
+        box.addWidget(scroll, 1)
+        frame.feed_scroll = scroll
         return frame
 
     def _build_drops_page(self):
@@ -1149,9 +1307,23 @@ class MainWindow(QMainWindow):
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         account = self._setting_panel("АККАУНТ TWITCH", "Подключение и сохранённая сессия.")
+        identity_row = QHBoxLayout()
+        identity_row.setSpacing(10)
+        self.account_avatar = QLabel("T")
+        self.account_avatar.setObjectName("accountAvatarLarge")
+        self.account_avatar.setFixedSize(52, 52)
+        self.account_avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        identity_row.addWidget(self.account_avatar)
+        identity_text = QVBoxLayout()
+        identity_text.setSpacing(3)
+        self.account_display_name = QLabel("Аккаунт не подключён")
+        self.account_display_name.setObjectName("sectionTitle")
+        identity_text.addWidget(self.account_display_name)
         self.account_status = QLabel("АККАУНТ НЕ ПОДКЛЮЧЁН")
         self.account_status.setObjectName("statusHint")
-        account.layout().addWidget(self.account_status)
+        identity_text.addWidget(self.account_status)
+        identity_row.addLayout(identity_text, 1)
+        account.layout().addLayout(identity_row)
         account_row = QHBoxLayout()
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("Логин Twitch")
@@ -1262,14 +1434,22 @@ class MainWindow(QMainWindow):
         text = QLabel(description)
         text.setObjectName("mutedText")
         text.setWordWrap(True)
-        box.addWidget(text)
+        if description:
+            box.addWidget(text)
         return frame
 
     def _build_bets_page(self):
         layout = self._page("Настройки прогнозов", "Автоматическое размещение ставок и фильтры участников.")
-        presets = self._setting_panel("ПРЕСЕТЫ", "Сохраняй и переключай готовые наборы.")
+        presets = self._setting_panel("ПРЕСЕТЫ", "")
+        presets.layout().setContentsMargins(10, 6, 10, 6)
+        presets.layout().setSpacing(3)
+        presets.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         preset_row = QHBoxLayout()
         self.bet_preset = QComboBox()
+        self.bet_preset.setEditable(False)
+        self.bet_preset.setMaxVisibleItems(12)
+        self.bet_preset.setMinimumHeight(30)
+        self.bet_preset.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.bet_preset.addItem("Оптимальный")
         self.bet_preset.currentTextChanged.connect(self._select_bet_preset)
         preset_row.addWidget(self.bet_preset, 1)
@@ -1295,6 +1475,10 @@ class MainWindow(QMainWindow):
         grid.setColumnStretch(1, 1)
         panel = self._setting_panel("СТРАТЕГИЯ И ЛИМИТЫ", "Основные параметры ставки.")
         self.bet_strategy = QComboBox()
+        self.bet_strategy.setEditable(False)
+        self.bet_strategy.setMaxVisibleItems(12)
+        self.bet_strategy.setMinimumHeight(30)
+        self.bet_strategy.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.bet_strategy.addItems(STRATEGIES)
         panel.layout().addWidget(QLabel("Стратегия"))
         panel.layout().addWidget(self.bet_strategy)
@@ -1335,8 +1519,18 @@ class MainWindow(QMainWindow):
         self.bet_filter_enabled = SwitchCheckBox("Включить фильтр")
         filters.layout().addWidget(self.bet_filter_enabled)
         self.bet_filter_by = QComboBox()
+        self.bet_filter_by.setEditable(False)
+        self.bet_filter_by.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.bet_filter_by.setMaxVisibleItems(12)
+        self.bet_filter_by.setMinimumHeight(30)
+        self.bet_filter_by.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.bet_filter_by.addItems(FILTER_KEYS)
         self.bet_filter_condition = QComboBox()
+        self.bet_filter_condition.setEditable(False)
+        self.bet_filter_condition.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.bet_filter_condition.setMaxVisibleItems(8)
+        self.bet_filter_condition.setMinimumHeight(30)
+        self.bet_filter_condition.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.bet_filter_condition.addItems(["GT", "LT", "GTE", "LTE"])
         self.bet_filter_value = QLineEdit()
         self.bet_filter_value.setPlaceholderText("Значение")
@@ -1350,7 +1544,10 @@ class MainWindow(QMainWindow):
         filter_fields.addWidget(self.bet_filter_value, 3, 1)
         filters.layout().addLayout(filter_fields)
         grid.addWidget(filters, 0, 1)
-        self.bet_filter_enabled.toggled.connect(lambda value: (self.bet_filter_by.setEnabled(value), self.bet_filter_condition.setEnabled(value), self.bet_filter_value.setEnabled(value)))
+        self.bet_filter_by.setEnabled(False)
+        self.bet_filter_condition.setEnabled(False)
+        self.bet_filter_value.setEnabled(False)
+        self.bet_filter_enabled.toggled.connect(self._set_bet_filter_enabled)
         tracked_widgets = [
             self.bet_strategy, self.bet_percentage, self.bet_gap, self.bet_max,
             self.bet_minimum, self.bet_delay, self.bet_delay_mode,
@@ -1462,7 +1659,7 @@ class MainWindow(QMainWindow):
         if item is None:
             return
         key, callback = item
-        if error:
+        if error and key not in ("startup", "session-restore"):
             self._notify("Ошибка: " + error)
         if callback:
             callback(result, error)
@@ -1480,9 +1677,21 @@ class MainWindow(QMainWindow):
 
     def _startup_finished(self, result, error):
         if error:
-            self._notify("Не удалось подготовить backend: " + error)
+            self._show_initialization_error("Не удалось подготовить backend: " + error)
             return
-        self._run_task("session-restore", self.api.begin_session_restore, (), lambda value, failure: self._notify("Проверка сохранённой сессии Twitch запущена."))
+        startup_info = self.api.get_startup_status()
+        if startup_info.get("error"):
+            self._show_initialization_error(startup_info.get("error"))
+            return
+        self.initialization_text.setText("Проверяем сохранённую сессию Twitch...")
+        self._run_task("session-restore", self.api.begin_session_restore, (), self._session_restore_finished)
+
+    def _session_restore_finished(self, result, error):
+        if error:
+            self._show_initialization_error("Не удалось проверить сохранённую сессию: " + error)
+            return
+        self._startup_restore_requested = True
+        self._poll_state()
 
     def _poll_state(self):
         if self.poll_running:
@@ -1518,6 +1727,10 @@ class MainWindow(QMainWindow):
         self.drops_state = drops or {}
         self.followed_state = followed or {}
         self.update_state = update or {}
+        auth = auth or {}
+        self._update_account_identity(state.get("account_profile") or {}, auth)
+        self._request_account_profile(state.get("account_profile") or {}, auth)
+        self._update_initialization_state(auth)
         self._render_state()
         self._render_drops()
         self._render_followers()
@@ -1540,8 +1753,46 @@ class MainWindow(QMainWindow):
                 check.blockSignals(False)
         self._load_bet_values(self.latest_state.get("bet_settings") or DEFAULT_BET_SETTINGS)
         self._load_bet_presets(self.latest_state.get("custom_presets") or {}, self.latest_state.get("selected_preset") or "Оптимальный")
-        self.account_sidebar.setText("●  " + str(self.latest_state.get("authenticated_username") or "АККАУНТ НЕ ПОДКЛЮЧЁН"))
         self.version_sidebar.setText("v" + str(self.latest_state.get("app_version") or APP_VERSION))
+
+    def _set_avatar_label(self, label, url, fallback):
+        image_url = str(url or "")
+        previous = str(label.property("avatarUrl") or "")
+        if previous == image_url:
+            return
+        label.setProperty("avatarUrl", image_url)
+        label.clear()
+        label.setText(str(fallback or "T")[:1].upper())
+        if image_url.startswith("https://"):
+            self.image_cache.request(label, image_url, True)
+
+    def _update_account_identity(self, profile, auth):
+        username = str(auth.get("username") or self.latest_state.get("authenticated_username") or self.latest_state.get("username") or "")
+        display_name = str(profile.get("display_name") or username or "Аккаунт не подключён")
+        avatar_url = str(profile.get("avatar_url") or "")
+        self.account_display_name.setText(display_name)
+        self.account_sidebar.setText(display_name if username else "АККАУНТ НЕ ПОДКЛЮЧЁН")
+        self._set_avatar_label(self.account_avatar, avatar_url, display_name or username or "T")
+        self._set_avatar_label(self.account_avatar_sidebar, avatar_url, display_name or username or "T")
+
+    def _request_account_profile(self, profile, auth):
+        username = str(auth.get("username") or self.latest_state.get("authenticated_username") or "").strip().lower()
+        if not auth.get("authenticated"):
+            self._account_profile_request_user = ""
+            return
+        if not username or username == self._account_profile_request_user:
+            return
+        self._account_profile_request_user = username
+        if not profile.get("loaded"):
+            self._run_task("account-profile", self.api.refresh_channel_profiles, ([],), lambda result, error: None)
+
+    def _update_initialization_state(self, auth):
+        if not self._startup_restore_requested or not self.initialization_overlay.isVisible():
+            return
+        state = str(auth.get("worker_state") or "").lower()
+        waiting = bool(auth.get("worker_alive") or auth.get("restore_pending") or state in ("restoring", "running"))
+        if not waiting:
+            self.initialization_overlay.hide()
 
     def _render_state(self):
         state = self.latest_state
@@ -1960,6 +2211,12 @@ class MainWindow(QMainWindow):
         self.bet_preset.setCurrentText(selected if self.bet_preset.findText(selected) >= 0 else "Оптимальный")
         self.bet_preset.blockSignals(False)
 
+    def _set_bet_filter_enabled(self, enabled):
+        enabled = bool(enabled)
+        self.bet_filter_by.setEnabled(enabled)
+        self.bet_filter_condition.setEnabled(enabled)
+        self.bet_filter_value.setEnabled(enabled)
+
     def _load_bet_values(self, values):
         mapping = (
             (self.bet_strategy, "strategy"),
@@ -2290,6 +2547,10 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         parent = self.centralWidget()
+        if hasattr(self, "initialization_overlay"):
+            self.initialization_overlay.setGeometry(parent.rect())
+            if self.initialization_overlay.isVisible():
+                self.initialization_overlay.raise_()
         if self._modal_overlay is not None:
             self._modal_overlay.setGeometry(parent.rect())
             self._modal_overlay.raise_()
@@ -2305,9 +2566,13 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    if not acquire_single_instance():
+        return
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_UseHighDpiPixmaps, True)
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
+    if APP_ICON_FILE.is_file():
+        app.setWindowIcon(QIcon(str(APP_ICON_FILE)))
     app.setQuitOnLastWindowClosed(False)
     window = MainWindow()
     window.show()

@@ -92,7 +92,16 @@ check("pyside6-essentials" in requirements, "PySide6-Essentials dependency is mi
 check("QMessageBox" not in qt and "QInputDialog" not in qt, "Native system dialogs must be replaced with in-window overlays.")
 check("events_output" not in qt, "The duplicate event-log text area must be removed.")
 check("followers_list" not in qt, "Follower cards must use the compact grid layout.")
+check("QPushButton:focus { outline:none; border:none; }" in qt, "Button focus outlines must be disabled.")
+check("setFocusPolicy(Qt.FocusPolicy.NoFocus)" in qt, "Application buttons must not take keyboard focus.")
+check("CreateMutexW" in qt and "Local\\TwitchFarmingQt6SingleInstance" in qt, "The Windows single-instance mutex is missing.")
+check("self.channels_scroll = QScrollArea()" in qt and "frame.feed_scroll = scroll" in qt, "Independent main-screen scroll areas are missing.")
+check("setWindowIcon(QIcon(str(APP_ICON_FILE)))" in qt, "The main window app icon is missing.")
+check("events_output" not in qt, "The duplicate event-log text area must be removed.")
+check("followers_list" not in qt, "Follower cards must use the compact grid layout.")
 check("ui_icons.png" in qt and (APP / "assets" / "ui_icons.png").is_file(), "The generated Twitch icon atlas is missing.")
+check((APP / "assets" / "app.ico").is_file(), "The generated app.ico file is missing.")
+check("app.ico" in (APP / "build_icon.py").read_text(encoding="utf-8"), "The icon builder does not generate app.ico.")
 check("pywebview" not in requirements and "pystray" not in requirements, "Legacy GUI dependencies are still installed.")
 check("from qt_app import main" in entry, "The executable entry point must launch the native Qt interface.")
 for marker in (
@@ -115,6 +124,20 @@ for marker in (
     "self.login_button.setEnabled(not running)",
     "Основные",
     "html.escape(line)",
+    "class QPushButton(QtPushButton)",
+    "Qt.FocusPolicy.NoFocus",
+    "QPushButton:focus { outline:none; border:none; }",
+    "def hitButton(self, position)",
+    "self.channels_scroll = QScrollArea()",
+    "frame.feed_scroll = scroll",
+    "self.account_avatar_sidebar",
+    "self.account_avatar = QLabel",
+    "self.api.refresh_channel_profiles, ([],)",
+    "def acquire_single_instance",
+    "CreateMutexW",
+    "initializationOverlay",
+    "APP_ICON_FILE.is_file()",
+    "QApplication.setWindowIcon",
     "Все кампании",
     "Начатые (Инвентарь)",
     "Награды Twitch (значки и эмоуты за просмотр)",
