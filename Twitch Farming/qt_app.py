@@ -2141,20 +2141,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.drops_summary)
 
         row = QHBoxLayout()
-        self.drops_filter_index = 2
+        self.drops_filter_index = 0
         self.drops_filter_group = QButtonGroup(self)
         self.drops_filter_group.setExclusive(True)
         filters = (
-            ("Все кампании", "list"),
-            ("Начатые (Инвентарь)", "inventory"),
-            ("Награды Twitch (значки и эмоуты за просмотр)", "gift")
+            ("Все Twitch-награды", "gift"),
+            ("Начатые (Инвентарь)", "inventory")
         )
         for index, (title, icon_name) in enumerate(filters):
             button = QPushButton(title)
             button.setSvgIcon(icon_name, 14)
             button.setObjectName("dropsFilter")
             button.setCheckable(True)
-            button.setChecked(index == 2)
+            button.setChecked(index == 0)
             self.drops_filter_group.addButton(button, index)
             row.addWidget(button)
         self.drops_filter_group.idClicked.connect(self._set_drops_filter)
@@ -3417,15 +3416,12 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "drops_grid"):
             return
         raw_campaigns = self.drops_state.get("campaigns", [])
-        campaigns_all = eligible_watch_campaigns(raw_campaigns)
         twitch_campaigns_all = eligible_twitch_campaigns(raw_campaigns)
-        filter_index = int(getattr(self, "drops_filter_index", 2))
+        filter_index = int(getattr(self, "drops_filter_index", 0))
         if filter_index == 1:
             campaigns = [item for item in twitch_campaigns_all if item.get("started") or item.get("in_inventory")]
-        elif filter_index == 2:
-            campaigns = twitch_campaigns_all
         else:
-            campaigns = campaigns_all
+            campaigns = twitch_campaigns_all
 
         progress_count = 0
         for campaign in twitch_campaigns_all:
@@ -3468,7 +3464,7 @@ class MainWindow(QMainWindow):
         elif self.drops_state.get("error"):
             self.drops_status.setText("Ошибка загрузки: " + str(self.drops_state.get("error")))
         else:
-            self.drops_status.setText(f"Найдено кампаний с Twitch-наградами: {len(campaigns)}" if filter_index in (1, 2) else f"Найдено кампаний с бесплатными наградами за просмотр: {len(campaigns)}")
+            self.drops_status.setText(f"Найдено кампаний с Twitch-наградами: {len(campaigns)}")
 
         if not campaigns:
             empty = QLabel("Подходящих бесплатных Drops за просмотр сейчас нет. Обнови кампании после входа в Twitch.")
