@@ -135,9 +135,10 @@ const mainFunctionIndex = backend.indexOf("def main():");
 const backendModuleHeader = mainFunctionIndex >= 0 ? backend.slice(0, mainFunctionIndex) : backend;
 if (/^\\s*import webview\\s*$/m.test(backendModuleHeader) ||
     !backend.includes("        import webview") ||
-    !backend.includes("def _start_native_splash():") ||
-    !backend.includes("NativeStartupSplash")) {
-  throw new Error("WebView2 is not lazily imported after the early native startup splash.");
+    backend.includes("_start_native_splash") ||
+    backend.includes("NativeStartupSplash") ||
+    backend.includes("import tkinter")) {
+  throw new Error("Only the main WebView2 window may be created; the duplicate native splash must be absent.");
 }
 if (!backend.includes("def get_update_state(") ||
     !backend.includes("def check_for_updates(") ||
@@ -145,9 +146,54 @@ if (!backend.includes("def get_update_state(") ||
     !backend.includes("Twitch.Farming.zip")) {
   throw new Error("The GitHub updater API or ZIP installer is incomplete.");
 }
+if (!backend.includes("faulthandler.enable(file=_CRASH_LOG_HANDLE, all_threads=True)") ||
+    !backend.includes("sys.unraisablehook = _startup_unraisablehook") ||
+    !backend.includes('CRASH_LOG_FILE = APP_DIR / "crash.log"') ||
+    !backend.includes("def enqueue_ui_state(") ||
+    !backend.includes("self._apply_ui_state_queue_locked()") ||
+    !backend.includes('"ui_events": ui_events')) {
+  throw new Error("Crash logging or the polling-only farm state queue is missing.");
+}
+const engineWorkerStart = backend.indexOf("class EngineWorker(");
+const engineWorkerEnd = backend.indexOf("\n\nclass ChannelProfileWorker", engineWorkerStart);
+const engineWorker = engineWorkerStart >= 0 && engineWorkerEnd >= 0
+  ? backend.slice(engineWorkerStart, engineWorkerEnd)
+  : "";
+if (!engineWorker.includes("enqueue_ui_state") ||
+    engineWorker.includes("window.") ||
+    engineWorker.includes("evaluate_js") ||
+    engineWorker.includes("self.app.engine_error") ||
+    engineWorker.includes("self.app.engine_finished")) {
+  throw new Error("The miner worker still calls UI APIs directly instead of queueing state for polling.");
+}
+const minerSource = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/engine/TwitchChannelPointsMiner/TwitchChannelPointsMiner.py"), "utf8");
+const twitchSource = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/engine/TwitchChannelPointsMiner/classes/Twitch.py"), "utf8");
+if (!minerSource.includes("self.twitch.streamers_lock = self.streamers_lock") ||
+    !twitchSource.includes("def get_active_watch_channels(") ||
+    !twitchSource.includes("def _streamer_snapshot(") ||
+    minerSource.includes("sys.exit(0)")) {
+  throw new Error("Streamer collection locking or safe miner shutdown is missing.");
+}
 if (!html.includes("active-farm-panel") || !html.includes("update-check-button") ||
     !html.includes("update-download-button") || !source.includes("function renderActiveFarmPanel(")) {
   throw new Error("The active farming panel or application update card is missing.");
+}
+for (const filter of ["all_campaigns", "started", "twitch_view"]) {
+  if (!html.includes('data-drops-category="' + filter + '"')) {
+    throw new Error("Drops inventory filter is missing: " + filter);
+  }
+}
+if (!source.includes("drop.is_time_based") || !source.includes("campaign.started||item.in_inventory") ||
+    !source.includes("function isFreeWatchDrop(")) {
+  throw new Error("Drops campaign filtering does not separate started inventory and time-based Twitch rewards.");
+}
+if (!source.includes("channel-info--always-visible") ||
+    !css.includes(".channel-info--always-visible .channel-name{display:block!important") ||
+    !css.includes(".channel-card-top .channel-watch-slot{position:absolute")) {
+  throw new Error("The active watch badge still interferes with streamer names and logins.");
+}
+if (html.indexOf("settings-account-card") > html.indexOf("settings-update-card")) {
+  throw new Error("The updater card must be placed beside the Twitch account card at the bottom of settings.");
 }
 if (!source.includes("ВРЕМЕННЫЙ • DROPS") ||
     !backend.includes("self.temporary_channels") ||
