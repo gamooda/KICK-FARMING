@@ -72,7 +72,7 @@ for required in (
 ):
     check(required in backend or required in (APP / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8"), "Backend feature missing: " + required)
 check("import webview" not in backend and "import pystray" not in backend, "The native backend must not depend on PyWebView or PyStray.")
-check("PySide6-Essentials" in requirements, "PySide6-Essentials dependency is missing.")
+check("pyside6-essentials" in requirements, "PySide6-Essentials dependency is missing.")
 check("pywebview" not in requirements and "pystray" not in requirements, "Legacy GUI dependencies are still installed.")
 check("from qt_app import main" in entry, "The executable entry point must launch the native Qt interface.")
 for marker in (
@@ -94,7 +94,9 @@ for marker in (
     check(marker in qt, "Native Qt interface feature is missing: " + marker)
 for excluded in ("QtWebEngine", "QtQml", "QtQuick", "QtSql", "Qt3D"):
     check(excluded not in qt, "A prohibited Qt module is referenced: " + excluded)
-check("pywebview" not in workflow and "pythonnet" not in workflow and "clr_loader" not in workflow, "Legacy WebView/pythonnet packages remain in the build.")
+install_block = workflow.split("- name: Install dependencies", 1)[1].split("- name:", 1)[0]
+check("pip install pywebview" not in install_block and "pip install pythonnet" not in install_block and "pip install pystray" not in install_block, "Legacy WebView/pythonnet packages remain in the installed dependencies.")
+check("--exclude-module pywebview" in workflow and "--exclude-module pythonnet" in workflow and "--exclude-module clr_loader" in workflow, "PyInstaller does not explicitly exclude legacy WebView/pythonnet modules.")
 check("qt-smoke-test.py" in workflow, "Qt smoke tests are not included in CI.")
 check(not (APP / "ui").exists(), "The legacy HTML/CSS/JS folder must be removed.")
 
