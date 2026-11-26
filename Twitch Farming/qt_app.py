@@ -12,7 +12,7 @@ import weakref
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QEasingCurve, QPoint, QRect, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
+from PySide6.QtCore import QByteArray, QEasingCurve, QPoint, QRect, QRectF, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
 from PySide6.QtGui import QAction, QColor, QCursor, QDesktopServices, QPainter, QPainterPath, QPen, QPixmap, QIcon
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
@@ -49,10 +49,131 @@ def acquire_single_instance():
     return True
 
 
+SVG_ICON_PATHS = {
+    "external": '<path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M17 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h6"/>',
+    "swap": '<path d="M4 8h15"/><path d="m15 4 4 4-4 4"/><path d="M20 16H5"/><path d="m9 12-4 4 4 4"/>',
+    "settings": '<circle cx="12" cy="12" r="3.1"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3 .9v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3-.9l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-.9-3h-.2a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 .9-3l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3-.9v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3 .9l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 .9 3h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-.9 3Z"/>',
+    "trash": '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="m6 7 1 13h10l1-13"/><path d="M9 7V4h6v3"/>',
+    "minimize": '<path d="M5 18h14"/>',
+    "maximize": '<rect x="5" y="5" width="14" height="14" rx="1.5"/>',
+    "restore": '<rect x="8" y="4" width="12" height="12" rx="1.5"/><path d="M16 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h3"/>',
+    "close": '<path d="m6 6 12 12M18 6 6 18"/>',
+    "plus": '<path d="M12 5v14M5 12h14"/>',
+    "play": '<path d="m8 5 11 7-11 7V5Z"/>',
+    "stop": '<rect x="6" y="6" width="12" height="12" rx="1.5"/>',
+    "refresh": '<path d="M20 7v5h-5"/><path d="M19 12a7 7 0 1 1-2-5"/>',
+    "folder": '<path d="M3.5 7.5h6l2 2h9v9a1.5 1.5 0 0 1-1.5 1.5h-14A1.5 1.5 0 0 1 3.5 18.5v-11Z"/><path d="M3.5 9.5V6.8A1.8 1.8 0 0 1 5.3 5h4.2l2 2H18"/>',
+    "save": '<path d="M5 4h12l3 3v13H4V4h1Z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/>',
+    "logout": '<path d="M10 5H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h5"/><path d="M14 8l4 4-4 4M18 12H9"/>',
+    "login": '<path d="M14 5h5a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-5"/><path d="m10 8-4 4 4 4M6 12h10"/>',
+    "download": '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 19v2h16v-2"/>',
+    "palette": '<path d="M12 3a9 9 0 1 0 0 18h1.2a1.8 1.8 0 0 0 1.4-3c-.9-1.1-.1-2.7 1.3-2.7H18a3 3 0 0 0 3-3A9 9 0 0 0 12 3Z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/><circle cx="17" cy="11" r="1"/>',
+    "image": '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m5 17 5-5 3.5 3.5 2.5-2.5 3 3"/>',
+    "github": '<path d="M9 19c-4 .9-4-2-5-2.5M14 21v-3.1a2.7 2.7 0 0 0-.8-2.1c2.7-.3 5.5-1.3 5.5-6A4.7 4.7 0 0 0 17.4 6.5 4.3 4.3 0 0 0 17.3 3S16.3 2.7 14 4.2a12.4 12.4 0 0 0-5 0C6.7 2.7 5.7 3 5.7 3a4.3 4.3 0 0 0-.1 3.5 4.7 4.7 0 0 0-1.3 3.3c0 4.7 2.8 5.7 5.5 6A2.7 2.7 0 0 0 9 18v3"/>',
+    "channels": '<rect x="3.5" y="4" width="7" height="7" rx="1.4"/><rect x="13.5" y="4" width="7" height="7" rx="1.4"/><rect x="3.5" y="14" width="7" height="7" rx="1.4"/><rect x="13.5" y="14" width="7" height="7" rx="1.4"/>',
+    "drops": '<path d="M12 3.5c2.6 3.3 6.5 7.3 6.5 11.1a6.5 6.5 0 0 1-13 0C5.5 10.8 9.4 6.8 12 3.5Z"/><path d="M9 15.5a3 3 0 0 0 3 3"/>',
+    "followers": '<circle cx="9" cy="8" r="3"/><path d="M3.5 19a5.5 5.5 0 0 1 11 0"/><path d="M16 5.5a3 3 0 0 1 0 5.8M17 14a4.5 4.5 0 0 1 3.5 4.4"/>',
+    "bets": '<path d="M4 19V5M4 19h16"/><path d="m6.5 15 4-4 3 2 5-6"/><path d="M15.5 7H19v3.5"/>',
+    "events": '<path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    "about": '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5h.01"/>',
+    "list": '<path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/>',
+    "inventory": '<path d="m4 8 8-4 8 4-8 4-8-4Z"/><path d="M4 8v8l8 4 8-4V8M12 12v8"/>',
+    "gift": '<path d="M4 10h16v10H4zM3 7h18v3H3z"/><path d="M12 7v13"/><path d="M12 7H8.5a2 2 0 1 1 2-2c0 1.1 1.5 2 1.5 2ZM12 7h3.5a2 2 0 1 0-2-2c0 1.1-1.5 2-1.5 2Z"/>',
+    "check": '<path d="m5 12 4.5 4.5L19 7"/>',
+    "power": '<path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>',
+    "coin": '<ellipse cx="12" cy="7" rx="8" ry="3.5"/><path d="M4 7v10c0 1.9 3.6 3.5 8 3.5s8-1.6 8-3.5V7M4 12c0 1.9 3.6 3.5 8 3.5s8-1.6 8-3.5"/>'
+}
+_SVG_ICON_CACHE = {}
+
+
+def _svg_icon_pixmap(name, color, size, device_pixel_ratio=1.0):
+    dpr = max(1.0, float(device_pixel_ratio or 1.0))
+    key = (str(name), str(color), int(size), round(dpr, 3))
+    cached = _SVG_ICON_CACHE.get(key)
+    if cached is not None:
+        return cached
+    path = SVG_ICON_PATHS.get(str(name))
+    if not path:
+        return QPixmap()
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="' +
+           str(color) + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>')
+    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+    if not renderer.isValid():
+        return QPixmap()
+    physical_size = max(1, int(round(int(size) * dpr)))
+    pixmap = QPixmap(physical_size, physical_size)
+    pixmap.setDevicePixelRatio(dpr)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    renderer.render(painter, QRectF(0, 0, int(size), int(size)))
+    painter.end()
+    _SVG_ICON_CACHE[key] = pixmap
+    return pixmap
+
+
 class QPushButton(QtPushButton):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._svg_icon_name = ""
+        self._svg_icon_size = 16
+        self._svg_icon_danger = False
+        self._svg_icon_dpr = 0.0
+
+    def setSvgIcon(self, name, size=16, danger=False):
+        self._svg_icon_name = str(name or "")
+        self._svg_icon_size = max(8, int(size))
+        self._svg_icon_danger = bool(danger)
+        self._refreshSvgIcon()
+
+    def _refreshSvgIcon(self):
+        if not self._svg_icon_name:
+            return
+        dpr = float(self.devicePixelRatioF())
+        color = "#EF4444" if self._svg_icon_danger and self.underMouse() else ("#FFFFFF" if self.underMouse() else "#A1A1AA")
+        if not self.isEnabled():
+            color = "#666671"
+        pixmap = _svg_icon_pixmap(self._svg_icon_name, color, self._svg_icon_size, dpr)
+        if pixmap.isNull():
+            return
+        self._svg_icon_dpr = dpr
+        self.setIcon(QIcon(pixmap))
+        self.setIconSize(QSize(self._svg_icon_size, self._svg_icon_size))
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self._refreshSvgIcon()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self._refreshSvgIcon()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._svg_icon_name and abs(float(self.devicePixelRatioF()) - self._svg_icon_dpr) > 0.01:
+            self._refreshSvgIcon()
+
+
+class SvgIconLabel(QLabel):
+    def __init__(self, name, size=16, color="#D9C4FF", parent=None):
+        super().__init__(parent)
+        self.icon_name = str(name or "")
+        self.icon_size = max(8, int(size))
+        self.icon_color = str(color)
+        self.setFixedSize(self.icon_size, self.icon_size)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.refresh()
+
+    def refresh(self):
+        pixmap = _svg_icon_pixmap(self.icon_name, self.icon_color, self.icon_size, self.devicePixelRatioF())
+        if not pixmap.isNull():
+            self.setPixmap(pixmap)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.refresh()
 
 
 class TaskSignals(QObject):
@@ -282,23 +403,34 @@ class TitleBar(QFrame):
         self.status.setMaximumWidth(150)
         self.status.setFixedHeight(23)
         row.addWidget(self.status)
-        self.points = QLabel("◈ +0 очков")
+        points_holder = QWidget()
+        points_row = QHBoxLayout(points_holder)
+        points_row.setContentsMargins(4, 0, 4, 0)
+        points_row.setSpacing(5)
+        self.points_icon = SvgIconLabel("coin", 15, "#D9C4FF")
+        points_row.addWidget(self.points_icon)
+        self.points = QLabel("+0 очков")
         self.points.setObjectName("sessionPoints")
         self.points.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.points.setMinimumWidth(104)
+        self.points.setMinimumWidth(78)
         self.points.setFixedHeight(24)
-        row.addWidget(self.points)
+        points_row.addWidget(self.points)
+        points_holder.setMinimumWidth(104)
+        row.addWidget(points_holder)
         self.timer = QLabel("00:00:00")
         self.timer.setObjectName("sessionTimer")
         self.timer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.timer.setFixedHeight(24)
         row.addWidget(self.timer)
-        for glyph, signal in (("—", self.minimizeRequested), ("□", self.maximizeRequested), ("×", self.closeRequested)):
-            button = QPushButton(glyph)
+        for icon_name, signal in (("minimize", self.minimizeRequested), ("maximize", self.maximizeRequested), ("close", self.closeRequested)):
+            button = QPushButton()
             button.setObjectName("windowControl")
+            button.setSvgIcon(icon_name, 16)
             button.setFixedSize(30, 28)
             button.clicked.connect(signal.emit)
             row.addWidget(button)
+            if icon_name == "maximize":
+                self.maximize_button = button
 
     def set_status(self, text, color):
         value = str(text or "НЕ ЗАПУЩЕН").replace("●", "").strip()
@@ -320,12 +452,16 @@ class TitleBar(QFrame):
     def set_timer(self, value):
         self.timer.setText(value)
 
+    def set_maximized(self, maximized):
+        if hasattr(self, "maximize_button"):
+            self.maximize_button.setSvgIcon("restore" if maximized else "maximize", 16)
+
     def set_gained_total(self, value):
         try:
             amount = max(0, int(value or 0))
         except (TypeError, ValueError):
             amount = 0
-        self.points.setText("◈ +" + f"{amount:,}".replace(",", " ") + " очков")
+        self.points.setText("+" + f"{amount:,}".replace(",", " ") + " очков")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -475,31 +611,35 @@ class ChannelCard(QFrame):
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(3)
 
-        open_button = QPushButton("↗")
+        open_button = QPushButton()
         open_button.setObjectName("cardAction")
+        open_button.setSvgIcon("external", 14)
         open_button.setFixedSize(24, 24)
         open_button.setToolTip("Открыть на Twitch")
         open_button.clicked.connect(lambda checked=False, value=login: QDesktopServices.openUrl(QUrl("https://www.twitch.tv/" + value)))
         action_layout.addWidget(open_button)
 
-        move = QPushButton("⇄")
+        move = QPushButton()
         move.setObjectName("cardAction")
+        move.setSvgIcon("swap", 14)
         move.setFixedSize(24, 24)
         move.setEnabled(bool(actions_enabled))
         move.setToolTip("Переместить: выбери вторую карточку")
         move.clicked.connect(lambda checked=False, value=login: move_callback(value))
         action_layout.addWidget(move)
 
-        edit = QPushButton("⚙")
+        edit = QPushButton()
         edit.setObjectName("cardAction")
+        edit.setSvgIcon("settings", 14)
         edit.setFixedSize(24, 24)
         edit.setEnabled(bool(actions_enabled))
         edit.setToolTip("Настройки канала · Редактировать канал")
         edit.clicked.connect(lambda checked=False, value=login: edit_callback(value))
         action_layout.addWidget(edit)
 
-        remove = QPushButton("×")
-        remove.setObjectName("smallDanger")
+        remove = QPushButton()
+        remove.setObjectName("cardAction")
+        remove.setSvgIcon("trash", 14, danger=True)
         remove.setFixedSize(24, 24)
         remove.setEnabled(bool(actions_enabled))
         remove.setToolTip("Удалить канал")
@@ -810,11 +950,13 @@ class CampaignCard(QFrame):
                 info.addWidget(description)
                 row.addLayout(info, 1)
                 open_button = QPushButton("Открыть")
+                open_button.setSvgIcon("external", 14)
                 open_button.setObjectName("softButton")
                 login = str(streamer.get("login") or "")
                 open_button.clicked.connect(lambda checked=False, value=login: QDesktopServices.openUrl(QUrl("https://www.twitch.tv/" + value)))
                 row.addWidget(open_button)
                 add_button = QPushButton("Фармить")
+                add_button.setSvgIcon("play", 14)
                 add_button.setObjectName("primaryButton")
                 add_button.setEnabled(bool(add_enabled))
                 add_button.setToolTip("Остановите фарм, чтобы изменить список каналов." if not add_enabled else "")
@@ -878,6 +1020,15 @@ class ModalOverlay(QWidget):
         row.addStretch()
         for label, accepted in buttons or [("Понятно", True)]:
             button = QPushButton(str(label))
+            lower_label = str(label or "").strip().lower()
+            if "удал" in lower_label:
+                button.setSvgIcon("trash", 14, danger=True)
+            elif any(word in lower_label for word in ("закры", "отмена", "нет", "назад")):
+                button.setSvgIcon("close", 14)
+            elif any(word in lower_label for word in ("понятно", "ок", "да", "сохран")):
+                button.setSvgIcon("check" if accepted else "close", 14)
+            else:
+                button.setSvgIcon("check" if accepted else "close", 14)
             button.setObjectName("dangerButton" if accepted and danger else ("primaryButton" if accepted else "softButton"))
             button.setMinimumWidth(88)
             button.setFixedHeight(35)
@@ -1020,8 +1171,7 @@ class MainWindow(QMainWindow):
             button.setObjectName("navButton")
             button.setCheckable(True)
             button.setFixedHeight(36)
-            button.setIcon(self.nav_icons.get(icon_name, QIcon()))
-            button.setIconSize(QSize(19, 19))
+            button.setSvgIcon(icon_name, 18)
             button.clicked.connect(lambda checked=False, value=index: self._navigate(value))
             side.addWidget(button)
             self.nav_buttons.append(button)
@@ -1101,6 +1251,7 @@ class MainWindow(QMainWindow):
         self.initialization_progress.setFixedHeight(5)
         box.addWidget(self.initialization_progress)
         self.initialization_close = QPushButton("Закрыть приложение")
+        self.initialization_close.setSvgIcon("power", 15, danger=True)
         self.initialization_close.setObjectName("dangerButton")
         self.initialization_close.clicked.connect(QApplication.quit)
         self.initialization_close.hide()
@@ -1296,11 +1447,13 @@ class MainWindow(QMainWindow):
         self.session_label = QLabel()
         self.session_label.hide()
         top.addStretch()
-        self.add_channel_button = QPushButton("＋ Добавить канал")
+        self.add_channel_button = QPushButton("Добавить канал")
+        self.add_channel_button.setSvgIcon("plus", 15)
         self.add_channel_button.setObjectName("secondaryButton")
         self.add_channel_button.clicked.connect(self._add_channels)
         top.addWidget(self.add_channel_button)
-        self.farm_button = QPushButton("▶  Запустить фарм")
+        self.farm_button = QPushButton("Запустить фарм")
+        self.farm_button.setSvgIcon("play", 15)
         self.farm_button.setObjectName("primaryButton")
         self.farm_button.clicked.connect(self._toggle_farm)
         top.addWidget(self.farm_button)
@@ -1397,12 +1550,13 @@ class MainWindow(QMainWindow):
         self.drops_filter_group = QButtonGroup(self)
         self.drops_filter_group.setExclusive(True)
         filters = (
-            "Все кампании",
-            "Начатые (Инвентарь)",
-            "Награды Twitch (значки и эмоуты за просмотр)"
+            ("Все кампании", "list"),
+            ("Начатые (Инвентарь)", "inventory"),
+            ("Награды Twitch (значки и эмоуты за просмотр)", "gift")
         )
-        for index, title in enumerate(filters):
+        for index, (title, icon_name) in enumerate(filters):
             button = QPushButton(title)
+            button.setSvgIcon(icon_name, 14)
             button.setObjectName("dropsFilter")
             button.setCheckable(True)
             button.setChecked(index == 0)
@@ -1410,7 +1564,8 @@ class MainWindow(QMainWindow):
             row.addWidget(button)
         self.drops_filter_group.idClicked.connect(self._set_drops_filter)
         row.addStretch()
-        refresh = QPushButton("↻  Обновить кампании")
+        refresh = QPushButton("Обновить кампании")
+        refresh.setSvgIcon("refresh", 15)
         refresh.setObjectName("primaryButton")
         refresh.clicked.connect(lambda: self._call("refresh_drops_inventory", True, message="Обновление каталога Twitch Drops запущено."))
         row.addWidget(refresh)
@@ -1426,7 +1581,8 @@ class MainWindow(QMainWindow):
     def _build_followers_page(self):
         layout = self._page("Фолловеры", "Подписки Twitch. Добавляй нужные каналы в список для фарма.")
         row = QHBoxLayout()
-        refresh = QPushButton("↻  Обновить")
+        refresh = QPushButton("Обновить")
+        refresh.setSvgIcon("refresh", 15)
         refresh.setObjectName("primaryButton")
         refresh.clicked.connect(lambda: self._call("refresh_followed_channels", True, message="Загрузка списка подписок запущена."))
         row.addWidget(refresh)
@@ -1434,6 +1590,7 @@ class MainWindow(QMainWindow):
         self.followed_input.setPlaceholderText("Логин Twitch")
         row.addWidget(self.followed_input, 1)
         add = QPushButton("Добавить")
+        add.setSvgIcon("plus", 15)
         add.setObjectName("secondaryButton")
         add.clicked.connect(self._add_followed)
         row.addWidget(add)
@@ -1484,16 +1641,19 @@ class MainWindow(QMainWindow):
         self.username_input.setPlaceholderText("Логин Twitch")
         account_row.addWidget(self.username_input, 1)
         self.login_button = QPushButton("Подключить")
+        self.login_button.setSvgIcon("login", 15)
         self.login_button.setObjectName("primaryButton")
         self.login_button.clicked.connect(self._login)
         account_row.addWidget(self.login_button)
         account.layout().addLayout(account_row)
         account_actions = QHBoxLayout()
         self.logout_button = QPushButton("Выйти")
+        self.logout_button.setSvgIcon("logout", 15)
         self.logout_button.setObjectName("secondaryButton")
         self.logout_button.clicked.connect(lambda: self._call("logout", message="Сессия Twitch завершена."))
         account_actions.addWidget(self.logout_button)
         open_folder = QPushButton("Папка с данными")
+        open_folder.setSvgIcon("folder", 15)
         open_folder.setObjectName("secondaryButton")
         open_folder.clicked.connect(lambda: self._call("open_app_folder", message="Папка данных открыта."))
         account_actions.addWidget(open_folder)
@@ -1509,10 +1669,12 @@ class MainWindow(QMainWindow):
         updater.layout().addWidget(self.update_status)
         update_actions = QHBoxLayout()
         self.update_check_button = QPushButton("Проверить")
+        self.update_check_button.setSvgIcon("refresh", 15)
         self.update_check_button.setObjectName("primaryButton")
         self.update_check_button.clicked.connect(lambda: self._call("check_for_updates", message="Проверка GitHub Releases запущена."))
         update_actions.addWidget(self.update_check_button)
         self.update_download_button = QPushButton("Скачать и обновить")
+        self.update_download_button.setSvgIcon("download", 15)
         self.update_download_button.setObjectName("primaryButton")
         self.update_download_button.setVisible(False)
         self.update_download_button.clicked.connect(self._download_update)
@@ -1557,14 +1719,17 @@ class MainWindow(QMainWindow):
         cache_grid = QGridLayout()
         cache_grid.setHorizontalSpacing(6)
         clear_avatars = QPushButton("Кэш аватарок")
+        clear_avatars.setSvgIcon("image", 15)
         clear_avatars.setObjectName("secondaryButton")
         clear_avatars.clicked.connect(lambda: self._clear_image_cache("clear_avatar_cache", "avatars"))
         cache_grid.addWidget(clear_avatars, 0, 0)
         clear_currency = QPushButton("Кэш валют")
+        clear_currency.setSvgIcon("trash", 15, danger=True)
         clear_currency.setObjectName("secondaryButton")
         clear_currency.clicked.connect(lambda: self._clear_image_cache("clear_currency_cache", "currency"))
         cache_grid.addWidget(clear_currency, 0, 1)
         refresh_branding = QPushButton("Обновить валюты")
+        refresh_branding.setSvgIcon("palette", 15)
         refresh_branding.setObjectName("secondaryButton")
         refresh_branding.clicked.connect(lambda: self._call("refresh_channel_points_branding", message="Обновление оформления запущено."))
         cache_grid.addWidget(refresh_branding, 1, 0, 1, 2)
@@ -1572,6 +1737,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(app_settings, 1, 1)
         layout.addWidget(grid_wrap)
         save = QPushButton("Сохранить настройки")
+        save.setSvgIcon("save", 15)
         save.setObjectName("primaryButton")
         save.clicked.connect(self._save_settings)
         layout.addWidget(save)
@@ -1612,10 +1778,12 @@ class MainWindow(QMainWindow):
         self.bet_preset_name.setPlaceholderText("Название пресета")
         preset_row.addWidget(self.bet_preset_name, 1)
         save_preset = QPushButton("Сохранить")
+        save_preset.setSvgIcon("save", 14)
         save_preset.setObjectName("secondaryButton")
         save_preset.clicked.connect(self._save_bet_preset)
         preset_row.addWidget(save_preset)
         delete_preset = QPushButton("Удалить")
+        delete_preset.setSvgIcon("trash", 14, danger=True)
         delete_preset.setObjectName("dangerButton")
         delete_preset.clicked.connect(self._delete_bet_preset)
         preset_row.addWidget(delete_preset)
@@ -1718,6 +1886,7 @@ class MainWindow(QMainWindow):
                 widget.toggled.connect(lambda value, target=widget: target.setProperty("dirty", True))
         layout.addWidget(grid_wrap)
         save = QPushButton("Сохранить параметры прогнозов")
+        save.setSvgIcon("save", 15)
         save.setObjectName("primaryButton")
         save.clicked.connect(self._save_bets)
         layout.addWidget(save)
@@ -1736,6 +1905,7 @@ class MainWindow(QMainWindow):
         self.log_level.currentIndexChanged.connect(self._render_logs)
         row.addWidget(self.log_level)
         clear = QPushButton("Очистить журнал")
+        clear.setSvgIcon("trash", 15, danger=True)
         clear.setObjectName("secondaryButton")
         clear.clicked.connect(self._clear_logs)
         row.addWidget(clear)
@@ -1758,6 +1928,7 @@ class MainWindow(QMainWindow):
         assistants.setObjectName("statusHint")
         panel.layout().addWidget(assistants)
         repository = QPushButton("Открыть репозиторий GitHub")
+        repository.setSvgIcon("github", 15)
         repository.setObjectName("primaryButton")
         repository.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(REPOSITORY_URL)))
         panel.layout().addWidget(repository)
@@ -2000,7 +2171,8 @@ class MainWindow(QMainWindow):
             self.farm_status.setText(status)
             self.farm_status.setStyleSheet("color:" + color + ";")
             running = bool(state.get("session_running"))
-            self.farm_button.setText("■  Остановить фарм" if running else "▶  Запустить фарм")
+            self.farm_button.setText("Остановить фарм" if running else "Запустить фарм")
+        self.farm_button.setSvgIcon("stop" if running else "play", 15)
             self.add_channel_button.setEnabled(not running)
             self.add_channel_button.setToolTip("Остановите фарм, чтобы изменить список каналов." if running else "")
             self.username_input.setEnabled(not running)
@@ -2612,7 +2784,8 @@ class MainWindow(QMainWindow):
             meta.setObjectName("followerMeta")
             details.addWidget(meta)
             row.addLayout(details, 1)
-            add = QPushButton("✓ Добавлен" if added else "+ Добавить")
+            add = QPushButton("Добавлен" if added else "Добавить")
+            add.setSvgIcon("check" if added else "plus", 14)
             add.setObjectName("followerAddedButton" if added else "followerAddButton")
             add.setFixedWidth(82)
             add.setFixedHeight(27)
@@ -2756,6 +2929,7 @@ class MainWindow(QMainWindow):
             self.showNormal()
         else:
             self.showMaximized()
+        self.title_bar.set_maximized(self.isMaximized())
 
     def _show_dialog(self, title, message, buttons=None, input_mode="", initial_value="", danger=False, callback=None):
         if self._modal_overlay is not None:
