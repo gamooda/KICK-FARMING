@@ -96,7 +96,7 @@ class TwitchChannelPointsMiner:
         if not username or username == "your-twitch-username":
             logger.error("Please edit your runner file (usually run.py) and try again.")
             logger.error("No username, exiting...")
-            sys.exit(0)
+            raise ValueError("A valid Twitch username is required to start the miner.")
 
         # This disables certificate verification and allows the connection to proceed, but also makes it vulnerable to man-in-the-middle (MITM) attacks.
         Settings.disable_ssl_cert_verification = disable_ssl_cert_verification
@@ -161,6 +161,7 @@ class TwitchChannelPointsMiner:
         self.original_streamers = []
         self.streamers_lock = threading.RLock()
         self.streamer_topics_initialized = False
+        self.twitch.streamers_lock = self.streamers_lock
 
         self.logs_file, self.queue_listener = configure_loggers(
             self.username, logger_settings
@@ -355,7 +356,8 @@ class TwitchChannelPointsMiner:
                                 self.twitch.twitch_login.get_auth_token(),
                                 streamer.username,
                             )
-                        self.streamers.append(streamer)
+                        with self.streamers_lock:
+                            self.streamers.append(streamer)
                     except StreamerDoesNotExistException:
                         logger.info(
                             f"Streamer {username} does not exist",
@@ -366,7 +368,9 @@ class TwitchChannelPointsMiner:
             # 1. Load channel points and auto-claim bonus
             # 2. Check if streamers are online
             # 3. DEACTIVATED: Check if the user is a moderator. (was used before the 5th of April 2021 to deactivate predictions)
-            for streamer in self.streamers:
+            with self.streamers_lock:
+                startup_streamers = list(self.streamers)
+            for streamer in startup_streamers:
                 if not self.running:
                     return
                 time.sleep(random.uniform(0.3, 0.7))
@@ -385,9 +389,10 @@ class TwitchChannelPointsMiner:
                 self.running = False
                 return
 
-            self.original_streamers = [
-                streamer.channel_points for streamer in self.streamers
-            ]
+            with self.streamers_lock:
+                self.original_streamers = [
+                    streamer.channel_points for streamer in self.streamers
+                ]
 
             if not self.running:
                 return
@@ -549,7 +554,9 @@ class TwitchChannelPointsMiner:
 
     def end(self, signum, frame):
         self.stop()
-        sys.exit(0)
+        with self.state_lock:
+            self.running = False
+        return
 
     def __print_report(self):
         print("\n")
