@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "Twitch Farming"
 sys.path.insert(0, str(APP))
 
-from qt_app import _campaign_game_art_url, eligible_twitch_campaigns, eligible_watch_campaigns, format_duration, log_entry_matches_level
+from qt_app import _campaign_game_art_url, eligible_twitch_campaigns, eligible_watch_campaigns, started_watch_campaigns, format_duration, log_entry_matches_level
 
 
 def check(condition, message):
@@ -95,6 +95,14 @@ check(log_entry_matches_level("2026 +50 → channel - Reason: WATCH", "INFO / В
 iconless_campaigns = eligible_watch_campaigns([{"id": "iconless", "status": "ACTIVE", "game": "Image Missing Game", "drops": [{"id": "placeholder", "category": "game", "image_url": ""}]}])
 check(len(iconless_campaigns) == 1 and iconless_campaigns[0]["visible_drops"][0]["image_url"] == "", "Campaigns and rewards without an image must remain visible for the gift fallback.")
 check([item["login"] for item in result[0]["streamers"]] == ["longstream", "medium", "highview"], "Long-running streams must be recommended first.")
+started_only = started_watch_campaigns([
+    {"id": "started", "started": True},
+    {"id": "inventory", "in_inventory": True},
+    {"id": "not-started", "started": False, "in_inventory": False},
+    {"id": "string-false", "started": "false", "in_inventory": "false"},
+])
+check([item["id"] for item in started_only] == ["started", "inventory"], "The Drops page must show only campaigns already started or present in inventory.")
+
 check(format_duration(3660) == "1 ч 1 мин", "Stream uptime must be formatted.")
 check(format_duration(0) == "0 мин", "Zero uptime must be formatted.")
 
@@ -152,6 +160,7 @@ for marker in (
     "FramelessWindowHint",
     "class ModalOverlay",
     "eligible_watch_campaigns",
+    "started_watch_campaigns",
     "QScrollArea > QWidget > QWidget",
     "border-radius:0",
     "rgba(0, 0, 0, 185)",
@@ -226,7 +235,7 @@ slot_card_source = qt[qt.index("class ActiveSlotCard(QFrame):"):qt.index("def _l
 check("class ActiveSlotCard(QFrame):" in qt and "self.select_button" not in slot_card_source and "self.remove_button" not in slot_card_source and 'QPushButton("Выбрать")' not in slot_card_source and 'QPushButton("Снять")' not in slot_card_source, "Active farm slot cards must not contain select or clear buttons.")
 check("def _choose_slot_channel" in qt and "def _clear_slot_priority" in qt and "if has_active" not in qt, "Existing slot priority handlers must remain syntactically valid.")
 check("def _campaign_game_art_url(campaign)" in qt and "_campaign_game_art_url(campaign)" in qt and "game_id" in qt and "ttv-boxart/" in qt and '"game_art"' in qt, "Campaign game cover URLs must be resolved from raw art fields or the flattened game_id, then loaded through the async image cache.")
-check('self.drops_filter_index = 0' in qt and '("Все Drops", "gift")' in qt and '("Начатые (Инвентарь)", "inventory")' in qt and "watch_campaigns_all = eligible_watch_campaigns(raw_campaigns)" in qt and "campaigns = watch_campaigns_all" in qt, "The Drops inventory must show all free watch rewards, including game items, with a separate started-inventory filter.")
+check('self.drops_filter_index = 1' in qt and 'QPushButton("Начатые (Инвентарь)")' in qt and '"Все Drops"' not in qt and "campaigns = started_watch_campaigns(watch_campaigns)" in qt, "The Drops page must show only started campaigns and must not expose the all-Drops list.")
 check("self.update_progress.setTextVisible(False)" in qt, "The application update progress bar must not display percentage text inside the bar.")
 campaign_card_source = qt[qt.index("class CampaignCard(QFrame):"):qt.index("class ModalOverlay", qt.index("class CampaignCard(QFrame):"))]
 check("self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)" in campaign_card_source and "layout.setSpacing(10)" in campaign_card_source, "Drops campaign cards must preserve their natural content height and keep spacing between rewards.")

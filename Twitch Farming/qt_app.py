@@ -1172,6 +1172,15 @@ def eligible_watch_campaigns(campaigns):
     return result
 
 
+def started_watch_campaigns(campaigns):
+    return [
+        campaign
+        for campaign in campaigns if isinstance(campaigns, list)
+        if isinstance(campaign, dict)
+        and (_flag_enabled(campaign.get("started")) or _flag_enabled(campaign.get("in_inventory")))
+    ]
+
+
 def eligible_twitch_campaigns(campaigns):
     result = []
     for campaign in campaigns if isinstance(campaigns, list) else []:
@@ -2173,21 +2182,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.drops_summary)
 
         row = QHBoxLayout()
-        self.drops_filter_index = 0
+        self.drops_filter_index = 1
         self.drops_filter_group = QButtonGroup(self)
         self.drops_filter_group.setExclusive(True)
-        filters = (
-            ("Все Drops", "gift"),
-            ("Начатые (Инвентарь)", "inventory")
-        )
-        for index, (title, icon_name) in enumerate(filters):
-            button = QPushButton(title)
-            button.setSvgIcon(icon_name, 14)
-            button.setObjectName("dropsFilter")
-            button.setCheckable(True)
-            button.setChecked(index == 0)
-            self.drops_filter_group.addButton(button, index)
-            row.addWidget(button)
+        button = QPushButton("Начатые (Инвентарь)")
+        button.setSvgIcon("inventory", 14)
+        button.setObjectName("dropsFilter")
+        button.setCheckable(True)
+        button.setChecked(True)
+        self.drops_filter_group.addButton(button, 1)
+        row.addWidget(button)
         self.drops_filter_group.idClicked.connect(self._set_drops_filter)
         row.addStretch()
         refresh = QPushButton("Обновить кампании")
@@ -3449,15 +3453,11 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "drops_grid"):
             return
         raw_campaigns = self.drops_state.get("campaigns", [])
-        watch_campaigns_all = eligible_watch_campaigns(raw_campaigns)
-        filter_index = int(getattr(self, "drops_filter_index", 0))
-        if filter_index == 1:
-            campaigns = [item for item in watch_campaigns_all if item.get("started") or item.get("in_inventory")]
-        else:
-            campaigns = watch_campaigns_all
+        watch_campaigns = eligible_watch_campaigns(raw_campaigns)
+        campaigns = started_watch_campaigns(watch_campaigns)
 
         progress_count = 0
-        for campaign in watch_campaigns_all:
+        for campaign in campaigns:
             for drop in campaign.get("visible_drops", []):
                 percentage = drop.get("percentage")
                 if percentage is None:
@@ -3466,7 +3466,7 @@ class MainWindow(QMainWindow):
                     percentage = (watched * 100.0 / required) if required > 0 else 0
                 if int(float(percentage or 0)) < 100 and not _drop_is_claimed(drop):
                     progress_count += 1
-        self.drops_active_value.setText(str(len(watch_campaigns_all)))
+        self.drops_active_value.setText(str(len(campaigns)))
         self.drops_progress_value.setText(str(progress_count))
         updated_at = self.drops_state.get("updated_at")
         updated_text = "Ещё не обновлялось"
@@ -3500,7 +3500,7 @@ class MainWindow(QMainWindow):
             self.drops_status.setText(f"Найдено кампаний с наградами за просмотр: {len(campaigns)}")
 
         if not campaigns:
-            empty = QLabel("Подходящих бесплатных Drops за просмотр сейчас нет. Обнови кампании после входа в Twitch.")
+            empty = QLabel("Начатых кампаний с незабранными наградами пока нет.")
             empty.setObjectName("mutedText")
             empty.setWordWrap(True)
             self.drops_grid.addWidget(empty, 0, 0, 1, 3)
