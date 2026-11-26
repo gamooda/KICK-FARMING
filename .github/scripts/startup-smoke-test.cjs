@@ -131,7 +131,12 @@ if (!workflow.includes("--onedir") || workflow.includes("--onefile") || !workflo
 if (!workflow.includes("GITHUB_RUN_NUMBER") || !versionInfo.includes("APP_VERSION")) {
   throw new Error("The application version is not generated from the GitHub Actions build number.");
 }
-if (backend.includes("import webview\\n") || !backend.includes("def _start_native_splash():") || !backend.includes("NativeStartupSplash")) {
+const mainFunctionIndex = backend.indexOf("def main():");
+const backendModuleHeader = mainFunctionIndex >= 0 ? backend.slice(0, mainFunctionIndex) : backend;
+if (/^\\s*import webview\\s*$/m.test(backendModuleHeader) ||
+    !backend.includes("        import webview") ||
+    !backend.includes("def _start_native_splash():") ||
+    !backend.includes("NativeStartupSplash")) {
   throw new Error("WebView2 is not lazily imported after the early native startup splash.");
 }
 if (!backend.includes("def get_update_state(") ||
