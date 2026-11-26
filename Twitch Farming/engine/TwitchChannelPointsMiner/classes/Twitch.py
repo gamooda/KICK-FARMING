@@ -734,7 +734,7 @@ class Twitch(object):
                 ]
                 if online_streamers and self.running:
                     with ThreadPoolExecutor(
-                        max_workers=min(32, len(online_streamers)),
+                        max_workers=len(online_streamers),
                         thread_name_prefix="twitch-watch",
                     ) as executor:
                         futures = {
