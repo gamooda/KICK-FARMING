@@ -2261,6 +2261,311 @@ class TwitchFarmingApi:
     def get_app_version(self):
         return APP_VERSION
 
+    def _set_update_state(self, **values):
+        with self.update_lock:
+            self.update_state.update(values)
+            self.update_state["current_version"] = APP_VERSION
+
+    def get_update_state(self):
+        with self.update_lock:
+            return dict(self.update_state)
+
+    @staticmethod
+    def _version_tuple(value):
+        numbers = re.findall(r"\d+", str(value or ""))
+        return tuple(int(item) for item in numbers[:4]) or (0,)
+
+    @staticmethod
+    def _release_version(tag):
+        value = str(tag or "").strip()
+        build = re.search(r"(?i)twitch-farming-build-(\d+)$", value)
+        if build:
+            return "1.0." + build.group(1)
+        semantic = re.search(r"(?i)v?(\d+\.\d+(?:\.\d+)?)$", value)
+        return semantic.group(1) if semantic else value
+
+    def check_for_updates(self):
+        with self.update_lock:
+            if self.update_worker is not None and self.update_worker.is_alive():
+                return {"ok": True, "checking": True}
+            self.update_state = {
+                "phase": "checking",
+                "current_version": APP_VERSION,
+                "latest_version": "",
+                "latest_tag": "",
+                "release_url": "",
+                "asset_url": "",
+                "update_available": False,
+                "percent": 0.0,
+                "downloaded_bytes": 0,
+                "total_bytes": 0,
+                "speed_bps": 0.0,
+                "status": "Проверяю GitHub Releases…",
+                "error": "",
+            }
+            worker = threading.Thread(
+                target=self._check_updates_worker,
+                name="GitHubUpdateCheck",
+                daemon=True,
+            )
+            self.update_worker = worker
+        try:
+            worker.start()
+        except Exception as error:
+            self._set_update_state(
+                phase="error",
+                error=str(error) or error.__class__.__name__,
+                status="Не удалось запустить проверку обновлений.",
+            )
+            return {"ok": False, "message": str(error)}
+        return {"ok": True, "checking": True}
+
+    def _check_updates_worker(self):
+        try:
+            import urllib.request
+
+            request = urllib.request.Request(
+                "https://api.github.com/repos/gamooda/KICK-FARMING/releases/latest",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "Twitch-Farming-Updater/" + APP_VERSION,
+                },
+            )
+            with urllib.request.urlopen(request, timeout=20) as response:
+                release = json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
+            if not isinstance(release, dict):
+                raise RuntimeError("GitHub вернул неожиданный ответ Releases API.")
+            tag = str(release.get("tag_name") or "")
+            latest_version = self._release_version(tag)
+            current_tuple = self._version_tuple(APP_VERSION)
+            latest_tuple = self._version_tuple(latest_version)
+            assets = release.get("assets") if isinstance(release.get("assets"), list) else []
+            asset = next(
+                (
+                    item for item in assets
+                    if isinstance(item, dict)
+                    and str(item.get("name") or "").lower() == "twitch.farming.zip"
+                    and str(item.get("browser_download_url") or "").startswith("https://")
+                ),
+                None,
+            )
+            if latest_tuple > current_tuple:
+                if asset is None:
+                    self._set_update_state(
+                        phase="error",
+                        latest_version=latest_version,
+                        latest_tag=tag,
+                        release_url=str(release.get("html_url") or ""),
+                        update_available=False,
+                        error="В последнем релизе GitHub отсутствует архив Twitch.Farming.zip.",
+                        status="Новая версия найдена, но установочный архив не опубликован.",
+                    )
+                    return
+                self._set_update_state(
+                    phase="available",
+                    latest_version=latest_version,
+                    latest_tag=tag,
+                    release_url=str(release.get("html_url") or ""),
+                    asset_url=str(asset["browser_download_url"]),
+                    update_available=True,
+                    status="Доступна новая версия v" + latest_version + ".",
+                    error="",
+                )
+            else:
+                self._set_update_state(
+                    phase="up_to_date",
+                    latest_version=latest_version,
+                    latest_tag=tag,
+                    release_url=str(release.get("html_url") or ""),
+                    asset_url="",
+                    update_available=False,
+                    status="Установлена последняя версия v" + APP_VERSION + ".",
+                    error="",
+                )
+        except Exception as error:
+            self._set_update_state(
+                phase="error",
+                update_available=False,
+                error=str(error) or error.__class__.__name__,
+                status="Не удалось проверить GitHub Releases.",
+            )
+
+    def download_update(self):
+        with self.update_lock:
+            if self.update_worker is not None and self.update_worker.is_alive():
+                return {"ok": False, "message": "Операция обновления уже выполняется."}
+            asset_url = str(self.update_state.get("asset_url") or "")
+            if not self.update_state.get("update_available") or not asset_url:
+                return {"ok": False, "message": "Сначала проверь наличие новой версии."}
+        with self.lock:
+            if self.session_running or (self.engine_worker is not None and self.engine_worker.is_alive()):
+                return {"ok": False, "message": "Остановите фарм перед установкой обновления."}
+        if not getattr(sys, "frozen", False):
+            return {"ok": False, "message": "Автоматическое обновление доступно в собранной версии приложения."}
+        worker = threading.Thread(
+            target=self._download_update_worker,
+            args=(asset_url,),
+            name="GitHubUpdateDownload",
+            daemon=True,
+        )
+        with self.update_lock:
+            self.update_worker = worker
+        try:
+            worker.start()
+        except Exception as error:
+            self._set_update_state(
+                phase="error",
+                error=str(error) or error.__class__.__name__,
+                status="Не удалось начать скачивание обновления.",
+            )
+            return {"ok": False, "message": str(error)}
+        return {"ok": True, "downloading": True}
+
+    def _download_update_worker(self, asset_url):
+        import shutil
+        import subprocess
+        import tempfile
+        import urllib.request
+        import zipfile
+
+        archive_path = None
+        staging_dir = None
+        try:
+            executable = Path(sys.executable).resolve()
+            install_dir = executable.parent
+            install_parent = install_dir.parent
+            process_id = os.getpid()
+            safe_folder = re.sub(r"[^A-Za-z0-9_.-]+", "_", install_dir.name)
+            staging_dir = install_parent / ("." + safe_folder + ".update-" + str(process_id))
+            backup_dir = install_parent / ("." + safe_folder + ".backup-" + str(process_id))
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            archive_path = Path(tempfile.gettempdir()) / ("TwitchFarming-update-" + str(process_id) + ".zip")
+            request = urllib.request.Request(
+                asset_url,
+                headers={"User-Agent": "Twitch-Farming-Updater/" + APP_VERSION},
+            )
+            self._set_update_state(
+                phase="downloading",
+                percent=0.0,
+                downloaded_bytes=0,
+                total_bytes=0,
+                speed_bps=0.0,
+                status="Подключение к GitHub…",
+                error="",
+            )
+            started = time.monotonic()
+            downloaded = 0
+            with urllib.request.urlopen(request, timeout=35) as response:
+                total = int(response.headers.get("Content-Length") or 0)
+                self._set_update_state(total_bytes=total)
+                with archive_path.open("wb") as output:
+                    while True:
+                        chunk = response.read(256 * 1024)
+                        if not chunk:
+                            break
+                        output.write(chunk)
+                        downloaded += len(chunk)
+                        elapsed = max(0.001, time.monotonic() - started)
+                        speed = downloaded / elapsed
+                        percent = min(100.0, downloaded * 100.0 / total) if total else 0.0
+                        self._set_update_state(
+                            downloaded_bytes=downloaded,
+                            total_bytes=total,
+                            speed_bps=speed,
+                            percent=percent,
+                            status="Скачивание обновления…",
+                        )
+            if downloaded <= 0:
+                raise RuntimeError("GitHub вернул пустой архив обновления.")
+            self._set_update_state(
+                phase="extracting",
+                percent=100.0,
+                downloaded_bytes=downloaded,
+                status="Проверка и подготовка файлов обновления…",
+            )
+            staging_root = staging_dir.resolve()
+            with zipfile.ZipFile(archive_path, "r") as archive:
+                for item in archive.infolist():
+                    name = str(item.filename or "").replace("\\", "/")
+                    relative = Path(name)
+                    if not name or relative.is_absolute() or ".." in relative.parts or ":" in name.split("/", 1)[0]:
+                        raise RuntimeError("Архив содержит недопустимый путь: " + name[:160])
+                    destination = (staging_dir / relative).resolve()
+                    if os.path.commonpath((str(staging_root), str(destination))) != str(staging_root):
+                        raise RuntimeError("Путь внутри архива выходит за пределы папки обновления.")
+                    if (item.external_attr >> 16) & 0o170000 == 0o120000:
+                        raise RuntimeError("Архив содержит символическую ссылку.")
+                    if item.is_dir():
+                        destination.mkdir(parents=True, exist_ok=True)
+                    else:
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        with archive.open(item, "r") as source, destination.open("wb") as target:
+                            shutil.copyfileobj(source, target)
+            if not (staging_dir / executable.name).is_file():
+                raise RuntimeError("В архиве не найден " + executable.name + ".")
+            if not (staging_dir / "_internal").is_dir():
+                raise RuntimeError("В архиве отсутствует папка зависимостей _internal.")
+            batch_path = install_parent / (".TwitchFarming-update-" + str(process_id) + ".bat")
+            quote_path = lambda value: str(value).replace('"', "")
+            target_value = quote_path(install_dir)
+            stage_value = quote_path(staging_dir)
+            backup_value = quote_path(backup_dir)
+            exe_name = quote_path(executable.name)
+            script = (
+                "@echo off\r\n"
+                "chcp 65001 >nul\r\n"
+                "set \"PID=" + str(process_id) + "\"\r\n"
+                "set \"TARGET=" + target_value + "\"\r\n"
+                "set \"STAGE=" + stage_value + "\"\r\n"
+                "set \"BACKUP=" + backup_value + "\"\r\n"
+                ":wait_for_app\r\n"
+                "tasklist /FI \"PID eq %PID%\" 2>NUL | find \"%PID%\" >NUL\r\n"
+                "if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto wait_for_app)\r\n"
+                "if exist \"%BACKUP%\" rmdir /s /q \"%BACKUP%\"\r\n"
+                "move \"%TARGET%\" \"%BACKUP%\" >nul\r\n"
+                "if errorlevel 1 goto update_failed\r\n"
+                "move \"%STAGE%\" \"%TARGET%\" >nul\r\n"
+                "if errorlevel 1 (move \"%BACKUP%\" \"%TARGET%\" >nul & goto update_failed)\r\n"
+                "start \"\" \"%TARGET%\\" + exe_name + "\"\r\n"
+                "timeout /t 3 /nobreak >nul\r\n"
+                "rmdir /s /q \"%BACKUP%\"\r\n"
+                "del \"%~f0\"\r\n"
+                "exit /b 0\r\n"
+                ":update_failed\r\n"
+                "del \"%~f0\"\r\n"
+                "exit /b 1\r\n"
+            )
+            batch_path.write_text(script, encoding="utf-8")
+            creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008) | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            subprocess.Popen(
+                ["cmd.exe", "/c", "start", "", "/min", str(batch_path)],
+                cwd=str(install_parent),
+                creationflags=creation_flags,
+                close_fds=True,
+            )
+            self._set_update_state(
+                phase="installing",
+                percent=100.0,
+                status="Скачивание завершено. Перезапуск и замена файлов…",
+            )
+            self._schedule_window_action("destroy", "UpdateWindowClose")
+        except Exception as error:
+            if staging_dir is not None:
+                shutil.rmtree(staging_dir, ignore_errors=True)
+            self._set_update_state(
+                phase="error",
+                error=str(error) or error.__class__.__name__,
+                status="Не удалось установить обновление.",
+            )
+        finally:
+            try:
+                if archive_path is not None:
+                    archive_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
     def open_url(self, url):
         value = str(url or "")
         if value.startswith(("https://", "http://")):
