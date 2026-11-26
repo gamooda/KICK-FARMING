@@ -32,6 +32,14 @@ ICON_FILE = RESOURCE_DIR / "assets" / "twitch.ico"
 BOOT_LOG_LOCK = threading.Lock()
 
 
+def stream_uptime_seconds(value):
+    try:
+        started = datetime.fromisoformat(str(value or "").replace("Z", "+00:00")).timestamp()
+        return max(0, int(time.time() - started))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def write_boot_log(level, message):
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -474,6 +482,8 @@ class FollowedChannelsWorker(threading.Thread):
                         "game_id": str(stream.get("game_id") or ""),
                         "is_live": bool(stream),
                         "viewer_count": max(0, int(stream.get("viewer_count") or 0)),
+                        "started_at": str(stream.get("started_at") or ""),
+                        "uptime_seconds": stream_uptime_seconds(stream.get("started_at")),
                         "followed_at": str(item.get("followed_at") or ""),
                     })
             self.app.finish_followed_channels_worker(self, self.request_id, channels)
@@ -549,10 +559,13 @@ class DropsInventoryWorker(threading.Thread):
                         "display_name": str(streamer.get("display_name") or login),
                         "avatar_url": str(streamer.get("avatar_url") or ""),
                         "viewer_count": max(0, int(streamer.get("viewer_count") or 0)),
+                        "started_at": str(streamer.get("started_at") or ""),
+                        "uptime_seconds": stream_uptime_seconds(streamer.get("started_at")),
                         "game_name": str(streamer.get("game_name") or ""),
                         "is_followed": True,
                     })
-                candidates.sort(key=lambda item: item["viewer_count"], reverse=True)
+                candidates.sort(key=lambda item: (item["uptime_seconds"], item["viewer_count"]), reverse=True)
+                candidates = candidates[:3]
                 item = dict(campaign)
                 item["watch_drops"] = [
                     drop for drop in item.get("drops", [])
@@ -572,7 +585,10 @@ class DropsInventoryWorker(threading.Thread):
                         streams = self.client.helix_get("streams", {"game_id": game_id, "first": 100})
                         streams_by_game[game_id] = sorted(
                             [dict(stream) for stream in streams if isinstance(stream, dict)],
-                            key=lambda stream: max(0, int(stream.get("viewer_count") or 0)),
+                            key=lambda stream: (
+                                stream_uptime_seconds(stream.get("started_at")),
+                                max(0, int(stream.get("viewer_count") or 0)),
+                            ),
                             reverse=True,
                         )
                     except Exception as catalog_error:
@@ -591,6 +607,8 @@ class DropsInventoryWorker(threading.Thread):
                         "login": login,
                         "channel_id": channel_id,
                         "viewer_count": max(0, int(stream.get("viewer_count") or 0)),
+                        "started_at": str(stream.get("started_at") or ""),
+                        "uptime_seconds": stream_uptime_seconds(stream.get("started_at")),
                         "game_name": str(stream.get("game_name") or campaign.get("game") or ""),
                         "game_id": game_id,
                         "is_live": True,
