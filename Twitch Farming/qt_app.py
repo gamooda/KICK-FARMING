@@ -9,7 +9,7 @@ import weakref
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
+from PySide6.QtCore import QByteArray, QEasingCurve, QPoint, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QPainter, QPainterPath, QPen, QPixmap, QIcon
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
@@ -112,7 +112,7 @@ class ImageCache(QObject):
     def _set_label(self, label, data, circular):
         pixmap = QPixmap()
         if data.lstrip().startswith(b"<svg") or b"<svg" in data[:500]:
-            renderer = QSvgRenderer(data)
+            renderer = QSvgRenderer(QByteArray(data))
             if renderer.isValid():
                 pixmap = QPixmap(128, 128)
                 pixmap.fill(Qt.GlobalColor.transparent)
@@ -187,7 +187,7 @@ class TwitchLogo(QWidget):
         painter.fillPath(body, QColor("#9147FF"))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#9147FF"))
-        painter.drawPolygon([QPoint(18, 42), QPoint(18, 55), QPoint(31, 42)])
+        tail = QPainterPath()\n        tail.moveTo(18, 42)\n        tail.lineTo(18, 55)\n        tail.lineTo(31, 42)\n        tail.closeSubpath()\n        painter.fillPath(tail, QColor("#9147FF"))
         painter.setBrush(QColor("#FFFFFF"))
         if self._blink:
             painter.setPen(QPen(QColor("#FFFFFF"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -918,11 +918,11 @@ class MainWindow(QMainWindow):
         cache_row = QHBoxLayout()
         clear_avatars = QPushButton("Очистить кэш аватарок")
         clear_avatars.setObjectName("secondaryButton")
-        clear_avatars.clicked.connect(lambda: self._call("clear_avatar_cache", message="Очистка кэша аватарок запущена."))
+        clear_avatars.clicked.connect(lambda: self._clear_image_cache("clear_avatar_cache", "avatars"))
         cache_row.addWidget(clear_avatars)
         clear_currency = QPushButton("Очистить кэш иконок валют")
         clear_currency.setObjectName("secondaryButton")
-        clear_currency.clicked.connect(lambda: self._call("clear_currency_cache", message="Очистка кэша валют запущена."))
+        clear_currency.clicked.connect(lambda: self._clear_image_cache("clear_currency_cache", "currency"))
         cache_row.addWidget(clear_currency)
         refresh_branding = QPushButton("Обновить оформление Channel Points")
         refresh_branding.setObjectName("secondaryButton")
@@ -1137,9 +1137,10 @@ class MainWindow(QMainWindow):
                 check.setChecked(bool(self.latest_state.get("options", {}).get(key, DEFAULT_OPTIONS.get(key, True))))
                 check.blockSignals(False)
         for key, check in self.app_setting_checks.items():
-            check.blockSignals(True)
-            check.setChecked(bool(self.latest_state.get("app_settings", {}).get(key, DEFAULT_APP_SETTINGS.get(key, False))))
-            check.blockSignals(False)
+            if not check.property("dirty"):
+                check.blockSignals(True)
+                check.setChecked(bool(self.latest_state.get("app_settings", {}).get(key, DEFAULT_APP_SETTINGS.get(key, False))))
+                check.blockSignals(False)
         self._load_bet_values(self.latest_state.get("bet_settings") or DEFAULT_BET_SETTINGS)
         self.account_sidebar.setText("●  " + str(self.latest_state.get("authenticated_username") or "АККАУНТ НЕ ПОДКЛЮЧЁН"))
         self.version_sidebar.setText("v" + str(self.latest_state.get("app_version") or APP_VERSION))
@@ -1442,6 +1443,16 @@ class MainWindow(QMainWindow):
             self.followers_list.addWidget(frame)
             self.image_cache.request(avatar, item.get("avatar_url", ""), True)
         self.followers_list.addStretch()
+
+    def _clear_image_cache(self, method, category):
+        def completed(result, error):
+            if error:
+                return
+            self.image_cache.data.clear()
+            self._last_channel_signature = None
+            self._poll_state()
+            self._notify(str((result or {}).get("message") or "Кэш изображений очищен."))
+        self._run_task(method, getattr(self.api, method), (), completed)
 
     def _add_followed(self):
         login = self.followed_input.text().strip()
