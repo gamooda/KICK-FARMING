@@ -187,7 +187,12 @@ class TwitchLogo(QWidget):
         painter.fillPath(body, QColor("#9147FF"))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#9147FF"))
-        tail = QPainterPath()\n        tail.moveTo(18, 42)\n        tail.lineTo(18, 55)\n        tail.lineTo(31, 42)\n        tail.closeSubpath()\n        painter.fillPath(tail, QColor("#9147FF"))
+        tail = QPainterPath()
+        tail.moveTo(18, 42)
+        tail.lineTo(18, 55)
+        tail.lineTo(31, 42)
+        tail.closeSubpath()
+        painter.fillPath(tail, QColor("#9147FF"))
         painter.setBrush(QColor("#FFFFFF"))
         if self._blink:
             painter.setPen(QPen(QColor("#FFFFFF"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -1319,7 +1324,6 @@ class MainWindow(QMainWindow):
         if not username:
             QMessageBox.warning(self, "Twitch", "Укажи логин Twitch.")
             return
-        self._call("save_settings", self._collect_payload(), message="Настройки сохранены.")
         self._call("login", username, message="Запрос авторизации Twitch отправлен.")
 
     def _save_settings(self):
