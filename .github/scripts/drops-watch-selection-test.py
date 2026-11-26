@@ -791,7 +791,7 @@ assert "get_drop_inventory_snapshot(" in backend_source and "helix_get_payload(\
 assert "get_drops_streams_for_game(" in backend_source, "Drops streamer search must also use Twitch's GameDirectory DROPS_ENABLED filter."
 assert "self.client.get_game_info(game_id, game_name)" in backend_source and "campaign_stream_keys" in backend_source, "Drops campaign search must resolve Twitch's canonical game ID and slug before finding live streams."
 assert "select_drops_streamers(" in backend_source and 'campaign["streamers"] = select_drops_streamers(' in backend_source, "Drops cards must keep followed matches first and fill the remaining slots from the general catalog."
-assert "max(0, int(stream.get("viewer_count") or 0))" in backend_source, "The general Twitch catalog must rank live streams by viewer count before selecting the top three."
+assert 'max(0, int(stream.get("viewer_count") or 0))' in backend_source, "The general Twitch catalog must rank live streams by viewer count before selecting the top three."
 
 assert '"game_id": str(stream.get("game_id") or game_id)' in backend_source, "GameDirectory streams must preserve their actual game ID when the campaign metadata is incomplete."
 assert 'if not item.get("drops_enabled")' in backend_source and 'and not row.get("drops_enabled")' in backend_source, "GameDirectory streams with DROPS_ENABLED must not be rejected by an extra per-channel campaign ID lookup."
