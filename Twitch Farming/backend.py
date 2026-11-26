@@ -11,6 +11,7 @@ import traceback
 import webbrowser
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parent / "engine"))
