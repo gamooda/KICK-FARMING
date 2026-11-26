@@ -5,7 +5,7 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/app.js"), "utf8");
 const html = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/index.html"), "utf8");
 const css = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/style.css"), "utf8");
-const backend = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/webview_app.py"), "utf8");
+const backend = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/webview_app.py"), "utf8").replace(/\r\n/g, "\n");
 if (!css.includes(".sidebar{width:210px;min-width:210px;max-width:210px;flex:0 0 210px;flex-shrink:0}")) {
   throw new Error("The sidebar fixed width and flex-shrink protection are missing.");
 }
