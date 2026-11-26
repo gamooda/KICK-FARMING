@@ -521,14 +521,34 @@ class DropsInventoryWorker(threading.Thread):
                 self.app.followed_channels_event.wait(45)
             with self.app.lock:
                 followed = [dict(item) for item in self.app.followed_channels]
-            raw_campaigns = self.client.get_drop_inventory_snapshot()
             live_followers = [
                 item for item in followed
                 if item.get("is_live") and item.get("channel_id") and item.get("login")
             ]
-            campaign_ids_by_login = (
-                self.client.get_drop_campaign_ids_for_channels(live_followers)
+            available_campaigns_by_login = (
+                self.client.get_drop_campaigns_for_channels(live_followers)
                 if live_followers else {}
+            )
+            campaign_ids_by_login = {
+                login: [
+                    str(campaign["id"])
+                    for campaign in campaigns
+                    if isinstance(campaign, dict) and campaign.get("id")
+                ]
+                for login, campaigns in available_campaigns_by_login.items()
+            }
+            discovered_campaign_ids = {
+                campaign_id
+                for campaign_ids in campaign_ids_by_login.values()
+                for campaign_id in campaign_ids
+            }
+            logging.getLogger("twitch_farming.drops").info(
+                "AvailableDrops: найдено %s кампаний на %s живых подписанных каналах.",
+                len(discovered_campaign_ids),
+                len(live_followers),
+            )
+            raw_campaigns = self.client.get_drop_inventory_snapshot(
+                available_campaigns_by_login
             )
             campaigns_by_id = {}
             catalog_targets = []
