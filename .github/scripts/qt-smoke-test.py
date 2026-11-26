@@ -191,7 +191,6 @@ for marker in (
     "initializationOverlay",
     "APP_ICON_FILE.is_file()",
     "app.setWindowIcon",
-    "Все Drops",
     "Редактировать",
     "Переместить",
     "channel_currency",
