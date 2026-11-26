@@ -1,4 +1,4 @@
-from webview_app import main
+from qt_app import main
 
 if __name__ == "__main__":
     main()
