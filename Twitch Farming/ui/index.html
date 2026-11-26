@@ -18,16 +18,33 @@
     const tag=String(level||"INFO").toUpperCase();
     return "[+"+elapsed+"s] ["+tag+"] "+String(message||"")+(stack?"\n"+String(stack):"");
   };
-  const send=item=>{
+  let flushTimer=null;
+  const flush=()=>{
+    flushTimer=null;
     const bridge=window.pywebview&&window.pywebview.api;
-    if(!bridge||typeof bridge.record_startup_debug!=="function"){
-      pending.push(item);
-      return;
-    }
+    if(!bridge||typeof bridge.record_startup_debug_batch!=="function"||!pending.length) return;
+    const batch=pending.splice(0,60);
+    const restore=()=>{
+      pending.unshift(...batch);
+      if(pending.length>240) pending.splice(240);
+      scheduleFlush(550);
+    };
     try{
-      const result=bridge.record_startup_debug(item.level,item.line);
-      if(result&&typeof result.catch==="function") result.catch(()=>{});
-    }catch(error){}
+      const result=bridge.record_startup_debug_batch(batch);
+      if(result&&typeof result.catch==="function") result.catch(restore);
+      if(pending.length) scheduleFlush();
+    }catch(error){
+      restore();
+    }
+  };
+  const scheduleFlush=(delay=280)=>{
+    if(flushTimer!==null) return;
+    flushTimer=setTimeout(flush,delay);
+  };
+  const send=item=>{
+    pending.push(item);
+    if(pending.length>240) pending.shift();
+    scheduleFlush();
   };
   const paint=item=>{
     if(!output) output=document.getElementById("startup-debug-output");
@@ -123,7 +140,7 @@
     if(records.length>300) records.shift();
     paint(entry);
   };
-  window.__tfStartupDebug={log,flush,copy,showError,display};
+  window.__tfStartupDebug={log,flush:scheduleFlush,copy,showError,display};
   window.__tfStartupLog=log;
   window.onerror=(message,source,line,column,error)=>{
     const location=source?String(source)+(line?":"+line:"")+(column?":"+column:""):"";
@@ -149,7 +166,7 @@
   window.addEventListener("pywebviewready",()=>{
     window.__twitchPywebviewReady=true;
     log("INFO","Получено событие pywebviewready");
-    flush();
+    scheduleFlush();
     if(pendingWindowAction){
       const method=pendingWindowAction;
       pendingWindowAction="";
