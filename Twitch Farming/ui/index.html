@@ -64,17 +64,6 @@
     send(item);
     return item.line;
   };
-  const flush=()=>{
-    const bridge=window.pywebview&&window.pywebview.api;
-    if(!bridge||typeof bridge.record_startup_debug!=="function") return;
-    while(pending.length){
-      const item=pending.shift();
-      try{
-        const result=bridge.record_startup_debug(item.level,item.line);
-        if(result&&typeof result.catch==="function") result.catch(()=>{});
-      }catch(error){}
-    }
-  };
   const copy=async()=>{
     const text=records.map(item=>item.line).join("\n");
     try{
