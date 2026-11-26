@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from base64 import b64encode
+from collections import OrderedDict
 
 from TwitchChannelPointsMiner.classes.Settings import Settings
 from TwitchChannelPointsMiner.constants import DROP_ID
@@ -22,6 +23,9 @@ class Stream(object):
         "viewers_count",
         "spade_url",
         "payload",
+        "hls_url",
+        "watched_segments",
+        "last_minute_watched_sent",
         "watch_streak_missing",
         "minute_watched",
         "__last_update",
@@ -45,6 +49,9 @@ class Stream(object):
 
         self.spade_url = None
         self.payload = None
+        self.hls_url = None
+        self.watched_segments = OrderedDict()
+        self.last_minute_watched_sent = 0.0
 
         self.init_watch_streak()
 
@@ -53,6 +60,13 @@ class Stream(object):
         return {"data": (b64encode(json_event.encode("utf-8"))).decode("utf-8")}
 
     def update(self, broadcast_id, title, game, tags, viewers_count):
+        broadcast_id = str(broadcast_id or "").strip()
+        previous_broadcast_id = str(self.broadcast_id or "").strip()
+        if previous_broadcast_id and broadcast_id and previous_broadcast_id != broadcast_id:
+            self.hls_url = None
+            self.watched_segments.clear()
+            self.last_minute_watched_sent = 0.0
+            self.init_watch_streak()
         self.broadcast_id = broadcast_id
         self.title = title.strip()
         self.game = game
