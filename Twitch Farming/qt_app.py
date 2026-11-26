@@ -373,140 +373,155 @@ class ChannelCard(QFrame):
         super().__init__(parent)
         self.login = login
         self.setObjectName("channelCard")
-        self.setMinimumWidth(220)
-        self.setMaximumWidth(360)
-        self.setMinimumHeight(232)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.setMinimumWidth(260)
+        self.setFixedHeight(104)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
-        root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 10)
-        root.setSpacing(5)
-        badges = QHBoxLayout()
-        badges.setSpacing(6)
-        live = QLabel("● В ЭФИРЕ" if profile.get("is_live") else "● НЕ В ЭФИРЕ")
-        live.setObjectName("liveBadge" if profile.get("is_live") else "offlineBadge")
-        badges.addWidget(live)
-        if temporary:
-            badge = QLabel("ВРЕМЕННЫЙ • DROPS")
-            badge.setObjectName("temporaryBadge")
-            badges.addWidget(badge)
-        badges.addStretch()
-        root.addLayout(badges)
-        if slot:
-            watch_row = QHBoxLayout()
-            watch_row.addStretch()
-            watch = QLabel("СМОТРИМ • СЛОТ " + str(slot))
-            watch.setObjectName("watchBadge")
-            watch.setMinimumHeight(24)
-            watch_row.addWidget(watch)
-            root.addLayout(watch_row)
-        avatar_row = QHBoxLayout()
-        avatar_row.addStretch()
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(14, 12, 14, 12)
+        root.setSpacing(12)
+
         self.avatar = QLabel()
         self.avatar.setObjectName("channelAvatar")
-        self.avatar.setFixedSize(64, 64)
+        self.avatar.setFixedSize(44, 44)
         self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.avatar.setText((profile.get("display_name") or login)[:1].upper())
-        avatar_row.addWidget(self.avatar)
-        avatar_row.addStretch()
-        root.addLayout(avatar_row)
+        root.addWidget(self.avatar)
+
+        details = QVBoxLayout()
+        details.setContentsMargins(0, 0, 0, 0)
+        details.setSpacing(4)
+
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(6)
+
         self.name = QLabel(str(profile.get("display_name") or login))
         self.name.setObjectName("channelName")
-        self.name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.name.setWordWrap(True)
-        self.name.setMinimumHeight(20)
-        root.addWidget(self.name)
+        self.name.setMinimumWidth(0)
+        self.name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.name.setWordWrap(False)
+        title_row.addWidget(self.name, 1)
+
+        live = QLabel("● В ЭФИРЕ" if profile.get("is_live") else "● НЕ В ЭФИРЕ")
+        live.setObjectName("liveBadge" if profile.get("is_live") else "offlineBadge")
+        title_row.addWidget(live, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        if temporary:
+            badge = QLabel("DROPS")
+            badge.setObjectName("temporaryBadge")
+            title_row.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
+
+        details.addLayout(title_row)
+
         self.handle = QLabel("@" + login)
         self.handle.setObjectName("channelLogin")
-        self.handle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.handle.setMinimumHeight(16)
-        root.addWidget(self.handle)
-        bottom = QHBoxLayout()
+        self.handle.setMinimumWidth(0)
+        self.handle.setWordWrap(False)
+        details.addWidget(self.handle)
+
+        balance_row = QHBoxLayout()
+        balance_row.setContentsMargins(0, 0, 0, 0)
+        balance_row.setSpacing(5)
+
         self.currency_icon = QLabel("✦")
-        self.currency_icon.setFixedSize(24, 24)
+        self.currency_icon.setFixedSize(18, 18)
         self.currency_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        bottom.addWidget(self.currency_icon)
+        self.currency_icon.setObjectName("channelCurrencyIcon")
+        balance_row.addWidget(self.currency_icon)
+
         points = QLabel(f"{int(balance or 0):,}".replace(",", " "))
         points.setObjectName("channelBalance")
-        bottom.addWidget(points)
+        balance_row.addWidget(points)
+
         currency_name = QLabel(str(currency.get("name") or "Channel Points"))
         currency_name.setObjectName("mutedText")
         currency_name.setMinimumWidth(0)
-        bottom.addWidget(currency_name, 1)
-        root.addLayout(bottom)
+        currency_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        balance_row.addWidget(currency_name, 1)
+
+        details.addLayout(balance_row)
+        root.addLayout(details, 1)
+
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(0)
+
+        if slot:
+            watch = QLabel("СМОТРИМ • СЛОТ " + str(slot))
+            watch.setObjectName("watchBadge")
+            watch.setMinimumHeight(20)
+            watch.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            right.addWidget(watch, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+
+        right.addStretch(1)
+
         self.actions_panel = QFrame()
         self.actions_panel.setObjectName("channelActions")
+        self.actions_panel.setFixedHeight(24)
         action_layout = QHBoxLayout(self.actions_panel)
         action_layout.setContentsMargins(0, 0, 0, 0)
-        action_layout.setSpacing(5)
+        action_layout.setSpacing(3)
+
         open_button = QPushButton("↗")
         open_button.setObjectName("cardAction")
-        open_button.setFixedSize(29, 27)
+        open_button.setFixedSize(24, 24)
         open_button.setToolTip("Открыть на Twitch")
         open_button.clicked.connect(lambda checked=False, value=login: QDesktopServices.openUrl(QUrl("https://www.twitch.tv/" + value)))
         action_layout.addWidget(open_button)
-        edit = QPushButton("✎")
-        edit.setObjectName("cardAction")
-        edit.setFixedSize(29, 27)
-        edit.setEnabled(bool(actions_enabled))
-        edit.setToolTip("Редактировать канал")
-        edit.clicked.connect(lambda checked=False, value=login: edit_callback(value))
-        action_layout.addWidget(edit)
+
         move = QPushButton("⇄")
         move.setObjectName("cardAction")
-        move.setFixedSize(29, 27)
+        move.setFixedSize(24, 24)
         move.setEnabled(bool(actions_enabled))
         move.setToolTip("Переместить: выбери вторую карточку")
         move.clicked.connect(lambda checked=False, value=login: move_callback(value))
         action_layout.addWidget(move)
+
+        edit = QPushButton("⚙")
+        edit.setObjectName("cardAction")
+        edit.setFixedSize(24, 24)
+        edit.setEnabled(bool(actions_enabled))
+        edit.setToolTip("Настройки канала · Редактировать канал")
+        edit.clicked.connect(lambda checked=False, value=login: edit_callback(value))
+        action_layout.addWidget(edit)
+
         remove = QPushButton("×")
         remove.setObjectName("smallDanger")
-        remove.setFixedSize(29, 27)
+        remove.setFixedSize(24, 24)
         remove.setEnabled(bool(actions_enabled))
         remove.setToolTip("Удалить канал")
         remove.clicked.connect(lambda checked=False, value=login: remove_callback(value))
         action_layout.addWidget(remove)
-        action_layout.addStretch()
+
         self.actions_opacity = QGraphicsOpacityEffect(self.actions_panel)
         self.actions_opacity.setOpacity(0.0)
         self.actions_panel.setGraphicsEffect(self.actions_opacity)
-        self.actions_panel.setMaximumHeight(0)
-        self.actions_panel.hide()
-        self.actions_height_animation = QPropertyAnimation(self.actions_panel, b"maximumHeight", self)
-        self.actions_height_animation.setDuration(170)
-        self.actions_height_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self.actions_height_animation.finished.connect(self._finish_actions_animation)
+        self.actions_panel.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        right.addWidget(self.actions_panel, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
+        root.addLayout(right)
+
         self.actions_opacity_animation = QPropertyAnimation(self.actions_opacity, b"opacity", self)
         self.actions_opacity_animation.setDuration(150)
         self.actions_opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        root.addWidget(self.actions_panel)
+        self.actions_opacity_animation.finished.connect(self._finish_actions_animation)
+
         if image_cache:
             image_cache.request(self.avatar, profile.get("avatar_url", ""), True)
             image_cache.request(self.currency_icon, currency.get("icon_url", ""), False)
 
     def _animate_actions(self, visible):
-        self.actions_height_animation.stop()
         self.actions_opacity_animation.stop()
-        if visible:
-            self.actions_panel.show()
-            self.actions_height_animation.setStartValue(max(0, self.actions_panel.maximumHeight()))
-            self.actions_height_animation.setEndValue(31)
-            self.actions_opacity_animation.setStartValue(self.actions_opacity.opacity())
-            self.actions_opacity_animation.setEndValue(1.0)
-        else:
-            if not self.actions_panel.isVisible():
-                return
-            self.actions_height_animation.setStartValue(max(0, self.actions_panel.maximumHeight()))
-            self.actions_height_animation.setEndValue(0)
-            self.actions_opacity_animation.setStartValue(self.actions_opacity.opacity())
-            self.actions_opacity_animation.setEndValue(0.0)
-        self.actions_height_animation.start()
+        self.actions_panel.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, not visible)
+        self.actions_opacity_animation.setStartValue(self.actions_opacity.opacity())
+        self.actions_opacity_animation.setEndValue(1.0 if visible else 0.0)
         self.actions_opacity_animation.start()
 
     def _finish_actions_animation(self):
-        if self.actions_panel.maximumHeight() <= 0 and not self.underMouse():
-            self.actions_panel.hide()
+        if self.actions_opacity.opacity() <= 0.01 and not self.underMouse():
+            self.actions_panel.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     def _hide_actions_if_outside(self):
         if not self.rect().contains(self.mapFromGlobal(QCursor.pos())):
@@ -524,7 +539,6 @@ class ChannelCard(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.selected.emit(self.login)
         super().mousePressEvent(event)
-
 
 
 
@@ -1136,17 +1150,18 @@ class MainWindow(QMainWindow):
         QPushButton#followerAddedButton:disabled { background:#302345; border:1px solid #7655A5; color:#DCCAFF; }
         QPushButton#followerAddedButton:hover { background:#3A2B52; }
         QFrame#channelCard[selected="true"] { background:#241A36; border-color:#A36BFF; }
-        QPushButton#cardAction { background:#211E2C; border:1px solid #383247; color:#D2CBE0; padding:3px 5px; border-radius:6px; font-size:9px; font-weight:700; }
+        QPushButton#cardAction { background:#211E2C; border:1px solid #383247; color:#D2CBE0; padding:0; border-radius:6px; font-size:11px; font-weight:700; }
         QPushButton#cardAction:hover { background:#2B263B; border-color:#7656A2; }
         QPushButton#cardAction:disabled, QPushButton#smallDanger:disabled { color:#696575; background:#181720; border-color:#282632; }
-        QLabel#channelAvatar { background:#29243A; border:1px solid #4A3A63; border-radius:32px; color:#C9B8F0; font-weight:800; }
+        QLabel#channelAvatar { background:#29243A; border:1px solid #4A3A63; border-radius:22px; color:#C9B8F0; font-weight:800; }
         QLabel#slotAvatar, QLabel#miniAvatar { background:transparent; border:0; border-radius:0; color:#C9B8F0; font-weight:800; }
         QLabel#campaignImage { background:#241D36; border-radius:8px; color:#A98AFF; font-weight:800; }
         QLabel#rewardIcon { background:#242034; border-radius:8px; color:#E7D6FF; }
         QLabel#channelName { color:#FFFFFF; font-size:13px; font-weight:800; }
-        QLabel#channelLogin { color:#9892A7; font-size:10px; }
+        QLabel#channelLogin { color:#9892A7; font-size:9px; }
         QLabel#channelBalance { color:#F2EDFF; font-size:11px; font-weight:800; }
-        QLabel#liveBadge, QLabel#offlineBadge, QLabel#watchBadge, QLabel#temporaryBadge, QLabel#purpleBadge { font-size:8px; font-weight:900; padding:4px 6px; border-radius:5px; }
+        QLabel#channelCurrencyIcon { background:transparent; border:0; color:#D8C7F6; font-size:13px; }
+        QLabel#liveBadge, QLabel#offlineBadge, QLabel#watchBadge, QLabel#temporaryBadge, QLabel#purpleBadge { font-size:8px; font-weight:900; padding:3px 5px; border-radius:5px; }
         QLabel#liveBadge { color:#FF8593; background:#36202A; }
         QLabel#offlineBadge { color:#8C8799; background:#252530; }
         QLabel#watchBadge { color:#CDB4FF; background:#302345; }
@@ -1298,7 +1313,7 @@ class MainWindow(QMainWindow):
         self.channels_grid.setContentsMargins(0, 0, 0, 0)
         self.channels_grid.setHorizontalSpacing(10)
         self.channels_grid.setVerticalSpacing(10)
-        for column in range(3):
+        for column in range(2):
             self.channels_grid.setColumnStretch(column, 1)
         self.channels_wrap = QWidget()
         self.channels_wrap.setObjectName("scrollContent")
@@ -2136,7 +2151,7 @@ class MainWindow(QMainWindow):
             card.setProperty("selected", login == self.selected_channel)
             card.style().unpolish(card)
             card.style().polish(card)
-            self.channels_grid.addWidget(card, index // 3, index % 3)
+            self.channels_grid.addWidget(card, index // 2, index % 2)
         if not channels:
             empty_text = "Список каналов пуст. Добавь первый Twitch-канал."
         elif not visible:
