@@ -1081,11 +1081,16 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
     def _load_settings_defaults(self):
-        self.option_checks["claim_drops"].setChecked(DEFAULT_OPTIONS["claim_drops"])
         for key, check in self.option_checks.items():
+            check.blockSignals(True)
             check.setChecked(DEFAULT_OPTIONS.get(key, True))
+            check.setProperty("dirty", False)
+            check.blockSignals(False)
         for key, check in self.app_setting_checks.items():
+            check.blockSignals(True)
             check.setChecked(DEFAULT_APP_SETTINGS.get(key, False))
+            check.setProperty("dirty", False)
+            check.blockSignals(False)
 
     def _setup_timers(self):
         self.poll_timer = QTimer(self)
@@ -1571,9 +1576,13 @@ class MainWindow(QMainWindow):
             else:
                 widget.setText(value)
         if not self.bet_stealth.property("dirty"):
+            self.bet_stealth.blockSignals(True)
             self.bet_stealth.setChecked(bool(values.get("stealth_mode", False)))
+            self.bet_stealth.blockSignals(False)
         if not self.bet_filter_enabled.property("dirty"):
+            self.bet_filter_enabled.blockSignals(True)
             self.bet_filter_enabled.setChecked(bool(values.get("filter_enabled", False)))
+            self.bet_filter_enabled.blockSignals(False)
         enabled = self.bet_filter_enabled.isChecked()
         self.bet_filter_by.setEnabled(enabled)
         self.bet_filter_condition.setEnabled(enabled)
