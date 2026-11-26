@@ -21,6 +21,7 @@
 
 - `app.py` — точка входа.
 - `qt_app.py` — нативный интерфейс Qt6.
+- `assets/ui_icons.png` — атлас логотипа и иконок бокового меню.
 - `backend.py` — Twitch API, состояние, Drops, кэширование и обновление.
 - `engine/` — движок Channel Points Miner.
 - `requirements.txt` — зависимости.

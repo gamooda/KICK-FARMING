@@ -89,6 +89,7 @@ py -3.11 -m venv .venv
 ## Структура
 
 - `Twitch Farming/qt_app.py` — нативный интерфейс на PySide6-Essentials (Qt6).
+- `Twitch Farming/assets/ui_icons.png` — атлас логотипа и иконок интерфейса.
 - `Twitch Farming/backend.py` — авторизация, Twitch API, Drops, кэш и автообновление.
 - `Twitch Farming/engine/` — движок сбора Channel Points и обработки событий.
 - `Twitch Farming/requirements.txt` — Python-зависимости.

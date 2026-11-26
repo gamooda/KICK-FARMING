@@ -55,6 +55,19 @@ check([item["id"] for item in result[0]["visible_drops"]] == ["badge", "emote"],
 all_campaigns = eligible_watch_campaigns(sample)
 check(len(all_campaigns) == 1, "All-campaign view must include active campaigns with free watch drops.")
 check([item["id"] for item in all_campaigns[0]["visible_drops"]] == ["badge", "emote", "skin"], "All-campaign view must include free game rewards and Twitch profile rewards.")
+edge_case_campaigns = eligible_watch_campaigns([
+    {
+        "id": "in-progress",
+        "status": "IN_PROGRESS",
+        "drops": [
+            {"id": "free-string-flags", "type": "WATCH", "claimed": "false", "paid": "false", "is_subscription": "false"},
+            {"id": "subscription", "type": "SUBSCRIPTION", "claimed": False},
+            {"id": "paid", "type": "WATCH", "claimed": False, "paid": "true"}
+        ]
+    }
+])
+check(len(edge_case_campaigns) == 1, "Available campaigns outside ACTIVE must still be listed.")
+check([drop["id"] for drop in edge_case_campaigns[0]["visible_drops"]] == ["free-string-flags"], "String false flags must not hide free drops; subscription rewards must stay hidden.")
 check([item["login"] for item in result[0]["streamers"]] == ["longstream", "medium", "highview"], "Long-running streams must be recommended first.")
 check(format_duration(3660) == "1 ч 1 мин", "Stream uptime must be formatted.")
 check(format_duration(0) == "0 мин", "Zero uptime must be formatted.")
@@ -77,6 +90,9 @@ for required in (
 check("webview" not in backend.lower() and "pystray" not in backend.lower() and "clr_loader" not in backend.lower(), "The native backend still contains a legacy WebView or PyStray reference.")
 check("pyside6-essentials" in requirements, "PySide6-Essentials dependency is missing.")
 check("QMessageBox" not in qt and "QInputDialog" not in qt, "Native system dialogs must be replaced with in-window overlays.")
+check("events_output" not in qt, "The duplicate event-log text area must be removed.")
+check("followers_list" not in qt, "Follower cards must use the compact grid layout.")
+check("ui_icons.png" in qt and (APP / "assets" / "ui_icons.png").is_file(), "The generated Twitch icon atlas is missing.")
 check("pywebview" not in requirements and "pystray" not in requirements, "Legacy GUI dependencies are still installed.")
 check("from qt_app import main" in entry, "The executable entry point must launch the native Qt interface.")
 for marker in (
@@ -88,6 +104,17 @@ for marker in (
     "rgba(0, 0, 0, 185)",
     "QWidget#modalOverlay",
     "overlay.editor.setFocus()",
+    "class SwitchCheckBox",
+    "setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)",
+    "QScrollBar:vertical { background:transparent; width:6px;",
+    "self.followers_grid = QGridLayout()",
+    "grid.addWidget(options, 1, 0)",
+    "Автор и дизайн: Dv4roka",
+    "AI-ассистенты: ChatGPT & Google Gemini",
+    "Папка с данными",
+    "self.login_button.setEnabled(not running)",
+    "Основные",
+    "html.escape(line)",
     "Все кампании",
     "Начатые (Инвентарь)",
     "Награды Twitch (значки и эмоуты за просмотр)",
