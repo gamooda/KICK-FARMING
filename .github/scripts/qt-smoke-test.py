@@ -86,6 +86,8 @@ for marker in (
     "QScrollArea > QWidget > QWidget",
     "border-radius:0",
     "rgba(0, 0, 0, 185)",
+    "QWidget#modalOverlay",
+    "overlay.editor.setFocus()",
     "Все кампании",
     "Начатые (Инвентарь)",
     "Награды Twitch (значки и эмоуты за просмотр)",

@@ -585,7 +585,7 @@ class ModalOverlay(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setGeometry(parent.rect())
         self.editor = None
-        self.setStyleSheet("background-color: rgba(0, 0, 0, 185);")
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 24, 24, 24)
         outer.addStretch()
@@ -809,6 +809,7 @@ class MainWindow(QMainWindow):
         QLabel#sectionEyebrow { color:#A98AFF; font-size:10px; font-weight:800; letter-spacing:1.2px; }
         QLabel#mutedText, QLabel#smallMuted { color:#918BA2; }
         QLabel#toast { background:#211F2B; border:1px solid #423B50; border-radius:8px; padding:10px 16px; color:#F3EFFA; font-weight:650; }
+        QWidget#modalOverlay { background-color:rgba(0, 0, 0, 185); }
         QLabel#modalTitle { color:#FFFFFF; font-size:17px; font-weight:800; }
         QLabel#modalMessage { color:#C8C2D2; font-size:13px; }
         QFrame#modalCard { background:#16161D; border:1px solid #262630; border-radius:10px; }
@@ -2019,7 +2020,10 @@ class MainWindow(QMainWindow):
         overlay.setGeometry(parent.rect())
         overlay.raise_()
         overlay.show()
-        overlay.setFocus()
+        if overlay.editor is not None:
+            overlay.editor.setFocus()
+        else:
+            overlay.setFocus()
 
     def _position_toast(self):
         if not hasattr(self, "toast") or self.toast is None or not self.toast.isVisible():
