@@ -1171,6 +1171,9 @@ class Twitch(object):
             self._warn_drops_response("ViewerDropsDashboard", "в ответе отсутствует data.currentUser", response)
             return []
         campaigns = current_user.get("dropCampaigns")
+        if campaigns is None:
+            logger.debug("ViewerDropsDashboard: Twitch вернул dropCampaigns=None; пропускаю глобальные промо-кампании без привязки к игре.")
+            return []
         if not isinstance(campaigns, list):
             self._warn_drops_response("ViewerDropsDashboard", "отсутствует массив dropCampaigns", response)
             return []

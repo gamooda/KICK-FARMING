@@ -1332,7 +1332,7 @@ class CampaignCard(QFrame):
         for drop in campaign.get("visible_drops", []):
             reward_row = QFrame()
             reward_row.setObjectName("dropRewardRow")
-            reward_row.setMinimumHeight(112)
+            reward_row.setMinimumHeight(88)
             reward_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             reward_layout = QVBoxLayout(reward_row)
             reward_layout.setContentsMargins(10, 10, 10, 10)
@@ -1353,6 +1353,7 @@ class CampaignCard(QFrame):
             reward_name = QLabel(str(reward_name_value))
             reward_name.setObjectName("rewardTitle")
             reward_name.setWordWrap(True)
+            reward_name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             reward_header.addWidget(reward_name, 1)
 
             watched = _ui_int(drop.get("watched_minutes", drop.get("current_minutes", drop.get("currentMinutes", 0))))
@@ -1365,7 +1366,9 @@ class CampaignCard(QFrame):
             received = claimed or percentage >= 100
             status = QLabel("Получено" if received else "В прогрессе")
             status.setObjectName("dropReceivedBadge" if received else "dropProgressBadge")
-            reward_header.addWidget(status, 0, Qt.AlignmentFlag.AlignTop)
+            status.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+            reward_header.addWidget(status, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
             reward_layout.addLayout(reward_header)
 
             bar = QProgressBar()
@@ -1969,7 +1972,7 @@ class MainWindow(QMainWindow):
         page = QWidget()
         page.setObjectName("pageContent")
         page.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        page.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         layout = QVBoxLayout(page)
         layout.setContentsMargins(18, 14, 18, 12)
         layout.setSpacing(7)
@@ -2042,14 +2045,22 @@ class MainWindow(QMainWindow):
         self.channels_grid.setHorizontalSpacing(12)
         self.channels_grid.setVerticalSpacing(12)
         self.channels_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
-        for column in range(6):
-            self.channels_grid.setColumnStretch(column, 1)
+        for column in range(10):
+            self.channels_grid.setColumnStretch(column, 1 if column < 6 else 0)
         self._channel_columns = 0
         self.channels_wrap = QWidget()
         self.channels_wrap.setObjectName("scrollContent")
         self.channels_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.channels_wrap.setLayout(self.channels_grid)
-        layout.addWidget(self.channels_wrap)
+        self.channels_scroll = QScrollArea()
+        self.channels_scroll.setObjectName("channelsScroll")
+        self.channels_scroll.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.channels_scroll.setWidgetResizable(True)
+        self.channels_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.channels_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.channels_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.channels_scroll.setWidget(self.channels_wrap)
+        layout.addWidget(self.channels_scroll, 1)
 
         feeds = QHBoxLayout()
         feeds.setContentsMargins(0, 0, 0, 0)
@@ -2060,18 +2071,9 @@ class MainWindow(QMainWindow):
         feeds.addWidget(self.events_feed, 1)
         feeds_row = QWidget()
         feeds_row.setLayout(feeds)
-        feeds_row.setFixedHeight(148)
+        feeds_row.setFixedHeight(135)
         layout.addWidget(feeds_row)
-
-        scroll = QScrollArea()
-        scroll.setObjectName("pageScroll")
-        scroll.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        scroll.setWidgetResizable(True)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setWidget(page)
-        self.channels_scroll = scroll
-        self.stack.addWidget(scroll)
+        self.stack.addWidget(page)
 
 
     def _feed_panel(self, title):
@@ -3039,7 +3041,7 @@ class MainWindow(QMainWindow):
                 self._clear_layout(child)
 
     def _channel_grid_column_count(self):
-        width = self.channels_wrap.width() if hasattr(self, "channels_wrap") and self.channels_wrap.width() > 0 else (self.channels_scroll.viewport().width() - 36 if hasattr(self, "channels_scroll") else self.width() - 316)
+        width = self.channels_scroll.viewport().width() if hasattr(self, "channels_scroll") and self.channels_scroll.viewport().width() > 0 else (self.channels_wrap.width() if hasattr(self, "channels_wrap") else self.width() - 316)
         spacing = max(12, self.channels_grid.horizontalSpacing() if hasattr(self, "channels_grid") else 12)
         minimum_card_width = 190
         return max(1, min(6, int((max(1, width) + spacing) // (minimum_card_width + spacing))))
@@ -3048,8 +3050,8 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "channels_grid"):
             return
         columns = self._channel_grid_column_count()
-        for column in range(6):
-            self.channels_grid.setColumnStretch(column, 1 if column < columns else 0)
+        for c in range(10):
+            self.channels_grid.setColumnStretch(c, 1 if c < columns else 0)
         self.channels_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         if columns == self._channel_columns:
             return
@@ -3086,8 +3088,8 @@ class MainWindow(QMainWindow):
                     visible.append(login)
             columns = self._channel_grid_column_count()
             self._channel_columns = columns
-            for column in range(6):
-                self.channels_grid.setColumnStretch(column, 1 if column < columns else 0)
+            for c in range(10):
+                self.channels_grid.setColumnStretch(c, 1 if c < columns else 0)
             for index, login in enumerate(visible):
                 try:
                     profile = profiles.get(login)
