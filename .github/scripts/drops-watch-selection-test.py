@@ -354,6 +354,21 @@ snapshot_campaign_two = {
         }]
     },
 }
+snapshot_campaign_in_progress = {
+    "id": "campaign-in-progress",
+    "status": "IN_PROGRESS",
+    "name": "GTAVI Launch Celebration",
+    "game": {"id": "50", "displayName": "Grand Theft Auto VI", "slug": "grand-theft-auto-vi"},
+    "timeBasedDrops": [{
+        "id": "available-emote-drop",
+        "name": "GTAVI Twitch Emote",
+        "requiredMinutesWatched": 20,
+        "self": {"isClaimed": "false", "currentMinutesWatched": "7"},
+        "benefitEdges": [{
+            "benefit": {"name": "GTAVI Emote", "benefitType": "EMOTE", "imageAssetURL": "https://example.test/gtavi-emote.png"}
+        }],
+    }],
+}
 snapshot_inventory = {
     "dropCampaignsInProgress": {"edges": [{"node": {"id": "campaign-one"}}]},
     "gameEventDrops": [{
@@ -378,7 +393,10 @@ snapshot_dashboard = {
     "data": {
         "currentUser": {"dropCampaigns": {"edges": [{"node": snapshot_campaign_one}]}},
         "rewardCampaignsAvailableToUser": {
-            "edges": [{"node": {"campaign": snapshot_campaign_two}}],
+            "edges": [
+                {"node": {"campaign": snapshot_campaign_two}},
+                {"node": {"campaign": snapshot_campaign_in_progress}},
+            ],
         },
         "extraCampaigns": {
             "rewardCampaignsAvailableToUser": {
@@ -399,18 +417,20 @@ with (
     patch.object(Twitch, "_warn_drops_response", lambda self, *args: None),
 ):
     snapshot = snapshot_client.get_drop_inventory_snapshot()
-assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-three"}
+assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-three", "campaign-in-progress"}
 campaigns_by_id = {campaign["id"]: campaign for campaign in snapshot}
 assert campaigns_by_id["campaign-one"]["started"] is True
 assert campaigns_by_id["campaign-one"]["in_inventory"] is True
 assert campaigns_by_id["campaign-two"]["started"] is False
+assert campaigns_by_id["campaign-in-progress"]["started"] is True
+assert campaigns_by_id["campaign-in-progress"]["source"] == "available"
 assert "campaign-upcoming" not in campaigns_by_id
 snapshot_drops = {
     drop["id"]: drop
     for campaign in snapshot
     for drop in campaign["drops"]
 }
-assert set(snapshot_drops) == {"badge-drop", "game-drop", "emote-drop"}
+assert set(snapshot_drops) == {"badge-drop", "game-drop", "emote-drop", "available-emote-drop"}
 assert snapshot_drops["badge-drop"]["category"] == "twitch"
 assert snapshot_drops["emote-drop"]["category"] == "twitch"
 assert snapshot_drops["game-drop"]["category"] == "game"
@@ -418,7 +438,10 @@ assert snapshot_drops["badge-drop"]["is_time_based"] is True
 assert snapshot_drops["badge-drop"]["is_twitch_view"] is True
 assert snapshot_drops["game-drop"]["is_twitch_view"] is False
 assert snapshot_drops["emote-drop"]["is_time_based"] is False
-assert snapshot_drops["emote-drop"]["is_twitch_view"] is False
+assert snapshot_drops["emote-drop"]["is_twitch_view"] is True
+assert snapshot_drops["available-emote-drop"]["claimed"] is False
+assert snapshot_drops["available-emote-drop"]["watched_minutes"] == 7
+assert snapshot_drops["available-emote-drop"]["is_twitch_view"] is True
 assert all(drop["type"] == "watch" for drop in snapshot_drops.values())
 assert "paid-drop" not in snapshot_drops
 

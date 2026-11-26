@@ -1276,13 +1276,19 @@ class Twitch(object):
             for _ in range(5):
                 if not isinstance(current, dict):
                     break
-                if isinstance(current.get("node"), dict) and not current.get("id"):
+                campaign_fields = {
+                    "name", "displayName", "summary", "status", "campaignStatus",
+                    "campaignID", "campaignId", "timeBasedDrops", "time_based_drops",
+                    "gameEventDrops", "drops", "game", "allow", "startAt", "endAt",
+                }
+                has_campaign_fields = bool(campaign_fields.intersection(current))
+                if isinstance(current.get("node"), dict) and not has_campaign_fields:
                     current = current["node"]
                     continue
-                if isinstance(current.get("campaign"), dict) and not current.get("id"):
+                if isinstance(current.get("campaign"), dict) and not has_campaign_fields:
                     current = current["campaign"]
                     continue
-                if isinstance(current.get("dropCampaign"), dict) and not current.get("id"):
+                if isinstance(current.get("dropCampaign"), dict) and not has_campaign_fields:
                     current = current["dropCampaign"]
                     continue
                 break
@@ -1307,6 +1313,8 @@ class Twitch(object):
                 "edges",
                 "nodes",
                 "items",
+                "data",
+                "results",
                 "campaigns",
                 "dropCampaigns",
                 "rewardCampaignsAvailableToUser",
@@ -1354,7 +1362,7 @@ class Twitch(object):
                 if value is not None and value != [] and value != {} and value != "":
                     if key not in target or target[key] in (None, [], {}, ""):
                         target[key] = value
-                    elif key in ("timeBasedDrops", "time_based_drops", "gameEventDrops", "benefitEdges"):
+                    elif key in ("timeBasedDrops", "time_based_drops", "gameEventDrops", "benefitEdges", "drops"):
                         existing = collection_items(target.get(key))
                         incoming = collection_items(value)
                         if incoming:
@@ -1368,6 +1376,9 @@ class Twitch(object):
         available_campaigns = find_named_collections(
             dashboard_data,
             {"rewardCampaignsAvailableToUser"},
+        )
+        available_campaigns.extend(
+            find_named_collections(inventory, {"rewardCampaignsAvailableToUser"})
         )
         if isinstance(dashboard_response, dict) and dashboard_response.get("errors"):
             self._warn_drops_response(
@@ -1402,20 +1413,25 @@ class Twitch(object):
             campaign_id = campaign_id_of(campaign)
             if not campaign_id:
                 continue
-            status = str(campaign.get("status") or campaign.get("campaignStatus") or "").upper()
-            if status and status != "ACTIVE":
+            status = str(campaign.get("status") or campaign.get("campaignStatus") or "").strip().upper()
+            if status in {
+                "EXPIRED", "ENDED", "COMPLETED", "CANCELLED", "CANCELED",
+                "INACTIVE", "UPCOMING", "SCHEDULED", "NOT_STARTED", "LOCKED",
+            }:
                 continue
             if not status:
                 status = "ACTIVE"
-            if status == "ACTIVE":
-                merged = campaigns_by_id.setdefault(campaign_id, {})
-                merge_nonempty(merged, campaign)
-                merged["id"] = campaign_id
-                merged["status"] = status or "ACTIVE"
-                merged["started"] = campaign_id in progress_ids
-                merged["in_inventory"] = campaign_id in progress_ids
-                merged["source"] = source if not merged.get("source") else merged["source"] + "+" + source
-                merged["is_active"] = True
+            merged = campaigns_by_id.setdefault(campaign_id, {})
+            merge_nonempty(merged, campaign)
+            merged["id"] = campaign_id
+            merged.setdefault("status", status)
+            merged["started"] = bool(merged.get("started") or campaign_id in progress_ids or status in ("IN_PROGRESS", "STARTED"))
+            merged["in_inventory"] = bool(merged.get("in_inventory") or campaign_id in progress_ids)
+            sources = [value for value in str(merged.get("source") or "").split("+") if value]
+            if source not in sources:
+                sources.append(source)
+            merged["source"] = "+".join(sources)
+            merged["is_active"] = True
 
         for event in event_drops:
             if not isinstance(event, dict):
@@ -1441,9 +1457,16 @@ class Twitch(object):
 
         def safe_int(value):
             try:
+                if isinstance(value, dict):
+                    value = value.get("value") or value.get("amount") or value.get("minutes")
                 return max(0, int(value or 0))
             except (TypeError, ValueError):
                 return 0
+
+        def safe_bool(value):
+            if isinstance(value, str):
+                return value.strip().lower() in ("1", "true", "yes", "on", "claimed")
+            return bool(value)
 
         result = []
         for campaign_id, campaign in campaigns_by_id.items():
@@ -1513,13 +1536,13 @@ class Twitch(object):
                         or raw_drop.get("currentMinutesWatched")
                         or raw_drop.get("current_minutes_watched")
                     )
-                    claimed = bool(
-                        progress.get("isClaimed")
-                        or raw_drop.get("isClaimed")
-                        or drop.get("isClaimed")
-                        or drop.get("claimed")
-                        or progress.get("claimedAt")
-                    )
+                    claimed = any((
+                        safe_bool(progress.get("isClaimed")),
+                        safe_bool(raw_drop.get("isClaimed")),
+                        safe_bool(drop.get("isClaimed")),
+                        safe_bool(drop.get("claimed")),
+                        safe_bool(progress.get("claimedAt")),
+                    ))
                     benefit_edges = (
                         drop.get("benefitEdges")
                         or raw_drop.get("benefitEdges")
@@ -1575,7 +1598,7 @@ class Twitch(object):
                     if claimed:
                         percentage = 100
                     is_time_based = source_key in ("timeBasedDrops", "time_based_drops")
-                    is_twitch_reward = is_time_based and any(
+                    is_twitch_reward = any(
                         value in ("BADGE", "EMOTE") for value in benefit_types
                     )
                     drops.append({

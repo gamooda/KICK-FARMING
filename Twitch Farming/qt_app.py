@@ -12,9 +12,9 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEasingCurve, QPoint, QRect, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QPainter, QPainterPath, QPen, QPixmap, QIcon
+from PySide6.QtGui import QAction, QColor, QCursor, QDesktopServices, QPainter, QPainterPath, QPen, QPixmap, QIcon
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
 
 from backend import APP_DIR, APP_VERSION, DEFAULT_APP_SETTINGS, DEFAULT_BET_SETTINGS, DEFAULT_OPTIONS, FILTER_KEYS, ICON_FILE, OPTION_NAMES, STRATEGIES, TwitchFarmingApi
 
@@ -365,8 +365,9 @@ class ChannelCard(QFrame):
         self.setMinimumHeight(232)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMouseTracking(True)
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 12)
+        root.setContentsMargins(14, 12, 14, 10)
         root.setSpacing(5)
         badges = QHBoxLayout()
         badges.setSpacing(6)
@@ -421,38 +422,97 @@ class ChannelCard(QFrame):
         currency_name.setMinimumWidth(0)
         bottom.addWidget(currency_name, 1)
         root.addLayout(bottom)
-        actions = QHBoxLayout()
-        actions.setSpacing(5)
-        edit = QPushButton("Редактировать")
+        self.actions_panel = QFrame()
+        self.actions_panel.setObjectName("channelActions")
+        action_layout = QHBoxLayout(self.actions_panel)
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(5)
+        open_button = QPushButton("↗")
+        open_button.setObjectName("cardAction")
+        open_button.setFixedSize(29, 27)
+        open_button.setToolTip("Открыть на Twitch")
+        open_button.clicked.connect(lambda checked=False, value=login: QDesktopServices.openUrl(QUrl("https://www.twitch.tv/" + value)))
+        action_layout.addWidget(open_button)
+        edit = QPushButton("✎")
         edit.setObjectName("cardAction")
-        edit.setFixedHeight(27)
+        edit.setFixedSize(29, 27)
         edit.setEnabled(bool(actions_enabled))
-        edit.setToolTip("Изменить логин канала")
-        edit.clicked.connect(lambda: edit_callback(login))
-        actions.addWidget(edit, 1)
-        move = QPushButton("Переместить")
+        edit.setToolTip("Редактировать канал")
+        edit.clicked.connect(lambda checked=False, value=login: edit_callback(value))
+        action_layout.addWidget(edit)
+        move = QPushButton("⇄")
         move.setObjectName("cardAction")
-        move.setFixedHeight(27)
+        move.setFixedSize(29, 27)
         move.setEnabled(bool(actions_enabled))
-        move.setToolTip("Выбери вторую карточку, чтобы поменять их местами")
-        move.clicked.connect(lambda: move_callback(login))
-        actions.addWidget(move, 1)
+        move.setToolTip("Переместить: выбери вторую карточку")
+        move.clicked.connect(lambda checked=False, value=login: move_callback(value))
+        action_layout.addWidget(move)
         remove = QPushButton("×")
         remove.setObjectName("smallDanger")
-        remove.setFixedSize(25, 27)
+        remove.setFixedSize(29, 27)
         remove.setEnabled(bool(actions_enabled))
         remove.setToolTip("Удалить канал")
-        remove.clicked.connect(lambda: remove_callback(login))
-        actions.addWidget(remove)
-        root.addLayout(actions)
+        remove.clicked.connect(lambda checked=False, value=login: remove_callback(value))
+        action_layout.addWidget(remove)
+        action_layout.addStretch()
+        self.actions_opacity = QGraphicsOpacityEffect(self.actions_panel)
+        self.actions_opacity.setOpacity(0.0)
+        self.actions_panel.setGraphicsEffect(self.actions_opacity)
+        self.actions_panel.setMaximumHeight(0)
+        self.actions_panel.hide()
+        self.actions_height_animation = QPropertyAnimation(self.actions_panel, b"maximumHeight", self)
+        self.actions_height_animation.setDuration(170)
+        self.actions_height_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.actions_height_animation.finished.connect(self._finish_actions_animation)
+        self.actions_opacity_animation = QPropertyAnimation(self.actions_opacity, b"opacity", self)
+        self.actions_opacity_animation.setDuration(150)
+        self.actions_opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        root.addWidget(self.actions_panel)
         if image_cache:
             image_cache.request(self.avatar, profile.get("avatar_url", ""), True)
             image_cache.request(self.currency_icon, currency.get("icon_url", ""), False)
+
+    def _animate_actions(self, visible):
+        self.actions_height_animation.stop()
+        self.actions_opacity_animation.stop()
+        if visible:
+            self.actions_panel.show()
+            self.actions_height_animation.setStartValue(max(0, self.actions_panel.maximumHeight()))
+            self.actions_height_animation.setEndValue(31)
+            self.actions_opacity_animation.setStartValue(self.actions_opacity.opacity())
+            self.actions_opacity_animation.setEndValue(1.0)
+        else:
+            if not self.actions_panel.isVisible():
+                return
+            self.actions_height_animation.setStartValue(max(0, self.actions_panel.maximumHeight()))
+            self.actions_height_animation.setEndValue(0)
+            self.actions_opacity_animation.setStartValue(self.actions_opacity.opacity())
+            self.actions_opacity_animation.setEndValue(0.0)
+        self.actions_height_animation.start()
+        self.actions_opacity_animation.start()
+
+    def _finish_actions_animation(self):
+        if self.actions_panel.maximumHeight() <= 0 and not self.underMouse():
+            self.actions_panel.hide()
+
+    def _hide_actions_if_outside(self):
+        if not self.rect().contains(self.mapFromGlobal(QCursor.pos())):
+            self._animate_actions(False)
+
+    def enterEvent(self, event):
+        self._animate_actions(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        QTimer.singleShot(40, self._hide_actions_if_outside)
+        super().leaveEvent(event)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.selected.emit(self.login)
         super().mousePressEvent(event)
+
+
 
 
 class ActiveSlotCard(QFrame):
@@ -803,6 +863,7 @@ class MainWindow(QMainWindow):
         self._modal_overlay = None
         self._startup_restore_requested = False
         self._account_profile_request_user = ""
+        self._header_status_notice = None
         self.api.update_install_callback = self.installRequested.emit
         self.installRequested.connect(self._install_ready)
         self.ui_icon_atlas = QPixmap(str(UI_ICON_ATLAS))
@@ -844,9 +905,9 @@ class MainWindow(QMainWindow):
         outer.addLayout(body, 1)
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebar")
-        self.sidebar.setFixedWidth(172)
+        self.sidebar.setFixedWidth(196)
         side = QVBoxLayout(self.sidebar)
-        side.setContentsMargins(10, 12, 10, 12)
+        side.setContentsMargins(8, 12, 8, 12)
         side.setSpacing(5)
         logo = TwitchLogo(self.ui_icon_atlas.copy(0, 0, 48, 48) if not self.ui_icon_atlas.isNull() else QPixmap())
         side.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -854,11 +915,7 @@ class MainWindow(QMainWindow):
         brand.setObjectName("brandText")
         brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
         side.addWidget(brand)
-        menu_title = QLabel("МЕНЮ")
-        menu_title.setObjectName("brandSub")
-        menu_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        side.addWidget(menu_title)
-        side.addSpacing(10)
+        side.addSpacing(12)
         self.nav_buttons = []
         nav_items = [
             ("Каналы", 0, "channels"),
@@ -1001,8 +1058,7 @@ class MainWindow(QMainWindow):
         QLabel#accountAvatarLarge { border-radius:26px; font-size:16px; }
         QFrame#sidebar { background:#11101B; border:0; border-right:1px solid #2B263D; border-radius:0; }
         QLabel#brandText { color:#F5F1FF; font-size:11px; font-weight:900; letter-spacing:1px; }
-        QLabel#brandSub { color:#A98AFF; font-size:9px; font-weight:900; letter-spacing:2px; }
-        QPushButton#navButton { background:transparent; border:1px solid transparent; border-radius:9px; text-align:left; padding:5px 9px; color:#AFA9C0; font-size:11px; font-weight:650; }
+        QPushButton#navButton { background:transparent; border:1px solid transparent; border-radius:9px; text-align:left; padding:5px 7px; color:#AFA9C0; font-size:10.5px; font-weight:650; }
         QPushButton#navButton:hover { background:#211D31; color:#FFFFFF; border-color:#302944; }
         QPushButton#navButton:checked { background:#352253; border-color:#65448F; color:#E7D8FF; }
         QPushButton#navButton:checked:hover { background:#3B275F; }
@@ -1025,11 +1081,19 @@ class MainWindow(QMainWindow):
         QLineEdit#modalInput, QTextEdit#modalEditor { background:#101016; border:1px solid #343143; border-radius:7px; padding:8px; color:#F4F1F9; }
         QFrame#panel, QFrame#channelCard, QFrame#campaignCard, QFrame#followerCard, QFrame#settingCard, QFrame#feedCard { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #1B1929,stop:1 #14131F); border:1px solid #37314D; border-radius:11px; }
         QFrame#channelCard:hover, QFrame#campaignCard:hover, QFrame#followerCard:hover, QFrame#settingCard:hover { border-color:#70569B; }
+        QFrame#channelActions { background:transparent; border:0; }
+        QFrame#followerCard[added="true"] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #261E38,stop:1 #171522); border:1px solid #7655A5; }
+        QPushButton#followerAddButton { background:#22212B; border:1px solid #383744; color:#C4BFCC; padding:5px 7px; border-radius:7px; font-size:9px; font-weight:700; }
+        QPushButton#followerAddButton:hover { background:#2D2A38; border-color:#575164; }
+        QPushButton#followerAddedButton { background:#302345; border:1px solid #7655A5; color:#DCCAFF; padding:5px 7px; border-radius:7px; font-size:9px; font-weight:800; }
+        QPushButton#followerAddedButton:disabled { background:#302345; border:1px solid #7655A5; color:#DCCAFF; }
+        QPushButton#followerAddedButton:hover { background:#3A2B52; }
         QFrame#channelCard[selected="true"] { background:#241A36; border-color:#A36BFF; }
         QPushButton#cardAction { background:#211E2C; border:1px solid #383247; color:#D2CBE0; padding:3px 5px; border-radius:6px; font-size:9px; font-weight:700; }
         QPushButton#cardAction:hover { background:#2B263B; border-color:#7656A2; }
         QPushButton#cardAction:disabled, QPushButton#smallDanger:disabled { color:#696575; background:#181720; border-color:#282632; }
-        QLabel#channelAvatar, QLabel#slotAvatar, QLabel#miniAvatar { background:#29243A; border:1px solid #4A3A63; border-radius:32px; color:#C9B8F0; font-weight:800; }
+        QLabel#channelAvatar { background:#29243A; border:1px solid #4A3A63; border-radius:32px; color:#C9B8F0; font-weight:800; }
+        QLabel#slotAvatar, QLabel#miniAvatar { background:transparent; border:0; border-radius:0; color:#C9B8F0; font-weight:800; }
         QLabel#campaignImage { background:#241D36; border-radius:8px; color:#A98AFF; font-weight:800; }
         QLabel#rewardIcon { background:#242034; border-radius:8px; color:#E7D6FF; }
         QLabel#channelName { color:#FFFFFF; font-size:13px; font-weight:800; }
@@ -1134,12 +1198,10 @@ class MainWindow(QMainWindow):
         header.addWidget(subtitle)
         layout.addLayout(header)
         top = QHBoxLayout()
-        self.farm_status = QLabel("● НЕ ЗАПУЩЕН")
-        self.farm_status.setObjectName("titleStatus")
-        top.addWidget(self.farm_status)
-        self.session_label = QLabel("Сессия: 00:00:00")
-        self.session_label.setObjectName("statusHint")
-        top.addWidget(self.session_label)
+        self.farm_status = QLabel()
+        self.farm_status.hide()
+        self.session_label = QLabel()
+        self.session_label.hide()
         top.addStretch()
         self.add_channel_button = QPushButton("＋ Добавить канал")
         self.add_channel_button.setObjectName("secondaryButton")
@@ -1228,7 +1290,7 @@ class MainWindow(QMainWindow):
         content.setObjectName("feedContent")
         content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         frame.feed_layout = QVBoxLayout(content)
-        frame.feed_layout.setContentsMargins(0, 0, 4, 0)
+        frame.feed_layout.setContentsMargins(10 if title == "Последние награды" else 0, 0, 4, 0)
         frame.feed_layout.setSpacing(6)
         scroll.setWidget(content)
         box.addWidget(scroll, 1)
@@ -1666,14 +1728,27 @@ class MainWindow(QMainWindow):
         elif result and isinstance(result, dict) and result.get("message"):
             self._notify(str(result.get("message")))
 
+    def _set_header_status_notice(self, message, color="#B596FF", seconds=4.0):
+        self._header_status_notice = (str(message or "")[:18], str(color), time.monotonic() + seconds)
+        self.title_bar.set_status(self._header_status_notice[0], self._header_status_notice[1])
+
     def _call(self, method, *args, message=""):
         function = getattr(self.api, method)
+        update_action = method in ("check_for_updates", "download_update")
+        if update_action:
+            label = "ПРОВЕРКА ОБНОВЛЕНИЙ" if method == "check_for_updates" else "ЗАГРУЗКА ОБНОВЛЕНИЯ"
+            self._set_header_status_notice(label, "#B596FF", 5.0)
         def completed(result, error):
+            if update_action:
+                if error or (isinstance(result, dict) and result.get("ok") is False):
+                    self._set_header_status_notice("ОШИБКА ОБНОВЛЕНИЯ", "#FF8294", 5.0)
+                return
             if not error and message:
                 self._notify(message)
             if not error and isinstance(result, dict) and result.get("message"):
                 self._notify(str(result["message"]))
         self._run_task(method, function, args, completed)
+
 
     def _startup_finished(self, result, error):
         if error:
@@ -1798,7 +1873,12 @@ class MainWindow(QMainWindow):
         state = self.latest_state
         status = str(state.get("status_text") or "● НЕ ЗАПУЩЕН")
         color = str(state.get("status_color") or "#9BA3B4")
-        self.title_bar.set_status(status, color)
+        notice = self._header_status_notice
+        if notice and time.monotonic() < notice[2]:
+            self.title_bar.set_status(notice[0], notice[1])
+        else:
+            self._header_status_notice = None
+            self.title_bar.set_status(status, color)
         self.farm_status.setText(status)
         self.farm_status.setStyleSheet("color:" + color + ";")
         running = bool(state.get("session_running"))
@@ -2299,9 +2379,17 @@ class MainWindow(QMainWindow):
     def _render_followers(self):
         if not hasattr(self, "followers_grid"):
             return
-        items = self.followed_state.get("channels", [])
+        configured = {str(login).strip().lower() for login in self.latest_state.get("channels", [])}
+        items = [dict(item) for item in self.followed_state.get("channels", []) if isinstance(item, dict)]
+        items.sort(
+            key=lambda item: (
+                str(item.get("login") or "").strip().lower() in configured,
+                bool(item.get("is_live")),
+                max(0, int(item.get("viewer_count") or 0)),
+            ),
+            reverse=True,
+        )
         session_running = bool(self.latest_state.get("session_running"))
-        configured = set(self.latest_state.get("channels", []))
         signature = json.dumps([items, session_running, sorted(configured)], sort_keys=True, ensure_ascii=False)
         if signature == self._last_followed_signature:
             return
@@ -2312,9 +2400,14 @@ class MainWindow(QMainWindow):
             else str(self.followed_state.get("error") or f"Найдено подписок: {len(items)}")
         )
         for index, item in enumerate(items):
+            login = str(item.get("login") or "").strip().lower()
+            added = login in configured
             frame = QFrame()
             frame.setObjectName("followerCard")
+            frame.setProperty("added", added)
             frame.setMinimumHeight(72)
+            frame.style().unpolish(frame)
+            frame.style().polish(frame)
             row = QHBoxLayout(frame)
             row.setContentsMargins(8, 7, 8, 7)
             row.setSpacing(7)
@@ -2322,15 +2415,14 @@ class MainWindow(QMainWindow):
             avatar.setFixedSize(40, 40)
             avatar.setObjectName("miniAvatar")
             avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            avatar.setText(str(item.get("display_name") or item.get("login") or "?")[:1].upper())
+            avatar.setText(str(item.get("display_name") or login or "?")[:1].upper())
             row.addWidget(avatar)
             details = QVBoxLayout()
             details.setSpacing(2)
-            name = QLabel(str(item.get("display_name") or item.get("login") or "Канал"))
+            name = QLabel(str(item.get("display_name") or login or "Канал"))
             name.setObjectName("streamerName")
             name.setWordWrap(False)
             details.addWidget(name)
-            login = str(item.get("login") or "").lower()
             followed_at = str(item.get("followed_at") or "").strip()
             followed_date = ""
             if followed_at:
@@ -2348,13 +2440,12 @@ class MainWindow(QMainWindow):
             meta.setObjectName("followerMeta")
             details.addWidget(meta)
             row.addLayout(details, 1)
-            added = login in configured
-            add = QPushButton("Добавлен" if added else "Добавить")
-            add.setObjectName("secondaryButton")
-            add.setFixedWidth(72)
+            add = QPushButton("✓ Добавлен" if added else "+ Добавить")
+            add.setObjectName("followerAddedButton" if added else "followerAddButton")
+            add.setFixedWidth(82)
             add.setFixedHeight(27)
             add.setEnabled(not session_running and not added)
-            add.setToolTip("Канал уже находится в списке." if added else ("Остановите фарм, чтобы изменить каналы." if session_running else ""))
+            add.setToolTip("Канал уже находится в списке." if added else ("Остановите фарм, чтобы изменить каналы." if session_running else "Добавить канал в список фарма"))
             add.clicked.connect(lambda checked=False, value=login: self._call("add_followed_channel", value, message="Канал добавлен."))
             row.addWidget(add)
             self.followers_grid.addWidget(frame, index // 3, index % 3)
@@ -2363,6 +2454,7 @@ class MainWindow(QMainWindow):
             empty = QLabel("Подписок не найдено. Обнови список после подключения Twitch.")
             empty.setObjectName("mutedText")
             self.followers_grid.addWidget(empty, 0, 0)
+
 
 
     def _clear_image_cache(self, method, category):
@@ -2401,10 +2493,21 @@ class MainWindow(QMainWindow):
             self.update_speed.setText(f"Скачивание: {self.update_progress.value()}% · {downloaded:.1f} / {total:.1f} МБ · {speed:.2f} МБ/с")
         else:
             self.update_speed.setText(str(state.get("error") or state.get("latest_version") or ""))
+        status_labels = {
+            "checking": ("ПРОВЕРКА ОБНОВЛЕНИЙ", "#B596FF"),
+            "downloading": ("ЗАГРУЗКА ОБНОВЛЕНИЯ", "#B596FF"),
+            "extracting": ("РАСПАКОВКА ОБНОВЛЕНИЯ", "#B596FF"),
+            "installing": ("УСТАНОВКА ОБНОВЛЕНИЯ", "#B596FF"),
+            "available": ("ЕСТЬ ОБНОВЛЕНИЕ", "#75D5A6"),
+            "error": ("ОШИБКА ОБНОВЛЕНИЯ", "#FF8294"),
+        }
+        if phase in status_labels:
+            label, color = status_labels[phase]
+            self._set_header_status_notice(label, color, 2.0)
 
     def _download_update(self):
         if self.latest_state.get("session_running"):
-            self._show_dialog("Обновление", "Останови фарм перед установкой обновления.")
+            self._set_header_status_notice("ОСТАНОВИТЕ ФАРМ", "#F0C36B", 5.0)
             return
         self._call("download_update", message="Скачивание обновления запущено.")
 
@@ -2436,13 +2539,25 @@ class MainWindow(QMainWindow):
             "CRITICAL": "#FF657E",
             "FATAL": "#FF657E"
         }
+        debug_signatures = (
+            "[debug]",
+            "starting new https connection",
+            "starting new http connection",
+            "httpsconnectionpool(",
+            "httpconnectionpool(",
+            "urllib3.connectionpool",
+            "head /v1/segment",
+            "get /v1/segment",
+        )
         rendered = []
         for item in rows[-500:]:
             line = str(item.get("line") or item.get("message") or item)
+            lower_line = line.lower()
             severity = str(item.get("level") or "INFO").upper()
-            if search and search not in line.lower():
+            looks_debug = severity == "DEBUG" or any(marker in lower_line for marker in debug_signatures)
+            if search and search not in lower_line:
                 continue
-            if level == "Основные" and severity == "DEBUG":
+            if level in ("Основные", "INFO") and looks_debug:
                 continue
             if level not in ("Основные", "Все уровни") and severity != level:
                 continue
@@ -2454,6 +2569,7 @@ class MainWindow(QMainWindow):
             self.log_output.setHtml(document)
             scrollbar = self.log_output.verticalScrollBar()
             scrollbar.setValue(scrollbar.maximum())
+
 
 
     def _update_session_clock(self):
@@ -2515,14 +2631,18 @@ class MainWindow(QMainWindow):
     def _notify(self, message):
         if not hasattr(self, "toast"):
             return
-        self.toast.setText(str(message))
+        text_value = str(message)
+        if "обновлен" in text_value.lower():
+            self._set_header_status_notice(text_value.upper(), "#B596FF", 5.0)
+            return
+        self.toast.setText(text_value)
         self._position_toast()
         self.toast.show()
         self.toast.raise_()
         self.toast_timer.start(3500)
 
     def _install_ready(self):
-        self._notify("Обновление подготовлено. Приложение перезапустится после закрытия.")
+        self._set_header_status_notice("ОБНОВЛЕНИЕ ГОТОВО", "#75D5A6", 8.0)
         QTimer.singleShot(400, self._quit_for_update)
 
     def _quit_for_update(self):
