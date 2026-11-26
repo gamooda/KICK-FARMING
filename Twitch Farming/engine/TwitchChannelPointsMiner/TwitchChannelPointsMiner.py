@@ -3,6 +3,7 @@
 import logging
 import os
 import random
+import requests
 import signal
 import sys
 import threading
@@ -363,6 +364,10 @@ class TwitchChannelPointsMiner:
                             f"Streamer {username} does not exist",
                             extra={"emoji": ":cry:"},
                         )
+                    except requests.exceptions.RequestException as error:
+                        logger.warning(
+                            f"Временная ошибка Twitch при загрузке @{username}: {error}. Пропускаю канал, остальные продолжат загружаться."
+                        )
 
             # Populate the streamers with default values.
             # 1. Load channel points and auto-claim bonus
@@ -382,6 +387,10 @@ class TwitchChannelPointsMiner:
                     logger.info(
                         f"Streamer {streamer.username} does not exist",
                         extra={"emoji": ":cry:"},
+                    )
+                except requests.exceptions.RequestException as error:
+                    logger.warning(
+                        f"Временная ошибка Twitch при инициализации @{streamer.username}: {error}. Повторная проверка произойдёт во время фарма."
                     )
 
             if not self.streamers:
