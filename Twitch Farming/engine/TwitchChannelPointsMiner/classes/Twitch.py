@@ -1465,7 +1465,7 @@ class Twitch(object):
 
         def safe_bool(value):
             if isinstance(value, str):
-                return value.strip().lower() in ("1", "true", "yes", "on", "claimed")
+                return value.strip().lower() not in ("", "0", "false", "no", "off", "none", "null")
             return bool(value)
 
         result = []
