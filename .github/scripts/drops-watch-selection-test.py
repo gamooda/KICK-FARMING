@@ -86,9 +86,13 @@ class RecordingExecutor:
         return future
 
 
-setattr(dispatch_watcher, "_Twitch__chuncked_sleep", lambda *args, **kwargs: None)
 dispatch_logs = []
 with (
+    patch.object(
+        Twitch,
+        "_Twitch__chuncked_sleep",
+        lambda self, *args, **kwargs: None,
+    ),
     patch.object(
         Twitch,
         "_send_minute_watched_for_streamer",
