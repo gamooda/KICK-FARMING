@@ -581,6 +581,69 @@ assert GQLOperations.Inventory["extensions"]["persistedQuery"]["sha256Hash"] == 
 assert GQLOperations.ViewerDropsDashboard["extensions"]["persistedQuery"]["sha256Hash"] == "c16bb890cc8ce7647a96ee69cd313d423a378a3dedadf630a1017cde18975feb"
 assert GQLOperations.DropCampaignDetails["extensions"]["persistedQuery"]["sha256Hash"] == "039277bf98f3130929262cc7c6efd9c141ca3749cb6dca442fc8ead9a53f77c1"
 assert GQLOperations.DropsHighlightService_AvailableDrops["extensions"]["persistedQuery"]["sha256Hash"] == "782dad0f032942260171d2d80a654f88bdd0c5a9dddc392e9bc92218a0f42d20"
+available_campaign = {
+    "id": "available-channel-campaign",
+    "name": "Available Channel Campaign",
+    "detailsURL": "https://www.twitch.tv/drops/campaigns/available-channel-campaign",
+    "imageURL": "https://example.test/campaign.png",
+    "endAt": "2099-12-31T23:59:59Z",
+    "game": {"id": "4242", "name": "Example Game"},
+    "timeBasedDrops": [{
+        "id": "available-channel-drop",
+        "name": "Exclusive Twitch Emote",
+        "startAt": "2026-01-01T00:00:00Z",
+        "endAt": "2099-12-31T23:59:59Z",
+        "requiredMinutesWatched": 45,
+        "benefitEdges": [{
+            "benefit": {
+                "id": "available-benefit",
+                "name": "Exclusive Twitch Emote",
+                "distributionType": "EMOTE",
+                "imageAssetURL": "https://example.test/emote.png",
+                "game": None,
+            }
+        }],
+    }],
+}
+available_client = Twitch.__new__(Twitch)
+available_query_payloads = [
+    {"data": {"channel": {"viewerDropCampaigns": [available_campaign]}}},
+    {"data": {"channel": {"viewerDropCampaigns": []}}},
+]
+with patch.object(Twitch, "post_gql_request", return_value=available_query_payloads) as available_query:
+    available_by_login = available_client.get_drop_campaigns_for_channels([
+        {"login": "live_one", "channel_id": "1001"},
+        {"login": "live_two", "channel_id": "1002"},
+    ])
+assert available_by_login["live_one"][0]["timeBasedDrops"][0]["id"] == "available-channel-drop"
+assert available_by_login["live_one"][0]["game"]["id"] == "4242"
+assert available_by_login["live_two"] == []
+assert len(available_query.call_args.args[0]) == 2
+
+available_snapshot_client = Twitch.__new__(Twitch)
+available_details_requested = []
+with (
+    patch.object(Twitch, "_Twitch__get_inventory", lambda self: {"dropCampaignsInProgress": [], "gameEventDrops": []}),
+    patch.object(Twitch, "post_gql_request", lambda self, request: {"data": {"currentUser": {"dropCampaigns": None}}}),
+    patch.object(
+        Twitch,
+        "_Twitch__get_campaigns_details",
+        lambda self, candidates: available_details_requested.extend(candidates) or [],
+    ),
+    patch.object(Twitch, "_warn_drops_response", lambda self, *args: None),
+):
+    available_snapshot = available_snapshot_client.get_drop_inventory_snapshot({
+        "live_one": [available_campaign],
+    })
+assert len(available_snapshot) == 1, "AvailableDrops campaign summaries must create catalog entries without ViewerDropsDashboard."
+assert available_snapshot[0]["id"] == "available-channel-campaign"
+assert available_snapshot[0]["game"] == "Example Game"
+assert available_snapshot[0]["game_id"] == "4242"
+assert available_snapshot[0]["drops"][0]["id"] == "available-channel-drop"
+assert available_snapshot[0]["drops"][0]["category"] == "twitch"
+assert available_snapshot[0]["drops"][0]["image_url"] == "https://example.test/emote.png"
+assert available_details_requested == [], "Complete AvailableDrops summaries must not depend on DropCampaignDetails."
+
 fallback_client = Twitch.__new__(Twitch)
 fallback_client.twitch_login = SimpleNamespace(get_user_id=lambda: 1346146321, username="dv4roka")
 detail_requests = []
@@ -603,4 +666,4 @@ twitch_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner"
 assert "for attempt in range(2):" in twitch_source and "requests.exceptions.Timeout" in twitch_source, "Helix requests must retry transient timeouts."
 assert "campaigns_update = 0" in twitch_source and "requests.exceptions.RequestException" in twitch_source, "Drops sync must retry after transient request failures."
 
-print("Multi-channel watch, Drops discovery, Twitch reward filtering, Helix timeout recovery, campaign detail fallback and HLS tests passed.")
+print("Multi-channel watch, AvailableDrops campaign catalog fallback, Twitch reward filtering, Helix timeout recovery, campaign detail fallback and HLS tests passed.")
