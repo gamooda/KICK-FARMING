@@ -452,7 +452,8 @@ class ChannelCard(QFrame):
         balance_row.addWidget(currency_name, 1)
 
         details.addLayout(balance_row)
-        root.addLayout(details, 1, Qt.AlignmentFlag.AlignVCenter)
+        details.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        root.addLayout(details, 1)
 
         right = QVBoxLayout()
         right.setContentsMargins(0, 0, 0, 0)
