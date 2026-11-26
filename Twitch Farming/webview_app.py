@@ -1,6 +1,8 @@
+import faulthandler
 import json
 import logging
 import os
+import queue
 import re
 import sys
 import threading
@@ -45,23 +47,76 @@ def write_boot_log(level, message):
 
 _ORIGINAL_SYS_EXCEPTHOOK = sys.excepthook
 _ORIGINAL_THREAD_EXCEPTHOOK = threading.excepthook
+_ORIGINAL_UNRAISABLEHOOK = sys.unraisablehook
+_CRASH_LOG_LOCK = threading.RLock()
+_CRASH_LOG_HANDLE = None
+CRASH_LOG_FILE = APP_DIR / "crash.log"
+
+
+def write_crash_log(level, message):
+    stamp = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+    payload = f"{stamp}  [{str(level).upper()}]  [PID {os.getpid()}]  {str(message).rstrip()}\n"
+    try:
+        with _CRASH_LOG_LOCK:
+            if _CRASH_LOG_HANDLE is not None:
+                _CRASH_LOG_HANDLE.write(payload.encode("utf-8", errors="replace"))
+                _CRASH_LOG_HANDLE.flush()
+            else:
+                APP_DIR.mkdir(parents=True, exist_ok=True)
+                with CRASH_LOG_FILE.open("a", encoding="utf-8") as file:
+                    file.write(payload)
+                    file.flush()
+    except BaseException:
+        pass
 
 
 def _startup_sys_excepthook(exc_type, exc_value, exc_traceback):
-    write_boot_log("ERROR", "".join(traceback.format_exception(exc_type, exc_value, exc_traceback)).rstrip())
-    _ORIGINAL_SYS_EXCEPTHOOK(exc_type, exc_value, exc_traceback)
+    details = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback)).rstrip()
+    write_crash_log("FATAL", "Необработанное исключение главного потока\n" + details)
+    write_boot_log("ERROR", details)
+    try:
+        _ORIGINAL_SYS_EXCEPTHOOK(exc_type, exc_value, exc_traceback)
+    except BaseException:
+        pass
 
 
 def _startup_thread_excepthook(args):
-    write_boot_log("ERROR", "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)).rstrip())
-    _ORIGINAL_THREAD_EXCEPTHOOK(args)
+    details = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)).rstrip()
+    write_crash_log("THREAD", "Необработанное исключение потока " + str(args.thread.name if args.thread else "unknown") + "\n" + details)
+    write_boot_log("ERROR", "THREAD " + str(args.thread.name if args.thread else "unknown") + "\n" + details)
+    try:
+        _ORIGINAL_THREAD_EXCEPTHOOK(args)
+    except BaseException:
+        pass
 
 
-sys.excepthook = _startup_sys_excepthook
-threading.excepthook = _startup_thread_excepthook
+def _startup_unraisablehook(args):
+    details = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)).rstrip()
+    write_crash_log("UNRAISABLE", str(args.err_msg or "Необрабатываемое исключение") + "\n" + details)
+    try:
+        _ORIGINAL_UNRAISABLEHOOK(args)
+    except BaseException:
+        pass
 
 
-DEFAULT_BET_SETTINGS = {
+def install_crash_handlers():
+    global _CRASH_LOG_HANDLE
+    try:
+        APP_DIR.mkdir(parents=True, exist_ok=True)
+        if _CRASH_LOG_HANDLE is None:
+            _CRASH_LOG_HANDLE = CRASH_LOG_FILE.open("ab", buffering=0)
+        faulthandler.enable(file=_CRASH_LOG_HANDLE, all_threads=True)
+    except BaseException as error:
+        write_boot_log("ERROR", "Не удалось включить faulthandler: " + str(error))
+    sys.excepthook = _startup_sys_excepthook
+    threading.excepthook = _startup_thread_excepthook
+    sys.unraisablehook = _startup_unraisablehook
+
+
+install_crash_handlers()
+
+
+DEFAULT_BET_SETTINGS = {DEFAULT_BET_SETTINGS = {
     "strategy": "SMART",
     "percentage": 5,
     "percentage_gap": 20,
@@ -288,13 +343,13 @@ class EngineWorker(threading.Thread):
                 return
             miner.mine(streamers=prepared_streamers, followers=False)
         except BaseException as error:
-            self.app.engine_error(str(error) or error.__class__.__name__)
+            self.app.enqueue_ui_state("engine_error", message=str(error) or error.__class__.__name__)
         finally:
             if miner is not None:
                 try:
                     miner.stop()
                 except Exception as error:
-                    self.app.engine_error(str(error))
+                    self.app.enqueue_ui_state("engine_error", message=str(error))
             if session_client is not None:
                 try:
                     session_client.twitch_login.session.close()
@@ -302,7 +357,7 @@ class EngineWorker(threading.Thread):
                     logging.getLogger("twitch_farming.engine").exception("Could not close the farming Twitch session")
             with self.miner_lock:
                 self.miner = None
-            self.app.engine_finished(self)
+            self.app.enqueue_ui_state("engine_finished", worker=self)
 
 
 class ChannelProfileWorker(threading.Thread):
@@ -614,6 +669,7 @@ class DropsInventoryWorker(threading.Thread):
 class TwitchFarmingApi:
     def __init__(self):
         self.lock = threading.RLock()
+        self.ui_state_queue = queue.SimpleQueue()
         self.username = ""
         self.channels = []
         self.temporary_channels = {}
@@ -1719,6 +1775,7 @@ class TwitchFarmingApi:
 
     def start_farm(self, payload):
         with self.lock:
+            self._apply_ui_state_queue_locked()
             if self.engine_worker is not None and self.engine_worker.is_alive():
                 return {"ok": False, "message": "Сбор уже запущен."}
         saved = self.save_settings(payload)
@@ -1768,30 +1825,56 @@ class TwitchFarmingApi:
         worker.request_stop()
         return {"ok": True, "message": "Остановка запрошена."}
 
+    def enqueue_ui_state(self, event_type, **payload):
+        try:
+            self.ui_state_queue.put_nowait((str(event_type), dict(payload)))
+            return True
+        except BaseException as error:
+            write_crash_log("QUEUE", "Не удалось поставить событие UI в очередь: " + str(error))
+            return False
+
+    def _apply_ui_state_queue_locked(self):
+        published = []
+        while True:
+            try:
+                event_type, payload = self.ui_state_queue.get_nowait()
+            except queue.Empty:
+                break
+            if event_type == "engine_error":
+                message = str(payload.get("message") or "Неизвестная ошибка фарма")
+                self._append_event_locked("Ошибка · " + message.replace("\\n", " ")[:220])
+                self._set_status_locked("●  ОШИБКА", "#FF6B78")
+                published.append({"type": event_type, "message": message[:220]})
+            elif event_type == "engine_finished":
+                self._finish_engine_worker_locked(payload.get("worker"))
+                published.append({"type": event_type})
+        return published
+
     def engine_error(self, error):
-        with self.lock:
-            self._append_event_locked("Ошибка · " + str(error).replace("\n", " ")[:220])
-            self._set_status_locked("●  ОШИБКА", "#FF6B78")
+        self.enqueue_ui_state("engine_error", message=str(error))
+
+    def _finish_engine_worker_locked(self, worker):
+        if self.engine_worker is not worker:
+            return
+        self.session_running = False
+        self.session_started_at = 0.0
+        self.engine_worker = None
+        temporary = list(self.temporary_channels)
+        for login in temporary:
+            if login in self.channels:
+                self.channels.remove(login)
+            self.online_channels.discard(login)
+            self.channel_profiles.pop(login, None)
+            self.channel_balances.pop(login, None)
+            self.channel_points_branding_cache.pop(login, None)
+            self.watch_status.pop(login, None)
+        self.temporary_channels.clear()
+        if temporary:
+            self._append_event_locked("Временные Drops-каналы удалены после завершения фарма: " + str(len(temporary)))
+        self._set_status_locked("●  НЕ ЗАПУЩЕН", "#A9B2C3")
 
     def engine_finished(self, worker):
-        with self.lock:
-            if self.engine_worker is worker:
-                self.session_running = False
-                self.session_started_at = 0.0
-                self.engine_worker = None
-                temporary = list(self.temporary_channels)
-                for login in temporary:
-                    if login in self.channels:
-                        self.channels.remove(login)
-                    self.online_channels.discard(login)
-                    self.channel_profiles.pop(login, None)
-                    self.channel_balances.pop(login, None)
-                    self.channel_points_branding_cache.pop(login, None)
-                    self.watch_status.pop(login, None)
-                self.temporary_channels.clear()
-                if temporary:
-                    self._append_event_locked("Временные Drops-каналы удалены после завершения фарма: " + str(len(temporary)))
-                self._set_status_locked("●  НЕ ЗАПУЩЕН", "#A9B2C3")
+        self.enqueue_ui_state("engine_finished", worker=worker)
 
     def _set_status_locked(self, text, color="#A9B2C3"):
         self.status_text = text
@@ -2086,7 +2169,13 @@ class TwitchFarmingApi:
         miner = getattr(worker, "miner", None) if worker is not None else None
         branding_changed = False
         if miner is not None:
-            for streamer in list(getattr(miner, "streamers", []) or []):
+            streamers_lock = getattr(miner, "streamers_lock", None)
+            if streamers_lock is None:
+                streamers = list(getattr(miner, "streamers", []) or [])
+            else:
+                with streamers_lock:
+                    streamers = list(getattr(miner, "streamers", []) or [])
+            for streamer in streamers:
                 login = str(getattr(streamer, "username", "") or "").lower()
                 if not login:
                     continue
@@ -2165,6 +2254,7 @@ class TwitchFarmingApi:
         except (TypeError, ValueError):
             after = 0
         with self.lock:
+            ui_events = self._apply_ui_state_queue_locked()
             profile_worker_alive = bool(self.profile_worker is not None and self.profile_worker.is_alive())
             if (
                 self.authenticated
@@ -2180,9 +2270,10 @@ class TwitchFarmingApi:
                 engine = self.engine_worker
                 miner = getattr(engine, "miner", None) if engine is not None else None
                 twitch_client = getattr(miner, "twitch", None) if miner is not None else None
-                watch_slots = list(
-                    getattr(twitch_client, "active_watch_channels", []) or []
-                )
+                if twitch_client is not None and callable(getattr(twitch_client, "get_active_watch_channels", None)):
+                    watch_slots = twitch_client.get_active_watch_channels()
+                elif twitch_client is not None:
+                    watch_slots = list(getattr(twitch_client, "active_watch_channels", []) or [])
             logs = [dict(item) for item in self.log_records if item["id"] > after]
             avatar_cache_logins = {
                 login for login, profile in self.channel_profiles.items()
@@ -2202,6 +2293,7 @@ class TwitchFarmingApi:
                 "online_channels": sorted(self.online_channels),
                 "watch_status": {key: dict(value) for key, value in self.watch_status.items()},
                 "watch_slots": watch_slots,
+                "ui_events": ui_events,
                 "options": dict(self.options),
                 "app_settings": dict(self.app_settings),
                 "cache_stats": {
@@ -2711,104 +2803,10 @@ class TwitchFarmingApi:
                 pass
 
 
-def _start_native_splash():
-    close_event = threading.Event()
-    ready_event = threading.Event()
-
-    def show():
-        try:
-            import tkinter as tk
-
-            root = tk.Tk()
-            root.withdraw()
-            root.overrideredirect(True)
-            root.attributes("-topmost", True)
-            width = 430
-            height = 164
-            x = max(0, (root.winfo_screenwidth() - width) // 2)
-            y = max(0, (root.winfo_screenheight() - height) // 2)
-            root.geometry(f"{width}x{height}+{x}+{y}")
-            root.configure(bg="#0B0B12")
-            root.resizable(False, False)
-            shell = tk.Frame(root, bg="#171522", highlightbackground="#57406F", highlightthickness=1)
-            shell.pack(fill="both", expand=True)
-            header = tk.Frame(shell, bg="#241A34", height=38)
-            header.pack(fill="x")
-            header.pack_propagate(False)
-            title = tk.Label(
-                header,
-                text="TWITCH FARMING",
-                bg="#241A34",
-                fg="#E9DDF8",
-                font=("Segoe UI", 9, "bold"),
-                padx=15,
-            )
-            title.pack(side="left", fill="y")
-            drag = {"x": 0, "y": 0}
-
-            def start_drag(event):
-                drag["x"] = event.x_root - root.winfo_x()
-                drag["y"] = event.y_root - root.winfo_y()
-
-            def move_drag(event):
-                root.geometry(
-                    f"+{event.x_root - drag['x']}+{event.y_root - drag['y']}"
-                )
-
-            for widget in (header, title):
-                widget.bind("<ButtonPress-1>", start_drag)
-                widget.bind("<B1-Motion>", move_drag)
-            content = tk.Frame(shell, bg="#171522", padx=24, pady=21)
-            content.pack(fill="both", expand=True)
-            tk.Label(
-                content,
-                text="Подготовка приложения",
-                bg="#171522",
-                fg="#F2ECF8",
-                font=("Segoe UI", 13, "bold"),
-            ).pack(anchor="w")
-            tk.Label(
-                content,
-                text="Запуск встроенного браузера WebView2…",
-                bg="#171522",
-                fg="#A59AAF",
-                font=("Segoe UI", 9),
-            ).pack(anchor="w", pady=(7, 13))
-            track = tk.Frame(content, bg="#32263F", height=4)
-            track.pack(fill="x")
-            track.pack_propagate(False)
-            tk.Frame(track, bg="#A66BE4", width=90, height=4).pack(side="left")
-            root.update_idletasks()
-            root.deiconify()
-            root.lift()
-            ready_event.set()
-
-            def poll_close():
-                if close_event.is_set():
-                    try:
-                        root.attributes("-topmost", False)
-                        root.destroy()
-                    except Exception:
-                        pass
-                    return
-                root.after(80, poll_close)
-
-            root.after(80, poll_close)
-            root.mainloop()
-        except BaseException as error:
-            write_boot_log("WARNING", "Native startup splash unavailable: " + str(error))
-            ready_event.set()
-
-    threading.Thread(target=show, name="NativeStartupSplash", daemon=True).start()
-    ready_event.wait(0.6)
-    return close_event
-
-
 def main():
-    splash_close = threading.Event()
+def main():
     api = None
     try:
-        splash_close = _start_native_splash()
         import webview
 
         webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
@@ -2846,7 +2844,6 @@ def main():
         window.events.before_load += lambda *args: api.on_webview_before_load()
         window.events.shown += lambda *args: api.on_webview_shown()
         window.events.loaded += api.record_webview_loaded
-        window.events.loaded += lambda *args: splash_close.set()
         window.events.closing += api.on_closing
         window.events.maximized += lambda: api.sync_window_maximized(True)
         window.events.restored += lambda: api.sync_window_maximized(False)
@@ -2875,7 +2872,6 @@ def main():
                 debug=False,
             )
         except BaseException as error:
-            splash_close.set()
             write_boot_log(
                 "ERROR",
                 "Ошибка запуска WebView2: "
@@ -2900,11 +2896,10 @@ def main():
                     pass
             raise
         finally:
-            splash_close.set()
             if api is not None:
                 api.shutdown()
     except BaseException as error:
-        splash_close.set()
+        write_crash_log("FATAL", "Python startup failed: " + str(error) + "\n" + traceback.format_exc())
         write_boot_log(
             "ERROR",
             "Python startup failed: "
