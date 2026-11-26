@@ -2698,8 +2698,106 @@ class TwitchFarmingApi:
                 pass
 
 
+def _start_native_splash():
+    close_event = threading.Event()
+    ready_event = threading.Event()
+
+    def show():
+        try:
+            import tkinter as tk
+
+            root = tk.Tk()
+            root.withdraw()
+            root.overrideredirect(True)
+            root.attributes("-topmost", True)
+            width = 430
+            height = 164
+            x = max(0, (root.winfo_screenwidth() - width) // 2)
+            y = max(0, (root.winfo_screenheight() - height) // 2)
+            root.geometry(f"{width}x{height}+{x}+{y}")
+            root.configure(bg="#0B0B12")
+            root.resizable(False, False)
+            shell = tk.Frame(root, bg="#171522", highlightbackground="#57406F", highlightthickness=1)
+            shell.pack(fill="both", expand=True)
+            header = tk.Frame(shell, bg="#241A34", height=38)
+            header.pack(fill="x")
+            header.pack_propagate(False)
+            title = tk.Label(
+                header,
+                text="TWITCH FARMING",
+                bg="#241A34",
+                fg="#E9DDF8",
+                font=("Segoe UI", 9, "bold"),
+                padx=15,
+            )
+            title.pack(side="left", fill="y")
+            drag = {"x": 0, "y": 0}
+
+            def start_drag(event):
+                drag["x"] = event.x_root - root.winfo_x()
+                drag["y"] = event.y_root - root.winfo_y()
+
+            def move_drag(event):
+                root.geometry(
+                    f"+{event.x_root - drag['x']}+{event.y_root - drag['y']}"
+                )
+
+            for widget in (header, title):
+                widget.bind("<ButtonPress-1>", start_drag)
+                widget.bind("<B1-Motion>", move_drag)
+            content = tk.Frame(shell, bg="#171522", padx=24, pady=21)
+            content.pack(fill="both", expand=True)
+            tk.Label(
+                content,
+                text="Подготовка приложения",
+                bg="#171522",
+                fg="#F2ECF8",
+                font=("Segoe UI", 13, "bold"),
+            ).pack(anchor="w")
+            tk.Label(
+                content,
+                text="Запуск встроенного браузера WebView2…",
+                bg="#171522",
+                fg="#A59AAF",
+                font=("Segoe UI", 9),
+            ).pack(anchor="w", pady=(7, 13))
+            track = tk.Frame(content, bg="#32263F", height=4)
+            track.pack(fill="x")
+            track.pack_propagate(False)
+            tk.Frame(track, bg="#A66BE4", width=90, height=4).pack(side="left")
+            root.update_idletasks()
+            root.deiconify()
+            root.lift()
+            ready_event.set()
+
+            def poll_close():
+                if close_event.is_set():
+                    try:
+                        root.attributes("-topmost", False)
+                        root.destroy()
+                    except Exception:
+                        pass
+                    return
+                root.after(80, poll_close)
+
+            root.after(80, poll_close)
+            root.mainloop()
+        except BaseException as error:
+            write_boot_log("WARNING", "Native startup splash unavailable: " + str(error))
+            ready_event.set()
+
+    threading.Thread(target=show, name="NativeStartupSplash", daemon=True).start()
+    ready_event.wait(0.6)
+    return close_event
+
+
 def main():
+    splash_close = threading.Event()
+    api = None
     try:
+        splash_close = _start_native_splash()
+        import webview
+
         webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
         api_started = time.perf_counter()
         api = TwitchFarmingApi()
@@ -2735,6 +2833,7 @@ def main():
         window.events.before_load += lambda *args: api.on_webview_before_load()
         window.events.shown += lambda *args: api.on_webview_shown()
         window.events.loaded += api.record_webview_loaded
+        window.events.loaded += lambda *args: splash_close.set()
         window.events.closing += api.on_closing
         window.events.maximized += lambda: api.sync_window_maximized(True)
         window.events.restored += lambda: api.sync_window_maximized(False)
@@ -2763,6 +2862,7 @@ def main():
                 debug=False,
             )
         except BaseException as error:
+            splash_close.set()
             write_boot_log(
                 "ERROR",
                 "Ошибка запуска WebView2: "
@@ -2787,8 +2887,11 @@ def main():
                     pass
             raise
         finally:
-            api.shutdown()
+            splash_close.set()
+            if api is not None:
+                api.shutdown()
     except BaseException as error:
+        splash_close.set()
         write_boot_log(
             "ERROR",
             "Python startup failed: "
