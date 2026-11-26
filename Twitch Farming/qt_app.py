@@ -535,6 +535,8 @@ class MainWindow(QMainWindow):
         self.current_page = 0
         self._last_channel_signature = None
         self._last_campaign_signature = None
+        self._last_slot_signature = None
+        self._log_cache = []
         self._last_followed_signature = None
         self._last_log_signature = None
         self._last_events_signature = None
@@ -749,6 +751,7 @@ class MainWindow(QMainWindow):
         heading.setObjectName("sectionEyebrow")
         panel_layout.addWidget(heading)
         slots = QHBoxLayout()
+        self.slot_layout = slots
         self.slot_cards = []
         for number in (1, 2):
             card = ActiveSlotCard(number, "", {}, 0, self.image_cache)
@@ -898,6 +901,7 @@ class MainWindow(QMainWindow):
             check = QCheckBox(title)
             check.setObjectName("optionCheck")
             self.option_checks[key] = check
+            check.toggled.connect(lambda value, target=check: target.setProperty("dirty", True))
             options.layout().addWidget(check)
         layout.addWidget(options)
         app_settings = self._setting_panel("ПРИЛОЖЕНИЕ", "Поведение окна и системный трей.")
@@ -909,6 +913,7 @@ class MainWindow(QMainWindow):
         for key, default in DEFAULT_APP_SETTINGS.items():
             check = QCheckBox(app_labels.get(key, key))
             self.app_setting_checks[key] = check
+            check.toggled.connect(lambda value, target=check: target.setProperty("dirty", True))
             app_settings.layout().addWidget(check)
         cache_row = QHBoxLayout()
         clear_avatars = QPushButton("Очистить кэш аватарок")
@@ -1100,12 +1105,22 @@ class MainWindow(QMainWindow):
         if error or not result:
             return
         state, drops, followed, update, auth = result
-        self.latest_state = state or {}
+        state = state or {}
+        incoming_logs = state.get("logs") or []
+        known_ids = {int(item.get("id") or 0) for item in self._log_cache}
+        for item in incoming_logs:
+            item_id = int(item.get("id") or 0)
+            if item_id and item_id not in known_ids:
+                self._log_cache.append(dict(item))
+                known_ids.add(item_id)
+        self._log_cache = self._log_cache[-500:]
+        state["logs"] = list(self._log_cache)
+        if incoming_logs:
+            self.last_log_id = max(self.last_log_id, max(int(item.get("id") or 0) for item in incoming_logs))
+        self.latest_state = state
         self.drops_state = drops or {}
         self.followed_state = followed or {}
         self.update_state = update or {}
-        if self.latest_state.get("logs"):
-            self.last_log_id = max(int(item.get("id") or 0) for item in self.latest_state["logs"])
         self._render_state()
         self._render_drops()
         self._render_followers()
@@ -1117,7 +1132,7 @@ class MainWindow(QMainWindow):
         if username and not self.username_input.hasFocus():
             self.username_input.setText(username)
         for key, check in self.option_checks.items():
-            if not check.property("userChanged"):
+            if not check.property("dirty"):
                 check.blockSignals(True)
                 check.setChecked(bool(self.latest_state.get("options", {}).get(key, DEFAULT_OPTIONS.get(key, True))))
                 check.blockSignals(False)
@@ -1178,7 +1193,7 @@ class MainWindow(QMainWindow):
         slots = state.get("watch_slots") or []
         has_active = running or bool(slots)
         self.active_animation.stop()
-        target = 122 if has_active else 0
+        target = 148 if has_active else 0
         if has_active:
             self.active_panel.setVisible(True)
         current = self.active_panel.maximumHeight()
@@ -1190,18 +1205,24 @@ class MainWindow(QMainWindow):
         watch_map = self._watch_slot_map()
         profiles = state.get("channel_profiles", {})
         balances = state.get("channel_balances", {})
-        for number, card in enumerate(self.slot_cards, 1):
+        slot_data = []
+        for number in (1, 2):
             login = next((key for key, value in watch_map.items() if value == number), "")
             profile = profiles.get(login, {})
-            balance = balances.get(login, 0)
+            slot_data.append((login, str(profile.get("display_name") or ""), str(profile.get("avatar_url") or ""), int(balances.get(login, 0) or 0)))
+        signature = tuple(slot_data)
+        if signature == self._last_slot_signature:
+            return
+        self._last_slot_signature = signature
+        for number, card in enumerate(list(self.slot_cards), 1):
+            login, display_name, avatar_url, balance = slot_data[number - 1]
+            profile = profiles.get(login, {}) if login else {}
             replacement = ActiveSlotCard(number, login, profile, balance, self.image_cache)
-            layout = card.parentWidget().layout() if card.parentWidget() else None
-            if layout:
-                index = layout.indexOf(card)
-                layout.removeWidget(card)
-                card.deleteLater()
-                layout.insertWidget(index, replacement, 1)
-                self.slot_cards[number - 1] = replacement
+            index = self.slot_layout.indexOf(card)
+            self.slot_layout.removeWidget(card)
+            card.deleteLater()
+            self.slot_layout.insertWidget(max(0, index), replacement, 1)
+            self.slot_cards[number - 1] = replacement
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -1301,7 +1322,14 @@ class MainWindow(QMainWindow):
         self._call("login", username, message="Запрос авторизации Twitch отправлен.")
 
     def _save_settings(self):
-        self._call("save_settings", self._collect_payload(), message="Настройки сохранены.")
+        def completed(result, error):
+            if not error and isinstance(result, dict) and result.get("ok"):
+                for check in list(self.option_checks.values()) + list(self.app_setting_checks.values()):
+                    check.setProperty("dirty", False)
+                self._notify(str(result.get("message") or "Настройки сохранены."))
+            elif not error:
+                self._notify(str((result or {}).get("message") or "Не удалось сохранить настройки."))
+        self._run_task("save-settings", self.api.save_settings, (self._collect_payload(),), completed)
 
     def _save_bets(self):
         current = dict(self.latest_state.get("bet_settings") or DEFAULT_BET_SETTINGS)
@@ -1349,6 +1377,10 @@ class MainWindow(QMainWindow):
             campaigns = [item for item in campaigns if item.get("started") or item.get("in_inventory")]
         elif filter_index == 2:
             campaigns = [item for item in campaigns if not item.get("started") and not item.get("in_inventory")]
+        signature = json.dumps([campaigns, filter_index, self.drops_state.get("loading"), self.drops_state.get("error")], sort_keys=True, ensure_ascii=False)
+        if signature == self._last_campaign_signature:
+            return
+        self._last_campaign_signature = signature
         if self.drops_state.get("loading"):
             self.drops_status.setText("Загрузка ViewerDropsDashboard и Inventory…")
         elif self.drops_state.get("error"):
