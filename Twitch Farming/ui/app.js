@@ -149,7 +149,7 @@ async function waitForBridge(){
       lastReport=now;
     }
   }
-  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","record_startup_debug","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","get_app_version","open_url","minimize_window","toggle_maximize_window","close_window"];
+  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","record_startup_debug_batch","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","get_app_version","open_url","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
@@ -1635,7 +1635,7 @@ async function waitForStartup(){
       startupLog("INFO","Python всё ещё выполняет этап «"+phase+"»; прошло "+((now-started)/1000).toFixed(1)+" сек.");
       lastReport=now;
     }
-    await sleep(180);
+    await sleep(280);
   }
 }
 
