@@ -2011,7 +2011,10 @@ class MainWindow(QMainWindow):
         except Exception as error:
             _log_ui_exception("обновление статуса и элементов управления", error)
         self._safe_ui_call("обновление часов сессии", self._update_session_clock)
-        self._safe_ui_call("обновление счётчика очков", self.title_bar.set_gained_total, state.get("gained_total", 0))
+        try:
+            self.title_bar.set_gained_total(state.get("gained_total", 0))
+        except Exception as error:
+            _log_ui_exception("обновление счётчика очков", error)
         self._safe_ui_call("отрисовка активных слотов", self._render_active_slots)
         try:
             signature = (
