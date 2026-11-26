@@ -1243,19 +1243,52 @@ class CampaignCard(QFrame):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(9)
 
+        game_value = campaign.get("game") or campaign.get("game_name") or "TWITCH"
+        game_data = game_value if isinstance(game_value, dict) else {}
+        game_text = str(
+            campaign.get("game_name")
+            or game_data.get("displayName")
+            or game_data.get("name")
+            or game_data.get("display_name")
+            or (game_value if not isinstance(game_value, dict) else "TWITCH")
+        ).upper()
+        game_image_url = ""
+        nested_box_art = (
+            game_data.get("boxArtURL")
+            or game_data.get("boxArtUrl")
+            or game_data.get("box_art_url")
+            or game_data.get("box_art")
+        )
+        image_candidates = (
+            campaign.get("boxArtURL"),
+            campaign.get("boxArtUrl"),
+            campaign.get("box_art_url"),
+            campaign.get("game_image_url"),
+            campaign.get("gameImageURL"),
+            campaign.get("gameImageUrl"),
+            nested_box_art,
+            game_data.get("image_url"),
+            game_data.get("imageURL")
+        )
+        for candidate in image_candidates:
+            if isinstance(candidate, dict):
+                candidate = candidate.get("url") or candidate.get("url2x") or candidate.get("src") or ""
+            candidate = str(candidate or "").strip()
+            if candidate.startswith("https://"):
+                game_image_url = candidate
+                break
+
         header = QHBoxLayout()
         header.setSpacing(9)
         game_image = QLabel()
         game_image.setFixedSize(44, 58)
         game_image.setObjectName("campaignImage")
         game_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        game_image.setText("GAME")
+        game_image.setText("GAME" if not game_image_url else "")
         header.addWidget(game_image, 0, Qt.AlignmentFlag.AlignTop)
 
         title_box = QVBoxLayout()
         title_box.setSpacing(3)
-        game_value = campaign.get("game") or "TWITCH"
-        game_text = str(game_value).upper()
         game = QLabel(game_text)
         game.setObjectName("campaignGame")
         game.setWordWrap(False)
@@ -1277,14 +1310,8 @@ class CampaignCard(QFrame):
         header.addWidget(watch_badge, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(header)
 
-        game_image_url = ""
-        for key in ("game_image_url", "gameImageURL", "gameImageUrl", "box_art_url", "boxArtURL", "boxArtUrl", "image_url", "imageURL"):
-            candidate = str(campaign.get(key) or "").strip()
-            if candidate.startswith("https://"):
-                game_image_url = candidate
-                break
         if image_cache and game_image_url:
-            image_cache.request(game_image, game_image_url, False)
+            image_cache.request(game_image, game_image_url, False, "game_art")
 
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
