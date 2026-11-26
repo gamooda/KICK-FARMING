@@ -180,7 +180,7 @@ class TwitchChannelPointsMiner:
                 logger.info(f"The latest version on GitHub is {github_version}")
 
         if threading.current_thread() is threading.main_thread():
-            for sign in [signal.SIGINT, signal.SIGSEGV, signal.SIGTERM]:
+            for sign in [signal.SIGINT, signal.SIGTERM]:
                 signal.signal(sign, self.end)
 
     def analytics(
