@@ -1274,6 +1274,7 @@ class CampaignCard(QFrame):
             if isinstance(candidate, dict):
                 candidate = candidate.get("url") or candidate.get("url2x") or candidate.get("src") or ""
             candidate = str(candidate or "").strip()
+            candidate = candidate.replace("{width}", "88").replace("{height}", "116").replace("%7Bwidth%7D", "88").replace("%7Bheight%7D", "116")
             if candidate.startswith("https://"):
                 game_image_url = candidate
                 break
