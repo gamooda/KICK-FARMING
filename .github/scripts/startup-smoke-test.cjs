@@ -171,7 +171,8 @@ const twitchSource = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farmi
 if (!minerSource.includes("self.twitch.streamers_lock = self.streamers_lock") ||
     !twitchSource.includes("def get_active_watch_channels(") ||
     !twitchSource.includes("def _streamer_snapshot(") ||
-    minerSource.includes("sys.exit(0)")) {
+    minerSource.includes("sys.exit(0)") ||
+    minerSource.includes("signal.SIGSEGV")) {
   throw new Error("Streamer collection locking or safe miner shutdown is missing.");
 }
 if (!html.includes("active-farm-panel") || !html.includes("update-check-button") ||
