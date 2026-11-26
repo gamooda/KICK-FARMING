@@ -106,7 +106,7 @@ if (html.includes("Drops для подписки") || html.includes("drops-sub-l
 const twitchParser = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/engine/TwitchChannelPointsMiner/classes/Twitch.py"), "utf8");
 if (!twitchParser.includes("rewardCampaignsAvailableToUser") ||
     !twitchParser.includes('"category": "twitch"') ||
-    !twitchParser.includes('"category": "game"') ||
+    !twitchParser.includes('else "game"') ||
     !twitchParser.includes("collection_items")) {
   throw new Error("Full campaign collection parsing or reward category classification is missing.");
 }
