@@ -10,6 +10,7 @@
 (function(){
   const records=[];
   const pending=[];
+  let pendingWindowAction="";
   const start=performance.now();
   let output=null;
   const format=(level,message,stack)=>{
@@ -82,6 +83,21 @@
       log("ERROR","Не удалось скопировать отладочный лог",error&&error.stack||String(error));
     }
   };
+  const invokeWindowAction=method=>{
+    const bridge=window.pywebview&&window.pywebview.api;
+    if(!bridge||typeof bridge[method]!=="function"){
+      pendingWindowAction=method;
+      log("INFO","Команда окна будет выполнена после подключения Python API: "+method);
+      return;
+    }
+    pendingWindowAction="";
+    try{
+      const result=bridge[method]();
+      if(result&&typeof result.catch==="function") result.catch(error=>log("ERROR","Ошибка команды окна "+method,error&&error.message||String(error)));
+    }catch(error){
+      log("ERROR","Ошибка команды окна "+method,error&&error.message||String(error));
+    }
+  };
   const showError=message=>{
     const overlay=document.getElementById("startup-overlay");
     const title=document.getElementById("startup-title");
@@ -134,12 +150,21 @@
     window.__twitchPywebviewReady=true;
     log("INFO","Получено событие pywebviewready");
     flush();
+    if(pendingWindowAction){
+      const method=pendingWindowAction;
+      pendingWindowAction="";
+      setTimeout(()=>invokeWindowAction(method),0);
+    }
   });
   window.addEventListener("load",()=>log("INFO","Событие window.load"));
   document.addEventListener("DOMContentLoaded",()=>{
     log("INFO","DOM загружен; начало привязки интерфейса");
     const copyButton=document.getElementById("startup-copy-log");
     if(copyButton) copyButton.addEventListener("click",copy);
+    const minimizeButton=document.getElementById("startup-window-minimize");
+    if(minimizeButton) minimizeButton.addEventListener("click",()=>invokeWindowAction("minimize_window"));
+    const closeButton=document.getElementById("startup-window-close");
+    if(closeButton) closeButton.addEventListener("click",()=>invokeWindowAction("close_window"));
     const retryButton=document.getElementById("startup-retry");
     if(retryButton) retryButton.addEventListener("click",()=>{
       const bridge=window.pywebview&&window.pywebview.api;
@@ -158,7 +183,31 @@
 </script>
 </head>
 <body>
-<div class="startup-overlay" id="startup-overlay"><div class="startup-card"><div class="startup-indicator"><span class="startup-spinner" id="startup-spinner"></span><div class="startup-title" id="startup-title">Инициализация...</div><div class="startup-description" id="startup-description">Подключение встроенного браузера...</div></div><section class="startup-debug-panel"><div class="startup-debug-heading"><span>ДИАГНОСТИКА ЗАПУСКА</span><button class="startup-copy-log" id="startup-copy-log" type="button">Скопировать лог</button></div><div class="startup-debug-output" id="startup-debug-output" role="log" aria-live="polite"><div class="startup-debug-line">Ожидание запуска Python и WebView2...</div></div></section><button class="button button-primary startup-retry" id="startup-retry" type="button">Перезапустить приложение</button></div></div>
+<div class="startup-overlay" id="startup-overlay">
+  <div class="startup-window-bar pywebview-drag-region">
+    <div class="startup-window-title pywebview-drag-region">TWITCH FARMING</div>
+    <div class="startup-window-drag pywebview-drag-region"></div>
+    <div class="startup-window-controls">
+      <button class="startup-window-control pywebview-drag-region" id="startup-window-minimize" type="button" title="Свернуть" aria-label="Свернуть">−</button>
+      <button class="startup-window-control startup-window-close pywebview-drag-region" id="startup-window-close" type="button" title="Закрыть" aria-label="Закрыть">×</button>
+    </div>
+  </div>
+  <div class="startup-card">
+    <div class="startup-indicator">
+      <span class="startup-spinner" id="startup-spinner"></span>
+      <div class="startup-title" id="startup-title">Инициализация...</div>
+      <div class="startup-description" id="startup-description">Подключение встроенного браузера...</div>
+    </div>
+    <section class="startup-debug-panel">
+      <div class="startup-debug-heading">
+        <span>ДИАГНОСТИКА ЗАПУСКА</span>
+        <button class="startup-copy-log" id="startup-copy-log" type="button">Скопировать лог</button>
+      </div>
+      <div class="startup-debug-output" id="startup-debug-output" role="log" aria-live="polite"><div class="startup-debug-line">Ожидание запуска Python и WebView2...</div></div>
+    </section>
+    <button class="button button-primary startup-retry" id="startup-retry" type="button">Перезапустить приложение</button>
+  </div>
+</div>
 <div class="window-frame">
   <svg class="svg-symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <symbol id="i-channel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="4" fill="currentColor" opacity=".13"/><rect x="3" y="4" width="18" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2.1"/><path d="m10 8 6 4-6 4z" fill="currentColor"/></symbol>

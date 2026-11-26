@@ -5,6 +5,7 @@ const vm = require("node:vm");
 const source = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/app.js"), "utf8");
 const html = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/index.html"), "utf8");
 const css = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/style.css"), "utf8");
+const backend = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/webview_app.py"), "utf8");
 if (!css.includes(".sidebar{width:210px;min-width:210px;max-width:210px;flex:0 0 210px;flex-shrink:0}")) {
   throw new Error("The sidebar fixed width and flex-shrink protection are missing.");
 }
@@ -20,6 +21,52 @@ if (!html.includes("window.onerror") || !html.includes("unhandledrejection") || 
 if (source.includes("WebView2 не запустился за 120 секунд")) {
   throw new Error("The obsolete 120-second startup placeholder is still present.");
 }
+const apiClassIndex = backend.indexOf("class TwitchFarmingApi:");
+const apiConstructorStart = backend.indexOf("    def __init__(self):", apiClassIndex);
+const apiConstructorEnd = backend.indexOf("\n    def ", apiConstructorStart + 10);
+const apiConstructor = apiConstructorStart >= 0 && apiConstructorEnd >= 0
+  ? backend.slice(apiConstructorStart, apiConstructorEnd)
+  : "";
+if (!apiConstructor) throw new Error("TwitchFarmingApi constructor was not found.");
+for (const forbidden of ["threading.Thread", ".start(", "_load_config", "_restore_session", "TwitchChannelPointsMiner", "requests."]) {
+  if (apiConstructor.includes(forbidden)) {
+    throw new Error("TwitchFarmingApi constructor contains startup work: " + forbidden);
+  }
+}
+if (!backend.includes("webview.start(\n                func=start_backend")) {
+  throw new Error("Backend initialization is not attached to webview.start(func=...).");
+}
+const startBackendStart = backend.indexOf("        def start_backend():");
+const startBackendEnd = backend.indexOf("\n        api.webview_start_requested_at", startBackendStart);
+const startBackend = startBackendStart >= 0 && startBackendEnd >= 0
+  ? backend.slice(startBackendStart, startBackendEnd)
+  : "";
+if (!startBackend.includes("threading.Thread(") || !startBackend.includes("daemon=True")) {
+  throw new Error("The webview.start callback does not launch daemon background threads.");
+}
+const onLoadedStart = backend.indexOf("    def on_loaded(");
+const onLoadedEnd = backend.indexOf("\n    def on_closing", onLoadedStart);
+const onLoaded = onLoadedStart >= 0 && onLoadedEnd >= 0
+  ? backend.slice(onLoadedStart, onLoadedEnd)
+  : "";
+if (!onLoaded || onLoaded.includes("start_startup_worker")) {
+  throw new Error("The WebView2 loaded event still starts backend initialization on the GUI event thread.");
+}
+if (!html.includes("startup-window-bar pywebview-drag-region") ||
+    !html.includes("startup-window-minimize") ||
+    !html.includes("startup-window-close") ||
+    (html.match(/startup-window-control[^>]*pywebview-drag-region/g) || []).length < 2) {
+  throw new Error("The startup overlay is missing draggable window controls.");
+}
+if (!css.includes(".startup-debug-panel,.startup-debug-panel *{-webkit-user-select:text!important;user-select:text!important") ||
+    !css.includes("overflow-y:auto") ||
+    !css.includes("touch-action:pan-y")) {
+  throw new Error("The startup diagnostics panel is not selectable and scrollable.");
+}
+if (backend.includes("WEBVIEW_DIR.mkdir") || backend.includes("storage_path=str(WEBVIEW_DIR)")) {
+  throw new Error("The WebView2 profile is still prepared synchronously during application startup.");
+}
+
 const inlineBootstrap = [...html.matchAll(/<script>([\\s\\S]*?)<\\/script>/gi)][0]?.[1];
 if (!inlineBootstrap) throw new Error("Inline startup diagnostic bootstrap was not found.");
 new vm.Script(inlineBootstrap, { filename: "index.html:inline-startup" });

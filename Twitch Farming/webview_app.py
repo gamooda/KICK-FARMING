@@ -19,7 +19,6 @@ if not getattr(sys, "frozen", False):
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "Twitch Farming"
 LOCAL_APP_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "Twitch Farming"
-WEBVIEW_DIR = LOCAL_APP_DIR / "WebView2"
 CONFIG_FILE = APP_DIR / "config.json"
 LOG_DIR = APP_DIR / "logs"
 LOG_FILE = LOG_DIR / "TwitchFarming.log"
@@ -577,15 +576,27 @@ class TwitchFarmingApi:
         self.next_log_id = 1
         self.pending_log_lines = []
         self.log_stop = threading.Event()
+        self.root_logger = None
+        self.log_file_lock = threading.Lock()
+        self.log_handler = None
+        self.log_history_worker = None
+        self.log_writer = None
+        self.logging_initialized = False
+
+    def _initialize_logging(self):
+        if self.logging_initialized:
+            return
         self.root_logger = logging.getLogger()
         self.root_logger.setLevel(logging.DEBUG)
-        self.log_file_lock = threading.Lock()
         self.log_handler = AppLogHandler(self)
-        self.log_history_worker = None
         self.root_logger.addHandler(self.log_handler)
-        self.log_writer = threading.Thread(target=self._log_writer_loop, name="LogWriter", daemon=True)
+        self.log_writer = threading.Thread(
+            target=self._log_writer_loop,
+            name="LogWriter",
+            daemon=True,
+        )
         self.log_writer.start()
-        self.startup_note("INFO", "Python API создан")
+        self.logging_initialized = True
 
     def startup_note(self, level, message):
         severity = str(level or "INFO").upper()
@@ -600,15 +611,17 @@ class TwitchFarmingApi:
             }
             self.startup_events.append(event)
             self.startup_events = self.startup_events[-250:]
-        numeric_level = getattr(logging, severity, logging.INFO)
-        logging.getLogger("twitch_farming.startup").log(numeric_level, "[STARTUP] %s", text)
+        if self.logging_initialized:
+            numeric_level = getattr(logging, severity, logging.INFO)
+            logging.getLogger("twitch_farming.startup").log(numeric_level, "[STARTUP] %s", text)
         return event
 
     def _startup_tasks(self):
-        logger = logging.getLogger("twitch_farming.startup")
         started = time.monotonic()
-        self.startup_note("INFO", "Поток инициализации Python запущен")
         try:
+            self._initialize_logging()
+            logger = logging.getLogger("twitch_farming.startup")
+            self.startup_note("INFO", "Поток инициализации Python запущен")
             with self.lock:
                 self.startup_phase = "Подготовка папки данных..."
             APP_DIR.mkdir(parents=True, exist_ok=True)
@@ -2167,26 +2180,8 @@ class TwitchFarmingApi:
         except BaseException as error:
             self.startup_note("ERROR", "Ошибка загрузки истории журнала: " + str(error) + "\n" + traceback.format_exc())
 
-    def start_startup_worker(self):
-        with self.lock:
-            if self.startup_worker is not None:
-                return
-            self.restore_started = True
-            self.startup_worker = threading.Thread(target=self._startup_tasks, name="StartupTasks", daemon=True)
-            worker = self.startup_worker
-        self.startup_note("INFO", "Запуск фонового потока Python-инициализации")
-        try:
-            worker.start()
-        except BaseException as error:
-            with self.lock:
-                self.startup_error = str(error) or error.__class__.__name__
-                self.startup_phase = "Не удалось запустить подготовку"
-                self.startup_complete = True
-            self.startup_note("ERROR", "Не удалось запустить поток Python: " + str(error) + "\n" + traceback.format_exc())
-
     def on_loaded(self, *args):
         self._mark_webview_checkpoint("webview_loaded_at", "WebView2: DOM загружен")
-        self.start_startup_worker()
 
     def on_closing(self):
         self.stop_farm()
@@ -2214,7 +2209,8 @@ class TwitchFarmingApi:
                 worker.join(timeout=5)
         self._flush_logs()
         try:
-            self.root_logger.removeHandler(self.log_handler)
+            if self.root_logger is not None and self.log_handler is not None:
+                self.root_logger.removeHandler(self.log_handler)
         except Exception:
             pass
         if self.api_client is not None:
@@ -2225,10 +2221,17 @@ class TwitchFarmingApi:
 
 
 def main():
-    write_boot_log("INFO", "Запуск Python main()")
     try:
-        webview.settings['DRAG_REGION_DIRECT_TARGET_ONLY'] = True
+        webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
+        api_started = time.perf_counter()
         api = TwitchFarmingApi()
+        api_init_ms = (time.perf_counter() - api_started) * 1000
+        api.startup_note(
+            "INFO",
+            f"TwitchFarmingApi.__init__: {api_init_ms:.2f} мс",
+        )
+
+        window_started = time.perf_counter()
         window = webview.create_window(
             "Twitch Farming",
             url=str(UI_DIR / "index.html"),
@@ -2244,7 +2247,12 @@ def main():
             background_color="#0B0B12",
             text_select=True,
         )
+        window_create_ms = (time.perf_counter() - window_started) * 1000
         api.window = window
+        api.startup_note(
+            "INFO",
+            f"webview.create_window: {window_create_ms:.2f} мс",
+        )
         window.events.before_show += lambda *args: api.on_webview_before_show()
         window.events.before_load += lambda *args: api.on_webview_before_load()
         window.events.shown += lambda *args: api.on_webview_shown()
@@ -2252,33 +2260,84 @@ def main():
         window.events.closing += api.on_closing
         window.events.maximized += lambda: api.sync_window_maximized(True)
         window.events.restored += lambda: api.sync_window_maximized(False)
-        api.startup_note("INFO", "Окно WebView2 создано, JS API подключён")
-        api.start_startup_worker()
-        threading.Thread(target=api.watch_webview_startup, name="WebViewStartupWatchdog", daemon=True).start()
-        WEBVIEW_DIR.mkdir(parents=True, exist_ok=True)
-        api.startup_note("INFO", "Запуск WebView2; профиль браузера: %s" % WEBVIEW_DIR)
+
+        def start_backend():
+            api.startup_note(
+                "INFO",
+                "GUI-поток WebView2 запущен; старт фоновой инициализации Python",
+            )
+            with api.lock:
+                api.restore_started = True
+                worker = threading.Thread(
+                    target=api._startup_tasks,
+                    name="StartupTasks",
+                    daemon=True,
+                )
+                api.startup_worker = worker
+            try:
+                worker.start()
+            except BaseException as error:
+                with api.lock:
+                    api.startup_error = str(error) or error.__class__.__name__
+                    api.startup_phase = "Не удалось запустить подготовку"
+                    api.startup_complete = True
+                api.startup_note(
+                    "ERROR",
+                    "Не удалось запустить фоновую инициализацию: "
+                    + str(error)
+                    + "\n"
+                    + traceback.format_exc(),
+                )
+            threading.Thread(
+                target=api.watch_webview_startup,
+                name="WebViewStartupWatchdog",
+                daemon=True,
+            ).start()
+
         api.webview_start_requested_at = time.monotonic()
+        api.startup_note("INFO", "Передача управления главному циклу WebView2")
         try:
-            webview.start(gui="edgechromium", private_mode=False, storage_path=str(WEBVIEW_DIR), icon=str(ICON_FILE) if ICON_FILE.is_file() else None, debug=False)
+            webview.start(
+                func=start_backend,
+                gui="edgechromium",
+                private_mode=False,
+                icon=str(ICON_FILE) if ICON_FILE.is_file() else None,
+                debug=False,
+            )
         except BaseException as error:
-            write_boot_log("ERROR", "Ошибка запуска WebView2: " + str(error) + "\n" + traceback.format_exc())
+            write_boot_log(
+                "ERROR",
+                "Ошибка запуска WebView2: "
+                + str(error)
+                + "\n"
+                + traceback.format_exc(),
+            )
             if os.name == "nt":
                 try:
                     import ctypes
                     ctypes.windll.user32.MessageBoxW(
                         0,
-                        "Не удалось запустить WebView2. Установи Microsoft Edge WebView2 Runtime и запусти приложение снова.\n\n" + str(error)[:700],
+                        "Не удалось запустить WebView2. Установи Microsoft Edge WebView2 Runtime и запусти приложение снова.\n\n"
+                        + str(error)[:700],
                         "Twitch Farming",
                         0x10,
                     )
-                    webbrowser.open("https://developer.microsoft.com/en-us/microsoft-edge/webview2/")
+                    webbrowser.open(
+                        "https://developer.microsoft.com/en-us/microsoft-edge/webview2/"
+                    )
                 except Exception:
                     pass
             raise
         finally:
             api.shutdown()
     except BaseException as error:
-        write_boot_log("ERROR", "Python startup failed: " + str(error) + "\n" + traceback.format_exc())
+        write_boot_log(
+            "ERROR",
+            "Python startup failed: "
+            + str(error)
+            + "\n"
+            + traceback.format_exc(),
+        )
         raise
 
 
