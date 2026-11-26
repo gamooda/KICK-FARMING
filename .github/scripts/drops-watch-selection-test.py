@@ -250,6 +250,7 @@ assert Twitch._parse_hls_playlist_urls(
 
 watcher = Twitch.__new__(Twitch)
 watcher.running = True
+watcher.user_agent = "DropsSelectionTest/1.0"
 playlist_url = "https://video.example/live/index.m3u8"
 streamer.stream.hls_url = playlist_url
 playlist_response = FakeResponse(
