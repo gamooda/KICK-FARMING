@@ -42,6 +42,9 @@ let dropsInventoryState=null;
 let sessionTimerInterval=null;
 let dropsAutoRefreshInterval=null;
 let mainPollInterval=null;
+let updatePollTimer=null;
+let updatePollPending=false;
+let lastUpdateState=null;
 let lastPythonStartupEventId=0;
 let lastStartupPhase="";
 let logEntries=[];
@@ -141,7 +144,7 @@ async function waitForBridge(){
   let bridge=null;
   while(true){
     bridge=window.pywebview&&window.pywebview.api;
-    if(bridge&&typeof bridge==="object"&&typeof bridge.get_startup_state==="function") break;
+    if(bridge&&typeof bridge==="object"&&typeof bridge.get_startup_status==="function") break;
     await sleep(100);
     const now=Date.now();
     if(now-lastReport>=5000){
@@ -151,7 +154,7 @@ async function waitForBridge(){
       lastReport=now;
     }
   }
-  const required=["get_auth_state","get_state","get_startup_status","record_frontend_timing","record_startup_debug_batch","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","get_app_version","open_url","minimize_window","toggle_maximize_window","close_window"];
+  const required=["get_auth_state","get_state","get_startup_status","record_frontend_timing","record_startup_debug_batch","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","get_app_version","get_update_state","check_for_updates","download_update","open_url","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
@@ -362,10 +365,11 @@ async function saveChannelCardSwap(sourceLogin,targetLogin){
   }
 }
 
-function renderChannels(channels,online,running,profiles,watchStatuses,balances,currencies,watchSlots){
+function renderChannels(channels,online,running,profiles,watchStatuses,balances,currencies,watchSlots,temporaryChannels){
   if(running||!channels.includes(selectedChannelForMove)) selectedChannelForMove="";
   const activeWatchSlots=Array.isArray(watchSlots)?watchSlots:[];
-  const signature=JSON.stringify([channels,online,running,profiles,watchStatuses,balances,currencies,activeWatchSlots]);
+  const temporarySet=new Set(Array.isArray(temporaryChannels)?temporaryChannels:[]);
+  const signature=JSON.stringify([channels,online,running,profiles,watchStatuses,balances,currencies,activeWatchSlots,[...temporarySet]]);
   if(signature===channelCache) return;
   channelCache=signature;
   const root=$("channel-list");
@@ -375,6 +379,7 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
     root.classList.remove("channel-reorder-mode");
     root.innerHTML="<div class='empty-channels'><div class='empty-channel-icon'><svg><use href='#i-channel'></use></svg></div><strong>Пока нет каналов</strong><span>Добавь первый Twitch-канал кнопкой +</span></div>";
     $("add-channel").disabled=running;
+    $("add-channel").title=running?"Остановите фарм, чтобы изменить список каналов":"Добавить канал";
     return;
   }
   const orderedChannels=channels.slice();
@@ -397,15 +402,17 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
     const watchMarkup=watchFresh&&watchLabels[watch.state]?"<span class='channel-watch-state "+esc(watch.state)+"'>"+esc(watchLabels[watch.state]+(watch.detail?" · "+watch.detail:""))+"</span>":"";
     const watchSlotIndex=running?activeWatchSlots.indexOf(login):-1;
     const watchSlotMarkup=watchSlotIndex>=0?"<span class='channel-watch-slot'><svg viewBox='0 0 24 24' aria-hidden='true'><path d='M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z'></path><circle cx='12' cy='12' r='2.6'></circle></svg><strong>СМОТРИМ · СЛОТ "+(watchSlotIndex+1)+"/2</strong></span>":"";
+    const temporaryBadge=temporarySet.has(login)?"<span class='channel-temporary-badge' title='Канал будет удалён из списка после завершения фарма'>ВРЕМЕННЫЙ • DROPS</span>":"";
     const initial=esc(displayName.charAt(0).toUpperCase()||"?");
     const avatarMarkup="<div class='channel-avatar "+(avatar?"":"avatar-fallback")+"'>"+(avatar?"<img draggable='false' loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.parentElement.classList.add(\"avatar-fallback\");this.remove()'>":"")+"<span class='avatar-initial'>"+initial+"</span></div>";
     const pointsText=points===null?"—":points.toLocaleString("ru-RU");
     const liveClass=live?"is-live":profile.error?"is-error":loaded?"is-offline":"is-pending";
     const extra=live&&viewers?"<span class='channel-viewers'>"+viewers.toLocaleString("ru-RU")+" зрителей</span>":watchMarkup;
     const searchKey=esc((login+" "+displayName).toLowerCase());
-    return "<article class='channel-card' data-channel='"+esc(login)+"' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span>"+watchSlotMarkup+"<div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть на Twitch'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Редактировать'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button channel-move-button' data-action='move' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Переместить канал' aria-label='Переместить канал' aria-pressed='false'>⋮⋮</button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
+    return "<article class='channel-card' data-channel='"+esc(login)+"' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span>"+watchSlotMarkup+"<div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть на Twitch'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Редактировать'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button channel-move-button' data-action='move' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Переместить канал' aria-label='Переместить канал' aria-pressed='false'>⋮⋮</button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div>"+temporaryBadge+"<div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
   }).join("");
   $("add-channel").disabled=running;
+  $("add-channel").title=running?"Остановите фарм, чтобы изменить список каналов":"Добавить канал";
   updateChannelMoveHighlights();
   filterChannelCards();
 }
@@ -458,7 +465,8 @@ function renderFollowedChannels(state){
     const added=tracked.has(login);
     const disabled=added||running;
     const buttonText=added?"Добавлен":running?"Сбор запущен":"Добавить";
-    return "<article class='follower-card' data-login='"+esc(login)+"'><div class='follower-avatar'>"+avatarMarkup+"</div><div class='follower-info'><strong class='follower-name'>"+esc(name)+"</strong><span class='follower-login'>@"+esc(login)+"</span><div class='follower-meta'>"+meta+"</div></div><button class='button "+(added?"button-soft":"button-primary")+" follower-add' data-followers-action='add' data-login='"+esc(login)+"' "+(disabled?"disabled":"")+">"+buttonText+"</button></article>";
+    const title=running?"Остановите фарм, чтобы изменить список каналов":"Добавить канал в постоянный список";
+    return "<article class='follower-card' data-login='"+esc(login)+"'><div class='follower-avatar'>"+avatarMarkup+"</div><div class='follower-info'><strong class='follower-name'>"+esc(name)+"</strong><span class='follower-login'>@"+esc(login)+"</span><div class='follower-meta'>"+meta+"</div></div><button class='button "+(added?"button-soft":"button-primary")+" follower-add' data-followers-action='add' data-login='"+esc(login)+"' title='"+esc(title)+"' "+(disabled?"disabled":"")+">"+buttonText+"</button></article>";
   }).join("");
 }
 
@@ -529,6 +537,7 @@ async function loadFollowedChannels(force=false){
 
 async function addFollowedChannel(login,button){
   if(!login||!apiReady) return;
+  if(appState&&appState.session_running){notify("Остановите фарм, чтобы изменить список каналов.");return;}
   if(button) button.disabled=true;
   try{
     const result=await withTimeout(api().add_followed_channel(login),15000,"Twitch не ответил на добавление канала.");
@@ -730,7 +739,8 @@ function applyState(state,initial){
   $("online-value").textContent=String((state.online_channels||[]).length);
   $("events-value").textContent=String(state.event_total||0);
   if(initial) startupLog("INFO","Отрисовка списка каналов");
-  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{},state.channel_balances||{},state.channel_currency||{},state.watch_slots||[]);
+  renderChannels(state.channels||[],state.online_channels||[],state.session_running,state.channel_profiles||{},state.watch_status||{},state.channel_balances||{},state.channel_currency||{},state.watch_slots||[],state.temporary_channels||[]);
+  renderActiveFarmPanel(state);
   if(initial) startupLog("INFO","Отрисовка последних наград и загрузка иконок валюты");
   renderRewards(state.rewards||[],state.channel_currency||{});
   if(initial) startupLog("INFO","Отрисовка ленты событий");
@@ -1098,6 +1108,7 @@ function renderEditChannelPreview(login){
 }
 
 function openChannelEditor(mode,oldChannel){
+  if(appState&&appState.session_running){notify("Остановите фарм, чтобы изменить список каналов.");return;}
   channelMode=mode;
   editingChannel=oldChannel||"";
   channelDraftTokens=[];
@@ -1120,6 +1131,7 @@ function openChannelEditor(mode,oldChannel){
 
 async function saveChannel(){
   if(!ensureStartupReady()) return;
+  if(appState&&appState.session_running){notify("Остановите фарм, чтобы изменить список каналов.");return;}
   const raw=$("channel-input").value.trim();
   const tokens=channelMode==="add"?[...new Set([...channelDraftTokens,...channelTokens(raw)])]:[];
   if(channelMode==="add"&&!tokens.length){setFeedback("channel-feedback","Добавь хотя бы один ник в список.",true);return;}
@@ -1363,8 +1375,7 @@ function renderSettingsSummary(state){
   $("settings-account-login").textContent=username?"@"+username:"Аккаунт не подключён";
   $("settings-account-status").textContent=state.authenticated?(state.session_running?"Фарм работает":"Сессия Twitch подключена"):"Нет активной сессии";
   $("logout-account").disabled=!state.authenticated||Boolean(state.session_running);
-  const avatar=$("settings-account-avatar");
-  const avatarUrl=String(profile.avatar_url||"");
+  const avatar=$("settings-account-avatar"),avatarUrl=String(profile.avatar_url||"");
   const initial=esc(display.charAt(0).toUpperCase()||"?");
   if(avatar.dataset.url!==avatarUrl){
     avatar.dataset.url=avatarUrl;
@@ -1373,7 +1384,83 @@ function renderSettingsSummary(state){
   const stats=state.cache_stats||{};
   $("cache-avatar-count").textContent=Number(stats.avatars||0).toLocaleString("ru-RU");
   $("cache-currency-count").textContent=Number(stats.currency_icons||0).toLocaleString("ru-RU");
+  const version=String(state.app_version||"").replace(/^v/i,"");
+  if(version){$("update-current-version").textContent="v"+version;$("about-version").textContent="v"+version;}
 }
+
+function formatUpdateBytes(value){return (Math.max(0,Number(value)||0)/1048576).toFixed(1);}
+
+function renderUpdateState(state){
+  lastUpdateState=state||{};
+  const phase=String(lastUpdateState.phase||"idle");
+  const busy=["checking","downloading","extracting","installing"].includes(phase);
+  const check=$("update-check-button"),download=$("update-download-button"),status=$("update-status");
+  const progress=$("update-progress-container"),bar=$("update-progress-bar"),label=$("update-progress-label");
+  const farming=Boolean(appState&&appState.session_running);
+  if(check){check.disabled=busy;check.textContent=phase==="checking"?"Проверка…":"Проверить обновления";}
+  if(download){download.hidden=!lastUpdateState.update_available;download.disabled=busy||farming;download.title=farming?"Остановите фарм перед установкой обновления":"Скачать и обновить";}
+  if(status){
+    status.textContent=String(lastUpdateState.status||"Нажмите кнопку, чтобы проверить наличие новой версии на GitHub");
+    status.classList.toggle("is-error",phase==="error");
+    status.classList.toggle("is-success",phase==="up_to_date");
+  }
+  const showProgress=["downloading","extracting","installing"].includes(phase);
+  if(progress)progress.hidden=!showProgress;
+  if(bar)bar.style.width=Math.max(0,Math.min(100,Number(lastUpdateState.percent)||0))+"%";
+  if(label){
+    const done=formatUpdateBytes(lastUpdateState.downloaded_bytes),total=formatUpdateBytes(lastUpdateState.total_bytes);
+    const speed=(Math.max(0,Number(lastUpdateState.speed_bps)||0)/1048576).toFixed(1);
+    const percent=Math.round(Math.max(0,Math.min(100,Number(lastUpdateState.percent)||0)));
+    label.textContent=phase==="downloading"?"Скачивание: "+percent+"% ("+done+" / "+total+" МБ) • "+speed+" МБ/с":phase==="extracting"?"Проверка архива и подготовка файлов…":"Перезапуск приложения…";
+  }
+}
+
+function stopUpdatePolling(){if(updatePollTimer!==null){clearInterval(updatePollTimer);updatePollTimer=null;}}
+
+function watchUpdateState(){
+  if(updatePollTimer!==null)return;
+  updatePollTimer=window.setInterval(async()=>{
+    if(updatePollPending||!apiReady)return;
+    updatePollPending=true;
+    try{
+      const state=await api().get_update_state();
+      renderUpdateState(state);
+      if(!["checking","downloading","extracting","installing"].includes(String(state.phase||"idle")))stopUpdatePolling();
+    }catch(error){
+      stopUpdatePolling();
+      $("update-status").textContent=error.message||"Не удалось получить состояние обновления.";
+      $("update-status").classList.add("is-error");
+    }finally{updatePollPending=false;}
+  },450);
+}
+
+async function checkApplicationUpdates(){
+  if(!ensureStartupReady())return;
+  renderUpdateState({phase:"checking",status:"Проверяю GitHub Releases…"});
+  watchUpdateState();
+  try{
+    const result=await api().check_for_updates();
+    if(!result.ok)throw new Error(result.message||"Не удалось начать проверку.");
+  }catch(error){
+    stopUpdatePolling();
+    renderUpdateState({phase:"error",status:error.message||"Ошибка проверки обновлений.",error:error.message||String(error)});
+  }
+}
+
+async function downloadApplicationUpdate(){
+  if(!ensureStartupReady())return;
+  if(appState&&appState.session_running){notify("Остановите фарм перед установкой обновления.");return;}
+  try{
+    const result=await api().download_update();
+    if(!result.ok)throw new Error(result.message||"Не удалось начать скачивание.");
+    renderUpdateState({...lastUpdateState,phase:"downloading",status:"Подключение к GitHub…"});
+    watchUpdateState();
+  }catch(error){
+    renderUpdateState({...lastUpdateState,phase:"error",status:error.message||"Ошибка обновления."});
+    notify(error.message||"Не удалось скачать обновление.");
+  }
+}
+
 
 async function clearAvatarCache(){
   try{
@@ -1463,7 +1550,9 @@ function renderDropsCampaigns(campaigns,root){
       const image=avatar.startsWith("https://")?"<img draggable='false' src='"+esc(avatar)+"' alt='' loading='lazy' onerror='this.remove()'>":"<span>"+esc(name.charAt(0).toUpperCase()||"?")+"</span>";
       const added=Boolean(appState&&Array.isArray(appState.channels)&&appState.channels.includes(login));
       const running=Boolean(appState&&appState.session_running);
-      const button=added&&running?"<button class='button button-soft drop-streamer-add' disabled>Уже в фарме</button>":"<button class='button button-primary drop-streamer-add' data-drop-action='add' data-login='"+esc(login)+"'>"+(added?"Запустить фарм":"Добавить в фарм")+"</button>";
+      const button=running
+        ?"<button class='button button-soft drop-streamer-add' disabled title='Остановите фарм, чтобы изменить список каналов'>Остановите фарм</button>"
+        :"<button class='button button-primary drop-streamer-add' data-drop-action='add' data-login='"+esc(login)+"' data-campaign-id='"+esc(campaign.id||"")+"' title='Добавить во временный Drops-фарм'>"+(added?"Запустить фарм":"Добавить в фарм")+"</button>";
       const followed=streamer.is_followed?" · фолловер":"";
       return "<div class='drop-streamer'><div class='drop-streamer-avatar'>"+image+"</div><div class='drop-streamer-info'><strong>"+esc(name)+"</strong><small><i></i>В эфире · "+Number(streamer.viewer_count||0).toLocaleString("ru-RU")+" зрителей"+followed+"</small></div>"+button+"</div>";
     }).join(""):"<div class='drop-no-streamers'>Нет найденных живых каналов с активной Drops-кампанией для этой игры.</div>";
@@ -1565,11 +1654,12 @@ async function loadDropsInventory(force=false){
   }
 }
 
-async function addDropChannelToFarm(login,button){
+async function addDropChannelToFarm(login,button,campaignId){
   if(!login||!apiReady) return;
+  if(appState&&appState.session_running){notify("Остановите фарм, чтобы изменить список каналов.");return;}
   if(button){button.disabled=true;button.textContent="Добавление…";}
   try{
-    const result=await withTimeout(api().add_drop_channel_to_farm(login),30000,"Добавление стримера заняло слишком много времени.");
+    const result=await withTimeout(api().add_drop_channel_to_farm(login,campaignId||""),30000,"Добавление стримера заняло слишком много времени.");
     if(!result.ok){
       notify(result.message||"Не удалось добавить стримера.");
       if(button){button.disabled=false;button.textContent="Добавить в фарм";}
@@ -1920,6 +2010,8 @@ document.addEventListener("DOMContentLoaded",()=>{
     }
   });
   $("refresh-drops").addEventListener("click",()=>loadDropsInventory(true));
+  $("update-check-button").addEventListener("click",checkApplicationUpdates);
+  $("update-download-button").addEventListener("click",downloadApplicationUpdate);
   $("page-drops").addEventListener("click",event=>{
     const filter=event.target.closest("[data-drops-category]");
     if(filter){
@@ -1930,7 +2022,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     const button=event.target.closest("[data-drop-action]");
     if(!button) return;
     if(button.dataset.dropAction==="add"){
-      addDropChannelToFarm(button.dataset.login,button);
+      addDropChannelToFarm(button.dataset.login,button,button.dataset.campaignId);
     }else if(button.dataset.dropAction==="browse"){
       api().open_url(button.dataset.url).catch(error=>notify(error.message||"Не удалось открыть каталог Twitch."));
     }
@@ -1950,7 +2042,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   $("clear-avatar-cache").addEventListener("click",clearAvatarCache);
   $("clear-currency-cache").addEventListener("click",clearCurrencyCache);
   $("logout-account").addEventListener("click",logoutAccount);
-  $("add-channel").addEventListener("click",()=>openChannelEditor("add",""));
+  $("add-channel").addEventListener("click",()=>{if(appState&&appState.session_running){notify("Остановите фарм, чтобы изменить список каналов.");return;}openChannelEditor("add","");});
   $("page-channel").addEventListener("click",event=>{if(event.target===$("page-channel"))setPage("dashboard");});
   $("channel-chips").addEventListener("click",event=>{
     const button=event.target.closest("[data-remove-channel]");
