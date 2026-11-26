@@ -28,9 +28,73 @@ try:
 except ImportError:
     APP_VERSION = "1.0.0-dev"
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-UI_DIR = RESOURCE_DIR / "ui"
 ICON_FILE = RESOURCE_DIR / "assets" / "twitch.ico"
 BOOT_LOG_LOCK = threading.Lock()
+
+
+def _ui_candidate_directories():
+    candidates = []
+    if getattr(sys, "frozen", False):
+        executable_dir = Path(sys.executable).resolve().parent
+        candidates.append(executable_dir / "ui")
+        candidates.append(RESOURCE_DIR / "ui")
+    else:
+        candidates.append(Path(__file__).resolve().parent / "ui")
+    unique = []
+    seen = set()
+    for candidate in candidates:
+        key = str(candidate.resolve()).casefold()
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def _ui_build_info(directory):
+    manifest = directory / "build_info.json"
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8-sig"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _ui_bundle_is_valid(directory):
+    required = ("index.html", "style.css", "app.js", "build_info.json")
+    if not all((directory / name).is_file() for name in required):
+        return False
+    if getattr(sys, "frozen", False):
+        return str(_ui_build_info(directory).get("version") or "") == APP_VERSION
+    return True
+
+
+def _resolve_ui_directory():
+    candidates = _ui_candidate_directories()
+    for candidate in candidates:
+        if _ui_bundle_is_valid(candidate):
+            return candidate
+    return candidates[0] if candidates else Path(__file__).resolve().parent / "ui"
+
+
+def _validate_ui_bundle():
+    required = ("index.html", "style.css", "app.js", "build_info.json")
+    missing = [name for name in required if not (UI_DIR / name).is_file()]
+    if missing:
+        raise RuntimeError(
+            "Не найден комплект интерфейса: "
+            + ", ".join(missing)
+            + ". Распакуй ZIP целиком рядом с Twitch Farming.exe."
+        )
+    manifest = _ui_build_info(UI_DIR)
+    if getattr(sys, "frozen", False) and str(manifest.get("version") or "") != APP_VERSION:
+        raise RuntimeError(
+            "Версия интерфейса не совпадает с версией приложения. "
+            "Нужно полностью заменить папку приложения содержимым нового ZIP."
+        )
+    return manifest
+
+
+UI_DIR = _resolve_ui_directory()
 
 
 def write_boot_log(level, message):
@@ -2811,6 +2875,12 @@ class TwitchFarmingApi:
 def main():
     api = None
     try:
+        ui_manifest = _validate_ui_bundle()
+        write_boot_log(
+            "INFO",
+            "Загружен UI bundle v%s из %s"
+            % (str(ui_manifest.get("version") or APP_VERSION), str(UI_DIR)),
+        )
         import webview
 
         webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
