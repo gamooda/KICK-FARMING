@@ -4,6 +4,16 @@ const vm = require("node:vm");
 
 const source = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/app.js"), "utf8");
 const html = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/index.html"), "utf8");
+const css = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/style.css"), "utf8");
+if (!css.includes(".sidebar{width:210px;min-width:210px;max-width:210px;flex:0 0 210px;flex-shrink:0}")) {
+  throw new Error("The sidebar fixed width and flex-shrink protection are missing.");
+}
+if (!css.includes(".dashboard-toolbar{height:auto;min-height:49px;flex-wrap:wrap;align-items:center;gap:7px 10px}")) {
+  throw new Error("The dashboard toolbar wrapping rule is missing.");
+}
+if (!source.includes("const currencyIcon=[currency.icon_url,currency.points_icon_url,item.currency_icon,item.points_icon_url]")) {
+  throw new Error("Recent reward rendering does not prioritize the live channel currency icon.");
+}
 if (!html.includes("window.onerror") || !html.includes("unhandledrejection") || !html.includes("startup-debug-output")) {
   throw new Error("Startup error capture or debug console is missing from index.html.");
 }
@@ -208,7 +218,6 @@ setupBetControls = () => {};
 cacheChannelProfiles = () => {};
 applyAuthState = () => {};
 renderChannels = () => {};
-renderRewards = () => {};
 renderEvents = () => {};
 appendLogRows = () => {};
 updateReward = () => {};
@@ -231,7 +240,25 @@ appInitialized = true;
   if (!button.innerHTML.includes("Запустить")) {
     throw new Error("Farm button did not initialize.");
   }
-  console.log("JavaScript startup smoke test passed.");
+  renderRewards([
+    {
+      kind: "gem",
+      channel_login: "bratishkinoff",
+      title: "bratishkinoff",
+      description: "+50 Channel Points",
+      timestamp: Date.now() / 1000
+    }
+  ], {
+    bratishkinoff: {
+      name: "Тугрики",
+      icon_url: "https://cdn.example/tuugrik.png"
+    }
+  });
+  const rewardsHtml = document.getElementById("reward-list").innerHTML;
+  if (!rewardsHtml.includes("<img class='reward-currency-icon'") || !rewardsHtml.includes("https://cdn.example/tuugrik.png")) {
+    throw new Error("Recent rewards did not render the custom channel currency icon.");
+  }
+  console.log("JavaScript startup and reward icon smoke tests passed.");
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
