@@ -2140,7 +2140,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.drops_summary)
 
         row = QHBoxLayout()
-        self.drops_filter_index = 0
+        self.drops_filter_index = 2
         self.drops_filter_group = QButtonGroup(self)
         self.drops_filter_group.setExclusive(True)
         filters = (
@@ -2153,7 +2153,7 @@ class MainWindow(QMainWindow):
             button.setSvgIcon(icon_name, 14)
             button.setObjectName("dropsFilter")
             button.setCheckable(True)
-            button.setChecked(index == 0)
+            button.setChecked(index == 2)
             self.drops_filter_group.addButton(button, index)
             row.addWidget(button)
         self.drops_filter_group.idClicked.connect(self._set_drops_filter)
@@ -2555,6 +2555,10 @@ class MainWindow(QMainWindow):
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self._update_session_clock)
         self.clock_timer.start(1000)
+        self.drops_refresh_timer = QTimer(self)
+        self.drops_refresh_timer.setInterval(60000)
+        self.drops_refresh_timer.timeout.connect(self._refresh_drops_inventory_if_stale)
+        self.drops_refresh_timer.start()
         QTimer.singleShot(80, self._poll_state)
 
     def _setup_tray(self):
@@ -3406,17 +3410,19 @@ class MainWindow(QMainWindow):
     def _render_drops(self):
         if not hasattr(self, "drops_grid"):
             return
-        campaigns_all = eligible_watch_campaigns(self.drops_state.get("campaigns", []))
-        filter_index = int(getattr(self, "drops_filter_index", 0))
+        raw_campaigns = self.drops_state.get("campaigns", [])
+        campaigns_all = eligible_watch_campaigns(raw_campaigns)
+        twitch_campaigns_all = eligible_twitch_campaigns(raw_campaigns)
+        filter_index = int(getattr(self, "drops_filter_index", 2))
         if filter_index == 1:
-            campaigns = [item for item in campaigns_all if item.get("started") or item.get("in_inventory")]
+            campaigns = [item for item in twitch_campaigns_all if item.get("started") or item.get("in_inventory")]
         elif filter_index == 2:
-            campaigns = eligible_twitch_campaigns(self.drops_state.get("campaigns", []))
+            campaigns = twitch_campaigns_all
         else:
             campaigns = campaigns_all
 
         progress_count = 0
-        for campaign in campaigns_all:
+        for campaign in twitch_campaigns_all:
             for drop in campaign.get("visible_drops", []):
                 percentage = drop.get("percentage")
                 if percentage is None:
@@ -3425,7 +3431,7 @@ class MainWindow(QMainWindow):
                     percentage = (watched * 100.0 / required) if required > 0 else 0
                 if int(float(percentage or 0)) < 100 and not _flag_enabled(drop.get("claimed")):
                     progress_count += 1
-        self.drops_active_value.setText(str(len(campaigns_all)))
+        self.drops_active_value.setText(str(len(twitch_campaigns_all)))
         self.drops_progress_value.setText(str(progress_count))
         updated_at = self.drops_state.get("updated_at")
         updated_text = "Ещё не обновлялось"
@@ -3456,7 +3462,7 @@ class MainWindow(QMainWindow):
         elif self.drops_state.get("error"):
             self.drops_status.setText("Ошибка загрузки: " + str(self.drops_state.get("error")))
         else:
-            self.drops_status.setText(f"Найдено кампаний с бесплатными наградами за просмотр: {len(campaigns)}")
+            self.drops_status.setText(f"Найдено кампаний с Twitch-наградами: {len(campaigns)}" if filter_index in (1, 2) else f"Найдено кампаний с бесплатными наградами за просмотр: {len(campaigns)}")
 
         if not campaigns:
             empty = QLabel("Подходящих бесплатных Drops за просмотр сейчас нет. Обнови кампании после входа в Twitch.")
@@ -3671,6 +3677,18 @@ class MainWindow(QMainWindow):
         value = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         self.title_bar.set_timer(value)
         self.session_label.setText("Сессия: " + value)
+
+    def _refresh_drops_inventory_if_stale(self):
+        if not self.latest_state.get("authenticated") or self.drops_state.get("loading"):
+            return
+        if not self.drops_state.get("loaded"):
+            return
+        try:
+            updated_at = float(self.drops_state.get("updated_at") or 0)
+        except (TypeError, ValueError):
+            updated_at = 0.0
+        if not updated_at or time.time() - updated_at >= 600:
+            self._call("refresh_drops_inventory", False)
 
     def _navigate(self, index):
         self.current_page = index
