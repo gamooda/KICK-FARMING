@@ -189,7 +189,8 @@ if (!backend.includes("def _resolve_ui_directory():") ||
 }
 if (!backend.includes('WEBVIEW_PROFILE_DIR = LOCAL_APP_DIR / "WebView2"') ||
     !backend.includes("storage_path=str(WEBVIEW_PROFILE_DIR)") ||
-    !backend.includes('index_url = (UI_DIR / "index.html").resolve().as_uri() + "?build=" + quote(APP_VERSION, safe="")')) {
+    !backend.includes('index_url = str((UI_DIR / "index.html").resolve())') ||
+    backend.includes(".as_uri() + \"?build=\"")) {
   throw new Error("WebView2 must use its explicit profile and a build-versioned local page URL.");
 }
 const copyUiStepStart = workflow.indexOf("- name: Copy versioned frontend beside executable");
