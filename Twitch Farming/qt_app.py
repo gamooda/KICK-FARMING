@@ -463,7 +463,7 @@ class ImageCache(QObject):
         self.pending = set()
         self.waiting = {}
 
-    def request(self, label, url, circular=False):
+    def request(self, label, url, circular=False, cache_group="currency"):
         value = str(url or "")
         if not value.startswith("https://"):
             return
@@ -480,7 +480,7 @@ class ImageCache(QObject):
             if suffix not in (".png", ".webp", ".jpg", ".jpeg", ".svg", ".gif"):
                 suffix = ".img"
             key = hashlib.sha256(value.encode("utf-8")).hexdigest()
-            folder = "avatars" if circular else "currency"
+            folder = "avatars" if circular else str(cache_group or "currency")
             cache_path = APP_DIR / "image_cache" / folder / (key + suffix)
             task = ImageTask(value, cache_path)
             task.signals.finished.connect(self._image_ready)
@@ -536,7 +536,7 @@ class ImageCache(QObject):
             painter.end()
             pixmap = result
         else:
-            pixmap = pixmap.scaled(edge, edge, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            pixmap = pixmap.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         label.setPixmap(pixmap)
 
@@ -833,9 +833,9 @@ class ChannelCard(QFrame):
         profile = profile if isinstance(profile, dict) else {}
         currency = currency if isinstance(currency, dict) else {}
         self.setObjectName("channelCard")
-        self.setFixedWidth(190)
+        self.setMinimumWidth(190)
         self.setFixedHeight(232)
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
 
@@ -848,12 +848,14 @@ class ChannelCard(QFrame):
         top.setSpacing(4)
         live = QLabel("• В ЭФИРЕ" if profile.get("is_live") else "• ОФЛАЙН")
         live.setObjectName("liveBadge" if profile.get("is_live") else "offlineBadge")
-        top.addWidget(live, 0, Qt.AlignmentFlag.AlignVCenter)
+        live.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        live.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        top.addWidget(live, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         top.addStretch(1)
 
         self.actions_panel = QFrame()
         self.actions_panel.setObjectName("channelActions")
-        self.actions_panel.setFixedHeight(22)
+        self.actions_panel.setFixedSize(90, 22)
         action_layout = QHBoxLayout(self.actions_panel)
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(2)
@@ -1005,11 +1007,13 @@ class ChannelCard(QFrame):
 
 
 class ActiveSlotCard(QFrame):
-    def __init__(self, slot_number, login, profile, balance, image_cache, parent=None):
+    def __init__(self, slot_number, login, profile, balance, image_cache, select_callback=None, remove_callback=None, controls_enabled=True, watching=False, parent=None):
         super().__init__(parent)
         self.setObjectName("activeSlotCard")
+        self.setMinimumHeight(62)
         row = QHBoxLayout(self)
-        row.setContentsMargins(12, 9, 12, 9)
+        row.setContentsMargins(12, 8, 12, 8)
+        row.setSpacing(9)
         self.avatar = QLabel()
         self.avatar.setFixedSize(42, 42)
         self.avatar.setObjectName("slotAvatar")
@@ -1017,16 +1021,41 @@ class ActiveSlotCard(QFrame):
         self.avatar.setText(str(login or "—")[:1].upper())
         row.addWidget(self.avatar)
         texts = QVBoxLayout()
+        texts.setContentsMargins(0, 0, 0, 0)
+        texts.setSpacing(3)
         title = QLabel("СЛОТ " + str(slot_number))
         title.setObjectName("slotCaption")
         texts.addWidget(title)
-        name = QLabel(str(profile.get("display_name") or login or "Ожидание канала"))
+        name = QLabel(str(profile.get("display_name") or ("@" + login if login else "Ожидание канала")))
         name.setObjectName("slotName")
         texts.addWidget(name)
+        status = QLabel("● СЕЙЧАС СМОТРИТ" if watching else ("● ПРИОРИТЕТ ФАРМА" if login else "● СЛОТ СВОБОДЕН"))
+        status.setObjectName("slotCurrentBadge" if watching else ("slotReadyBadge" if login else "slotEmptyBadge"))
+        texts.addWidget(status)
         row.addLayout(texts, 1)
         amount = QLabel(f"{_ui_int(balance):,}".replace(",", " ") + " баллов")
         amount.setObjectName("slotBalance")
         row.addWidget(amount)
+        controls = QVBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(4)
+        self.select_button = QPushButton("Выбрать")
+        self.select_button.setObjectName("slotSelectButton")
+        self.select_button.setFixedHeight(24)
+        self.select_button.setEnabled(bool(controls_enabled))
+        self.select_button.setToolTip("Выбрать канал и поднять его до приоритета этого слота.")
+        if callable(select_callback):
+            self.select_button.clicked.connect(lambda checked=False, value=int(slot_number): select_callback(value))
+        controls.addWidget(self.select_button)
+        self.remove_button = QPushButton("Снять")
+        self.remove_button.setObjectName("slotClearButton")
+        self.remove_button.setFixedHeight(24)
+        self.remove_button.setEnabled(bool(login and controls_enabled))
+        self.remove_button.setToolTip("Убрать канал из приоритета слота. Канал останется в общем списке.")
+        if callable(remove_callback):
+            self.remove_button.clicked.connect(lambda checked=False, number=int(slot_number), value=str(login or ""): remove_callback(number, value))
+        controls.addWidget(self.remove_button)
+        row.addLayout(controls)
         if image_cache:
             image_cache.request(self.avatar, profile.get("avatar_url", ""), True)
 
@@ -1267,7 +1296,7 @@ class CampaignCard(QFrame):
             reward_row.setObjectName("dropRewardRow")
             reward_layout = QVBoxLayout(reward_row)
             reward_layout.setContentsMargins(8, 8, 8, 8)
-            reward_layout.setSpacing(6)
+            reward_layout.setSpacing(0)
 
             reward_header = QHBoxLayout()
             reward_header.setSpacing(8)
@@ -1298,6 +1327,7 @@ class CampaignCard(QFrame):
             status.setObjectName("dropReceivedBadge" if received else "dropProgressBadge")
             reward_header.addWidget(status, 0, Qt.AlignmentFlag.AlignTop)
             reward_layout.addLayout(reward_header)
+            reward_layout.addSpacing(6)
 
             bar = QProgressBar()
             bar.setObjectName("dropProgressBar")
@@ -1310,6 +1340,7 @@ class CampaignCard(QFrame):
             remaining_value = drop.get("remaining_minutes")
             remaining = max(0, _ui_int(remaining_value, max(0, required - watched)))
             footer = QHBoxLayout()
+            footer.setContentsMargins(0, 6, 0, 0)
             footer.setSpacing(4)
             time_label = QLabel(f"{watched} / {required} мин · осталось {remaining} мин")
             time_label.setObjectName("smallMuted")
@@ -1582,13 +1613,14 @@ class MainWindow(QMainWindow):
         self.sidebar.setObjectName("sidebar")
         self.sidebar.setFixedWidth(238)
         side = QVBoxLayout(self.sidebar)
-        side.setContentsMargins(8, 12, 8, 12)
+        side.setContentsMargins(10, 12, 10, 12)
         side.setSpacing(6)
         logo = TwitchLogo()
         side.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
         brand = QLabel("TWITCH FARMING")
         brand.setObjectName("brandText")
         brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         side.addWidget(brand)
         side.addSpacing(8)
         self.nav_buttons = []
@@ -1606,6 +1638,9 @@ class MainWindow(QMainWindow):
             button.setObjectName("navButton")
             button.setCheckable(True)
             button.setFixedHeight(44)
+            button.setMinimumWidth(0)
+            button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            button.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
             button.setSvgIcon(icon_name, 20)
             button.clicked.connect(lambda checked=False, value=index: self._navigate(value))
             side.addWidget(button)
@@ -1613,6 +1648,8 @@ class MainWindow(QMainWindow):
         side.addStretch()
         account_footer = QFrame()
         account_footer.setObjectName("accountFooter")
+        account_footer.setMinimumHeight(48)
+        account_footer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         account_footer_row = QHBoxLayout(account_footer)
         account_footer_row.setContentsMargins(7, 6, 7, 6)
         account_footer_row.setSpacing(7)
@@ -1625,6 +1662,7 @@ class MainWindow(QMainWindow):
         self.account_sidebar.setObjectName("sidebarAccount")
         self.account_sidebar.setWordWrap(True)
         self.account_sidebar.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.account_sidebar.setMinimumWidth(0)
         account_footer_row.addWidget(self.account_sidebar, 1)
         side.addWidget(account_footer)
         self.version_sidebar = QLabel("v" + APP_VERSION)
@@ -1709,10 +1747,12 @@ class MainWindow(QMainWindow):
 
 
     def _style(self):
+        combo_arrow = str(RESOURCE_ROOT / "assets" / "combo_chevron.svg").replace("\\", "/")
         return """
         QWidget { color:#F0EDF7; font-family:"Segoe UI"; font-size:12px; }
         QMainWindow#mainWindow { background:#090911; border:0; }
         QFrame#shell { background:#0C0C15; border:1px solid #29263D; border-radius:0; }
+        QFrame[frameShape="4"], QFrame[frameShape="5"], QFrame#separator { background-color:#232332; max-height:1px; border:none; }
         QFrame#titleBar { background:#10101A; border:0; border-bottom:1px solid #28263A; }
         QLineEdit#titleSearch { background:#191725; border:1px solid #302B48; border-radius:14px; padding:4px 12px; color:#E9E4F5; font-size:11px; }
         QLineEdit#titleSearch:focus { border-color:#7950BD; background:#211B31; }
@@ -1786,6 +1826,12 @@ class MainWindow(QMainWindow):
         QLabel#temporaryBadge { color:#F5C36B; background:#322A1B; }
         QLabel#purpleBadge { color:#D4BCFF; background:#302345; }
         QFrame#activeSlotCard { background:#201A30; border:1px solid #44335F; border-radius:8px; }
+        QLabel#slotCurrentBadge { color:#82D8B3; background:#1D352D; border-radius:5px; padding:2px 5px; font-size:8px; font-weight:900; }
+        QLabel#slotReadyBadge { color:#D7BFFF; background:#302344; border-radius:5px; padding:2px 5px; font-size:8px; font-weight:900; }
+        QLabel#slotEmptyBadge { color:#8C8799; background:#252530; border-radius:5px; padding:2px 5px; font-size:8px; font-weight:900; }
+        QPushButton#slotSelectButton { background:#302345; border:1px solid #7655A5; color:#E2D3FF; padding:3px 7px; border-radius:6px; font-size:9px; font-weight:800; }
+        QPushButton#slotClearButton { background:#211E2C; border:1px solid #383247; color:#BDB6C9; padding:3px 7px; border-radius:6px; font-size:9px; font-weight:700; }
+        QPushButton#slotSelectButton:hover, QPushButton#slotClearButton:hover { border-color:#A184D0; background:#382A4E; }
         QFrame#dropsSummary { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #211B31,stop:1 #171522); border:1px solid #45365E; border-radius:12px; }
         QLabel#dropSummaryValue { color:#FFFFFF; font-size:22px; font-weight:900; }
         QLabel#dropSummaryCaption { color:#A49BB5; font-size:10px; font-weight:700; }
@@ -1817,7 +1863,7 @@ class MainWindow(QMainWindow):
         QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color:#8750D9; background:#171522; }
         QComboBox { padding-right:24px; }
         QComboBox::drop-down { subcontrol-origin:padding; subcontrol-position:top right; width:22px; border:0; border-left:1px solid #302B40; }
-        QComboBox::down-arrow { width:7px; height:7px; border-right:2px solid #B9A0F2; border-bottom:2px solid #B9A0F2; }
+        QComboBox::down-arrow { image: url("@COMBO_ARROW@"); width:10px; height:10px; }
         QComboBox QAbstractItemView { background:#181722; border:1px solid #383247; selection-background-color:#403058; color:#F5F2FC; outline:0; padding:4px; }
         QAbstractScrollArea, QAbstractScrollArea::viewport, QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget, QScrollArea QWidget#scrollContent { background-color:#0C0C15; border:0; }
         QScrollBar:vertical { background:transparent; width:6px; margin:1px 0; border:0; }
@@ -1844,7 +1890,7 @@ class MainWindow(QMainWindow):
         QLabel#followerMeta { color:#9E96B0; font-size:9px; }
         QLabel#statusHint { color:#AAA4B8; font-size:10px; }
         QTextEdit#logOutput { background:#0A0A10; border:1px solid #292737; border-radius:9px; color:#C7C1D1; font-family:Consolas; font-size:10px; padding:7px; }
-        """
+        """.replace("@COMBO_ARROW@", combo_arrow)
 
     def _page(self, title, subtitle):
         page = QWidget()
@@ -1928,7 +1974,7 @@ class MainWindow(QMainWindow):
         self.slot_layout = slots
         self.slot_cards = []
         for number in (1, 2):
-            card = ActiveSlotCard(number, "", {}, 0, self.image_cache)
+            card = ActiveSlotCard(number, "", {}, 0, self.image_cache, self._choose_slot_channel, self._clear_slot_priority)
             self.slot_cards.append(card)
             slots.addWidget(card, 1)
         panel_layout.addLayout(slots)
@@ -1954,14 +2000,19 @@ class MainWindow(QMainWindow):
         self.channels_grid.setContentsMargins(0, 0, 0, 0)
         self.channels_grid.setHorizontalSpacing(12)
         self.channels_grid.setVerticalSpacing(12)
-        self.channels_grid.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.channels_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        for column in range(6):
+            self.channels_grid.setColumnStretch(column, 1 if column < 2 else 0)
         self._channel_columns = 0
         self.channels_wrap = QWidget()
         self.channels_wrap.setObjectName("scrollContent")
+        self.channels_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.channels_wrap.setLayout(self.channels_grid)
         self.channels_scroll = QScrollArea()
         self.channels_scroll.setObjectName("channelsScroll")
         self.channels_scroll.setWidgetResizable(True)
+        self.channels_scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.channels_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.channels_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.channels_scroll.setWidget(self.channels_wrap)
         layout.addWidget(self.channels_scroll, 1)
@@ -1975,7 +2026,7 @@ class MainWindow(QMainWindow):
         feeds.addWidget(self.events_feed, 1)
         feeds_row = QWidget()
         feeds_row.setLayout(feeds)
-        feeds_row.setFixedHeight(178)
+        feeds_row.setFixedHeight(148)
         layout.addWidget(feeds_row)
         self.stack.addWidget(page)
 
@@ -2346,6 +2397,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(panel, 0, 0)
         filters = self._setting_panel("ФИЛЬТР УЧАСТНИКОВ", "Ставка размещается только при совпадении условия.")
         self.bet_filter_enabled = SwitchCheckBox("Включить фильтр")
+        filters.layout().setAlignment(Qt.AlignmentFlag.AlignTop)
         filters.layout().addWidget(self.bet_filter_enabled)
         self.bet_filter_by = QComboBox()
         self.bet_filter_by.setEditable(False)
@@ -2812,7 +2864,7 @@ class MainWindow(QMainWindow):
             self.active_panel.setVisible(False)
 
     def _render_active_slots(self):
-        state = self.latest_state
+        state = self.latest_state if isinstance(self.latest_state, dict) else {}
         auth = self.latest_auth_state if isinstance(self.latest_auth_state, dict) else {}
         auth_state = str(auth.get("worker_state") or "").lower()
         auth_waiting = bool(auth.get("worker_alive") or auth.get("restore_pending") or auth_state in ("restoring", "running"))
@@ -2825,12 +2877,15 @@ class MainWindow(QMainWindow):
         if target != self._active_panel_target:
             self._active_panel_target = target
             self.active_animation.stop()
-            if has_active:
+            if target > 0:
                 self.active_panel.setVisible(True)
             current = self.active_panel.maximumHeight()
             self.active_animation.setStartValue(current)
             self.active_animation.setEndValue(target)
             self.active_animation.start()
+        channels = state.get("channels") or []
+        channels = [str(item).strip().lower() for item in channels if str(item).strip()]
+        session_running = bool(state.get("session_running"))
         watch_map = self._watch_slot_map()
         profiles = state.get("channel_profiles", {})
         balances = state.get("channel_balances", {})
@@ -2838,22 +2893,43 @@ class MainWindow(QMainWindow):
         balances = balances if isinstance(balances, dict) else {}
         slot_data = []
         for number in (1, 2):
-            login = next((key for key, value in watch_map.items() if value == number), "")
+            if session_running:
+                login = next((key for key, value in watch_map.items() if value == number), "")
+                watching = bool(login)
+            else:
+                login = channels[number - 1] if len(channels) >= number else ""
+                watching = False
             profile = profiles.get(login, {}) if login else {}
             if not isinstance(profile, dict):
                 profile = {}
-            slot_data.append((login, str(profile.get("display_name") or ""), str(profile.get("avatar_url") or ""), _ui_int(balances.get(login, 0))))
-        signature = tuple(slot_data)
+            slot_data.append((
+                login,
+                str(profile.get("display_name") or ""),
+                str(profile.get("avatar_url") or ""),
+                _ui_int(balances.get(login, 0)),
+                watching
+            ))
+        signature = tuple(slot_data) + (session_running,)
         if signature == self._last_slot_signature:
             return
         completed = True
         for number, card in enumerate(list(self.slot_cards), 1):
-            login, display_name, avatar_url, balance = slot_data[number - 1]
+            login, display_name, avatar_url, balance, watching = slot_data[number - 1]
             profile = profiles.get(login, {}) if login else {}
             if not isinstance(profile, dict):
                 profile = {}
             try:
-                replacement = ActiveSlotCard(number, login, profile, balance, self.image_cache)
+                replacement = ActiveSlotCard(
+                    number,
+                    login,
+                    profile,
+                    balance,
+                    self.image_cache,
+                    self._choose_slot_channel,
+                    self._clear_slot_priority,
+                    controls_enabled=not session_running,
+                    watching=watching
+                )
                 index = self.slot_layout.indexOf(card)
                 self.slot_layout.removeWidget(card)
                 card.deleteLater()
@@ -2864,6 +2940,50 @@ class MainWindow(QMainWindow):
                 completed = False
         if completed:
             self._last_slot_signature = signature
+
+    def _choose_slot_channel(self, slot_number):
+        if self.latest_state.get("session_running"):
+            self._notify("Останови фарм перед изменением приоритета слотов.")
+            return
+        channels = [str(item).strip().lower() for item in self.latest_state.get("channels", []) if str(item).strip()]
+        if not channels:
+            self._notify("Сначала добавь каналы в список.")
+            return
+        profiles = self.latest_state.get("channel_profiles") or {}
+        menu = QMenu(self)
+        menu.setObjectName("slotChannelMenu")
+        for login in channels:
+            profile = profiles.get(login, {}) if isinstance(profiles, dict) else {}
+            display_name = str(profile.get("display_name") or "").strip() if isinstance(profile, dict) else ""
+            title = "@" + login + ((" · " + display_name) if display_name and display_name.lower() != login else "")
+            action = menu.addAction(title)
+            action.triggered.connect(
+                lambda checked=False, value=login, number=int(slot_number): self._set_slot_priority(number, value)
+            )
+        menu.exec(QCursor.pos())
+
+    def _set_slot_priority(self, slot_number, login):
+        if self.latest_state.get("session_running"):
+            self._notify("Останови фарм перед изменением приоритета слотов.")
+            return
+        order = [str(item).strip().lower() for item in self.latest_state.get("channels", []) if str(item).strip()]
+        if login not in order:
+            return
+        order.remove(login)
+        position = max(0, min(int(slot_number) - 1, len(order)))
+        order.insert(position, login)
+        self._call("reorder_channels", order, message="Приоритет слота " + str(slot_number) + " обновлён.")
+
+    def _clear_slot_priority(self, slot_number, login):
+        if self.latest_state.get("session_running"):
+            self._notify("Останови фарм перед изменением приоритета слотов.")
+            return
+        order = [str(item).strip().lower() for item in self.latest_state.get("channels", []) if str(item).strip()]
+        if login not in order:
+            return
+        order.remove(login)
+        order.append(login)
+        self._call("reorder_channels", order, message="@" + login + " перемещён в конец очереди каналов.")
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -2877,20 +2997,25 @@ class MainWindow(QMainWindow):
 
     def _channel_grid_column_count(self):
         width = self.channels_scroll.viewport().width() if hasattr(self, "channels_scroll") else self.width() - 280
-        return max(2, min(6, int((max(1, width) + 12) // 202)))
+        spacing = max(12, self.channels_grid.horizontalSpacing() if hasattr(self, "channels_grid") else 12)
+        minimum_card_width = 190
+        return max(1, min(6, int((max(1, width) + spacing) // (minimum_card_width + spacing))))
 
     def _update_channel_grid_columns(self):
         if not hasattr(self, "channels_grid"):
             return
         columns = self._channel_grid_column_count()
+        for column in range(6):
+            self.channels_grid.setColumnStretch(column, 1 if column < columns else 0)
+        self.channels_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         if columns == self._channel_columns:
             return
         self._channel_columns = columns
-        self._last_channel_signature = None
         self._render_channels()
 
     def _render_channels(self):
         try:
+            self.channels_wrap.setMinimumHeight(0)
             self._clear_layout(self.channels_grid)
             state = self.latest_state if isinstance(self.latest_state, dict) else {}
             channels = state.get("channels") or []
@@ -2918,6 +3043,8 @@ class MainWindow(QMainWindow):
                     visible.append(login)
             columns = self._channel_grid_column_count()
             self._channel_columns = columns
+            for column in range(6):
+                self.channels_grid.setColumnStretch(column, 1 if column < columns else 0)
             for index, login in enumerate(visible):
                 try:
                     profile = profiles.get(login)
@@ -2959,11 +3086,13 @@ class MainWindow(QMainWindow):
                 empty = QLabel(empty_text)
                 empty.setObjectName("mutedText")
                 self.channels_grid.addWidget(empty, 0, 0)
+            self.channels_grid.activate()
+            self.channels_wrap.adjustSize()
+            self.channels_wrap.setMinimumHeight(self.channels_grid.sizeHint().height() + 8)
             return True
         except Exception as error:
             _log_ui_exception("отрисовка списка каналов", error)
             return False
-
 
     def _search_channels(self, value):
         self.channel_search_text = str(value or "").strip().lower()
