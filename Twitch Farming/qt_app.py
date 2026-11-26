@@ -1592,6 +1592,7 @@ class MainWindow(QMainWindow):
         self._startup_snapshot_received = False
         self._channel_columns = 0
         self.drops_state = {}
+        self._drops_auto_initial_requested = False
         self.followed_state = {}
         self.update_state = self.api.get_update_state()
         self.selected_channel = ""
@@ -2692,6 +2693,11 @@ class MainWindow(QMainWindow):
         self.followed_state = followed or {}
         self.update_state = update or {}
         auth = auth or {}
+        if not auth.get("authenticated"):
+            self._drops_auto_initial_requested = False
+        elif not self._drops_auto_initial_requested and not self.drops_state.get("loaded") and not self.drops_state.get("loading"):
+            self._drops_auto_initial_requested = True
+            self._call("refresh_drops_inventory", True)
         self._safe_ui_call("обновление аккаунта", self._update_account_identity, state.get("account_profile") or {}, auth)
         self._safe_ui_call("запрос профиля аккаунта", self._request_account_profile, state.get("account_profile") or {}, auth)
         self._safe_ui_call("обновление состояния инициализации", self._update_initialization_state, auth)
