@@ -352,7 +352,12 @@ class Twitch(object):
         ]
         operation = ", ".join(dict.fromkeys(operation_names)) or "batch"
         is_drops_query = any(
-            name in {"Inventory", "ViewerDropsDashboard", "DropCampaignDetails"}
+            name in {
+                "Inventory",
+                "ViewerDropsDashboard",
+                "DropCampaignDetails",
+                "DropsHighlightService_AvailableDrops",
+            }
             for name in operation_names
         )
         response = None
@@ -1785,7 +1790,23 @@ class Twitch(object):
             for channel, payload in zip(batch, response):
                 login = str(channel.get("login") or "").lower()
                 try:
-                    channel_data = (payload.get("data") or {}).get("channel") or {}
+                    if not isinstance(payload, dict) or payload.get("errors"):
+                        self._warn_drops_response(
+                            "DropsHighlightService_AvailableDrops",
+                            f"ошибка запроса для @{login}",
+                            payload,
+                        )
+                        result[login] = []
+                        continue
+                    channel_data = (payload.get("data") or {}).get("channel")
+                    if not isinstance(channel_data, dict):
+                        self._warn_drops_response(
+                            "DropsHighlightService_AvailableDrops",
+                            f"в ответе отсутствует канал @{login}",
+                            payload,
+                        )
+                        result[login] = []
+                        continue
                     available = channel_data.get("viewerDropCampaigns") or []
                     if isinstance(available, dict):
                         available = (
