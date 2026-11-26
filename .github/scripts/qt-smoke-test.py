@@ -210,5 +210,15 @@ check("Twitch Farming/ui/" not in readme, "The root README still lists the remov
 check("webview" not in app_readme.lower() and "pywebview" not in app_readme.lower(), "The application README still contains legacy WebView references.")
 
 check('"is_followed" not in item or _flag_enabled(item.get("is_followed"))' in qt, "Campaign streamer spoiler must only include followed channels.")
+check('QFrame[frameShape="4"], QFrame[frameShape="5"]' in qt, "Horizontal and vertical frame separators must use the neutral one-pixel style.")
+check("self.setMinimumWidth(190)" in qt and "QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed" in qt, "Channel cards must expand horizontally from their 190px minimum width.")
+check("self.channels_grid.setColumnStretch(column, 1 if column < columns else 0)" in qt and "self.channels_wrap.setMinimumHeight(self.channels_grid.sizeHint().height() + 8)" in qt, "The channel grid must stretch its columns and preserve all rows in the scroll area.")
+check("def _choose_slot_channel" in qt and "def _clear_slot_priority" in qt and "if has_active" not in qt, "The active farm slots must render without an undefined state and expose priority controls.")
+check('game_data.get("boxArtURL")' in qt and '"game_art"' in qt and 'candidate.replace("{width}", "88")' in qt, "Campaign game box art must support nested Twitch URLs and async caching.")
+check("reward_layout.addSpacing(6)" in qt and "footer.setContentsMargins(0, 6, 0, 0)" in qt, "Reward progress labels must have six pixels of top spacing.")
+check("filters.layout().setAlignment(Qt.AlignmentFlag.AlignTop)" in qt, "Prediction participant filter contents must align to the top.")
+check('QComboBox::down-arrow { image: url("@COMBO_ARROW@");' in qt and (APP / "assets" / "combo_chevron.svg").is_file(), "Combo boxes must use the bundled SVG chevron.")
+check("combo_chevron.svg;assets" in workflow and "combo_chevron.svg" in workflow, "The combo chevron SVG must be bundled and verified.")
+
 
 print("Native Qt smoke tests passed.")
