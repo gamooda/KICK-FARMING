@@ -1604,8 +1604,19 @@ class TwitchFarmingApi:
         self.events.append(stamp + "  " + str(message))
         self.events = self.events[-100:]
 
+    def _resolve_channel_login_locked(self, value):
+        raw = str(value or "").strip().lower().lstrip("@")
+        raw = re.sub(r"\\s*\\([^)]*\\)$", "", raw).strip()
+        if raw in self.channels or raw in self.channel_points_branding_cache:
+            return raw
+        for login, profile in self.channel_profiles.items():
+            display_name = str(profile.get("display_name") or "").strip().lower()
+            if display_name and display_name == raw:
+                return str(login).strip().lower()
+        return raw
+
     def _append_reward_locked(self, title, description, kind, created, channel_login=""):
-        login = str(channel_login or "").strip().lower()
+        login = self._resolve_channel_login_locked(channel_login or title)
         branding = self.channel_points_branding_cache.get(login, {}) if login else {}
         self.rewards.append({
             "title": str(title)[:100],
@@ -1939,6 +1950,15 @@ class TwitchFarmingApi:
                 "name": str(item.get("points_name") or currency.get(login, {}).get("name") or ""),
                 "icon_url": str(item.get("points_icon_url") or currency.get(login, {}).get("icon_url") or ""),
             }
+        for reward in self.rewards:
+            login = str(reward.get("channel_login") or "").strip().lower()
+            cached = currency.get(login) or {}
+            icon_url = str(cached.get("icon_url") or "")
+            currency_name = str(cached.get("name") or "")
+            if icon_url.startswith("https://"):
+                reward["currency_icon"] = icon_url
+            if currency_name:
+                reward["currency_name"] = currency_name
         return ranked[:3], balances, currency
 
     def get_state(self, after_log_id=0):
