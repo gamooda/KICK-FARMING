@@ -373,15 +373,18 @@ class TwitchLogo(QWidget):
             self._target_eye_height = 4.8
             if now >= self._next_action:
                 action = random.choice(("look", "squint", "blink"))
-                self._action_until = now + random.uniform(0.65, 1.2)
                 self._next_action = now + random.uniform(2.2, 4.0)
                 if action == "look":
+                    self._action_until = now + random.uniform(0.65, 1.2)
                     self._target_x = random.uniform(-1.5, 1.5)
                     self._target_y = random.uniform(-0.8, 0.8)
                 elif action == "squint":
+                    self._action_until = now + random.uniform(0.65, 1.2)
                     self._target_eye_height = 2.2
                 else:
-                    self._blink_until = now + 0.12
+                    self._action_until = now + 0.12
+                    self._blink_until = self._action_until
+                    self._target_eye_height = 0.3
         self._look_x += (self._target_x - self._look_x) * 0.2
         self._look_y += (self._target_y - self._look_y) * 0.2
         self._eye_height += (self._target_eye_height - self._eye_height) * 0.28
