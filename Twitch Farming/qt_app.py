@@ -2100,7 +2100,7 @@ class MainWindow(QMainWindow):
         return frame
 
     def _build_drops_page(self):
-        layout = self._page("Инвентарь Drops", "Все бесплатные награды за просмотр Twitch. Платные Drops для подписки не отображаются.")
+        layout = self._page("Инвентарь Drops", "Все бесплатные Drops за просмотр, включая игровые предметы и награды профиля Twitch. Платные Drops для подписки не отображаются.")
 
         self.drops_summary = QFrame()
         self.drops_summary.setObjectName("dropsSummary")
@@ -2145,7 +2145,7 @@ class MainWindow(QMainWindow):
         self.drops_filter_group = QButtonGroup(self)
         self.drops_filter_group.setExclusive(True)
         filters = (
-            ("Все Twitch-награды", "gift"),
+            ("Все Drops", "gift"),
             ("Начатые (Инвентарь)", "inventory")
         )
         for index, (title, icon_name) in enumerate(filters):
@@ -2283,6 +2283,7 @@ class MainWindow(QMainWindow):
         self.update_progress = QProgressBar()
         self.update_progress.setRange(0, 100)
         self.update_progress.setValue(0)
+        self.update_progress.setTextVisible(False)
         self.update_progress.setVisible(False)
         updater.layout().addWidget(self.update_progress)
         self.update_speed = QLabel("")
@@ -3416,15 +3417,15 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "drops_grid"):
             return
         raw_campaigns = self.drops_state.get("campaigns", [])
-        twitch_campaigns_all = eligible_twitch_campaigns(raw_campaigns)
+        watch_campaigns_all = eligible_watch_campaigns(raw_campaigns)
         filter_index = int(getattr(self, "drops_filter_index", 0))
         if filter_index == 1:
-            campaigns = [item for item in twitch_campaigns_all if item.get("started") or item.get("in_inventory")]
+            campaigns = [item for item in watch_campaigns_all if item.get("started") or item.get("in_inventory")]
         else:
-            campaigns = twitch_campaigns_all
+            campaigns = watch_campaigns_all
 
         progress_count = 0
-        for campaign in twitch_campaigns_all:
+        for campaign in watch_campaigns_all:
             for drop in campaign.get("visible_drops", []):
                 percentage = drop.get("percentage")
                 if percentage is None:
@@ -3433,7 +3434,7 @@ class MainWindow(QMainWindow):
                     percentage = (watched * 100.0 / required) if required > 0 else 0
                 if int(float(percentage or 0)) < 100 and not _flag_enabled(drop.get("claimed")):
                     progress_count += 1
-        self.drops_active_value.setText(str(len(twitch_campaigns_all)))
+        self.drops_active_value.setText(str(len(watch_campaigns_all)))
         self.drops_progress_value.setText(str(progress_count))
         updated_at = self.drops_state.get("updated_at")
         updated_text = "Ещё не обновлялось"
@@ -3460,11 +3461,11 @@ class MainWindow(QMainWindow):
         self._clear_layout(self.drops_grid)
 
         if self.drops_state.get("loading"):
-            self.drops_status.setText("Загрузка ViewerDropsDashboard и Inventory…")
+            self.drops_status.setText("Загрузка инвентаря Twitch Drops…")
         elif self.drops_state.get("error"):
             self.drops_status.setText("Ошибка загрузки: " + str(self.drops_state.get("error")))
         else:
-            self.drops_status.setText(f"Найдено кампаний с Twitch-наградами: {len(campaigns)}")
+            self.drops_status.setText(f"Найдено кампаний с наградами за просмотр: {len(campaigns)}")
 
         if not campaigns:
             empty = QLabel("Подходящих бесплатных Drops за просмотр сейчас нет. Обнови кампании после входа в Twitch.")
