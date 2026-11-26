@@ -2,6 +2,7 @@ import base64
 import json
 import sys
 from collections import OrderedDict
+from concurrent.futures import Future
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -41,6 +42,52 @@ streamers = [make_streamer(f"channel_{index}", index % 4 != 0) for index in rang
 online_indices = Twitch._get_online_streamer_indices(streamers)
 assert online_indices == [index for index in range(15) if index % 4 != 0]
 assert len(online_indices) > 2, "Every online channel must be included without a two-channel cap."
+
+
+dispatch_streamers = [
+    SimpleNamespace(
+        username=f"dispatch_{index}",
+        is_online=True,
+        stream=SimpleNamespace(update_required=lambda: False),
+    )
+    for index in range(10)
+]
+dispatch_watcher = Twitch.__new__(Twitch)
+dispatch_watcher.running = True
+dispatched = []
+worker_counts = []
+
+
+class RecordingExecutor:
+    def __init__(self, max_workers, thread_name_prefix):
+        worker_counts.append(max_workers)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def submit(self, function, streamer):
+        future = Future()
+        function(streamer)
+        future.set_result(None)
+        dispatched.append(streamer.username)
+        if len(dispatched) == len(dispatch_streamers):
+            dispatch_watcher.running = False
+        return future
+
+
+dispatch_watcher._send_minute_watched_for_streamer = lambda streamer: None
+setattr(dispatch_watcher, "_Twitch__chuncked_sleep", lambda *args, **kwargs: None)
+with patch(
+    "TwitchChannelPointsMiner.classes.Twitch.ThreadPoolExecutor",
+    RecordingExecutor,
+):
+    dispatch_watcher.send_minute_watched_events(dispatch_streamers, None)
+
+assert dispatched == [streamer.username for streamer in dispatch_streamers]
+assert worker_counts == [len(dispatch_streamers)]
 
 streamer = make_streamer("example_channel")
 event = Twitch._build_minute_watched_event(streamer, "12345")
