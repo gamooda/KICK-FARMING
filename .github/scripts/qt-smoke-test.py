@@ -209,4 +209,6 @@ check("webview" not in readme.lower() and "pywebview" not in readme.lower(), "Th
 check("Twitch Farming/ui/" not in readme, "The root README still lists the removed ui folder.")
 check("webview" not in app_readme.lower() and "pywebview" not in app_readme.lower(), "The application README still contains legacy WebView references.")
 
+check('"is_followed" not in item or _flag_enabled(item.get("is_followed"))' in qt, "Campaign streamer spoiler must only include followed channels.")
+
 print("Native Qt smoke tests passed.")

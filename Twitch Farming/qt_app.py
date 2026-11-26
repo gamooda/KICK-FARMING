@@ -1327,7 +1327,7 @@ class CampaignCard(QFrame):
         separator.setObjectName("separator")
         layout.addWidget(separator)
 
-        streamers = [item for item in campaign.get("streamers", []) if isinstance(item, dict)]
+        streamers = [item for item in campaign.get("streamers", []) if isinstance(item, dict) and ("is_followed" not in item or _flag_enabled(item.get("is_followed")))]
         toggle_row = QHBoxLayout()
         toggle_row.setContentsMargins(0, 0, 0, 0)
         toggle = QPushButton("Подходящие стримеры из фолловеров")
