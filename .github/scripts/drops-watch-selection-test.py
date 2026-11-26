@@ -279,4 +279,107 @@ assert stream.hls_url is None
 assert not stream.watched_segments
 assert stream.last_minute_watched_sent == 0.0
 
-print("Multi-channel watch and Twitch Drops HLS tests passed.")
+
+inventory_reader = Twitch.__new__(Twitch)
+inventory_reader.post_gql_request = lambda request: {
+    "data": {
+        "currentUser": {
+            "inventory": {
+                "dropCampaignsInProgress": {
+                    "edges": [{"node": {"id": "inventory-edge-campaign"}}]
+                }
+            }
+        }
+    }
+}
+inventory_reader._warn_drops_response = lambda *args: None
+inventory_result = inventory_reader._Twitch__get_inventory()
+assert inventory_result["dropCampaignsInProgress"] == [{"id": "inventory-edge-campaign"}]
+
+snapshot_client = Twitch.__new__(Twitch)
+snapshot_campaign_one = {
+    "id": "campaign-one",
+    "status": "ACTIVE",
+    "name": "Campaign One",
+    "game": {"id": "10", "displayName": "Game One", "slug": "game-one"},
+    "timeBasedDrops": [{
+        "id": "badge-drop",
+        "name": "Chat Badge",
+        "requiredMinutesWatched": 60,
+        "self": {"currentMinutesWatched": 15},
+        "benefitEdges": {
+            "edges": [{
+                "node": {
+                    "benefit": {
+                        "name": "Chat Badge",
+                        "benefitType": "BADGE",
+                        "imageAssetURL": "https://example.test/badge.png",
+                    }
+                }
+            }]
+        },
+    }],
+    "subscriptionDrops": [{"id": "paid-drop", "name": "Paid reward", "dropType": "SUBSCRIPTION"}],
+}
+snapshot_campaign_two = {
+    "id": "campaign-two",
+    "status": "ACTIVE",
+    "name": "Campaign Two",
+    "game": {"id": "20", "displayName": "Game Two", "slug": "game-two"},
+    "timeBasedDrops": {
+        "edges": [{
+            "node": {
+                "id": "game-drop",
+                "name": "Game Item",
+                "requiredMinutesWatched": 30,
+                "benefitEdges": [{
+                    "benefit": {"name": "Weapon Skin", "benefitType": "GAME_ITEM"}
+                }],
+            }
+        }]
+    },
+}
+snapshot_inventory = {
+    "dropCampaignsInProgress": {"edges": [{"node": {"id": "campaign-one"}}]},
+    "gameEventDrops": [{
+        "campaignID": "campaign-three",
+        "name": "Campaign Three",
+        "game": {"id": "30", "displayName": "Game Three", "slug": "game-three"},
+        "drops": [{
+            "id": "emote-drop",
+            "name": "Twitch Emote",
+            "requiredMinutesWatched": 45,
+            "benefitEdges": {
+                "edges": [{
+                    "node": {
+                        "benefit": {"name": "Twitch Emote", "benefitType": "EMOTE"}
+                    }
+                }]
+            },
+        }],
+    }],
+}
+snapshot_dashboard = {
+    "data": {
+        "currentUser": {"dropCampaigns": {"edges": [{"node": snapshot_campaign_one}]}},
+        "rewardCampaignsAvailableToUser": {"edges": [{"node": snapshot_campaign_two}]},
+    }
+}
+snapshot_client._Twitch__get_inventory = lambda: snapshot_inventory
+snapshot_client.post_gql_request = lambda request: snapshot_dashboard
+snapshot_client._warn_drops_response = lambda *args: None
+snapshot = snapshot_client.get_drop_inventory_snapshot()
+assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-three"}
+snapshot_drops = {
+    drop["id"]: drop
+    for campaign in snapshot
+    for drop in campaign["drops"]
+}
+assert set(snapshot_drops) == {"badge-drop", "game-drop", "emote-drop"}
+assert snapshot_drops["badge-drop"]["category"] == "twitch"
+assert snapshot_drops["emote-drop"]["category"] == "twitch"
+assert snapshot_drops["game-drop"]["category"] == "game"
+assert all(drop["type"] == "watch" for drop in snapshot_drops.values())
+assert "paid-drop" not in snapshot_drops
+
+print("Multi-channel watch, full Drops inventory parsing, reward categories and Twitch Drops HLS tests passed.")

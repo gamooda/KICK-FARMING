@@ -440,6 +440,7 @@ class DropsInventoryWorker(threading.Thread):
 
     def run(self):
         campaigns = []
+        catalog_streamers = {}
         error = ""
         followers_error = ""
         try:
@@ -453,7 +454,6 @@ class DropsInventoryWorker(threading.Thread):
                 self.app.followed_channels_event.wait(45)
             with self.app.lock:
                 followed = [dict(item) for item in self.app.followed_channels]
-                followers_error = self.app.followed_channels_error
             raw_campaigns = self.client.get_drop_inventory_snapshot()
             live_followers = [
                 item for item in followed
@@ -463,32 +463,151 @@ class DropsInventoryWorker(threading.Thread):
                 self.client.get_drop_campaign_ids_for_channels(live_followers)
                 if live_followers else {}
             )
+            campaigns_by_id = {}
+            catalog_targets = []
+            followed_logins = {str(item.get("login") or "").lower() for item in followed}
             for campaign in raw_campaigns:
                 campaign_id = str(campaign.get("id") or "")
-                allowed = set(str(item) for item in campaign.get("allowed_channel_ids") or [])
+                if not campaign_id:
+                    continue
+                allowed = set(str(value) for value in campaign.get("allowed_channel_ids") or [])
+                game_id = str(campaign.get("game_id") or "")
                 candidates = []
                 for streamer in live_followers:
                     login = str(streamer.get("login") or "").lower()
                     channel_id = str(streamer.get("channel_id") or "")
-                    if campaign_id not in set(campaign_ids_by_login.get(login, [])):
+                    streamer_game_id = str(streamer.get("game_id") or "")
+                    if campaign_id not in set(str(value) for value in campaign_ids_by_login.get(login, [])):
+                        continue
+                    if game_id and streamer_game_id and game_id != streamer_game_id:
                         continue
                     if allowed and channel_id not in allowed:
                         continue
                     candidates.append({
                         "login": login,
+                        "channel_id": channel_id,
                         "display_name": str(streamer.get("display_name") or login),
                         "avatar_url": str(streamer.get("avatar_url") or ""),
                         "viewer_count": max(0, int(streamer.get("viewer_count") or 0)),
                         "game_name": str(streamer.get("game_name") or ""),
+                        "is_followed": True,
                     })
+                candidates.sort(key=lambda item: item["viewer_count"], reverse=True)
                 item = dict(campaign)
+                item["watch_drops"] = [
+                    drop for drop in item.get("drops", [])
+                    if str(drop.get("type") or "watch").lower() != "subscription"
+                ]
                 item["streamers"] = candidates
-                item["watch_drops"] = [drop for drop in item.get("drops", []) if drop.get("type") == "watch"]
-                item["subscription_drops"] = [drop for drop in item.get("drops", []) if drop.get("type") == "subscription"]
-                campaigns.append(item)
+                item["streamer_source"] = "followers" if candidates else ""
+                campaigns_by_id[campaign_id] = item
+                if not candidates and game_id:
+                    catalog_targets.append(item)
+            streams_by_game = {}
+            candidate_rows = {}
+            for campaign in catalog_targets:
+                game_id = str(campaign.get("game_id") or "")
+                if game_id not in streams_by_game:
+                    try:
+                        streams = self.client.helix_get("streams", {"game_id": game_id, "first": 100})
+                        streams_by_game[game_id] = sorted(
+                            [dict(stream) for stream in streams if isinstance(stream, dict)],
+                            key=lambda stream: max(0, int(stream.get("viewer_count") or 0)),
+                            reverse=True,
+                        )
+                    except Exception as catalog_error:
+                        streams_by_game[game_id] = []
+                        logging.getLogger("twitch_farming.drops").warning(
+                            "Не удалось получить каталог Twitch для game_id=%s: %s",
+                            game_id,
+                            catalog_error,
+                        )
+                for stream in streams_by_game[game_id]:
+                    login = str(stream.get("user_login") or "").strip().lower()
+                    channel_id = str(stream.get("user_id") or "")
+                    if not login or not channel_id:
+                        continue
+                    candidate_rows[login] = {
+                        "login": login,
+                        "channel_id": channel_id,
+                        "viewer_count": max(0, int(stream.get("viewer_count") or 0)),
+                        "game_name": str(stream.get("game_name") or campaign.get("game") or ""),
+                        "game_id": game_id,
+                        "is_live": True,
+                        "is_followed": login in followed_logins,
+                    }
+            catalog_ids_by_login = (
+                self.client.get_drop_campaign_ids_for_channels(list(candidate_rows.values()))
+                if candidate_rows else {}
+            )
+            matched_logins = set()
+            campaign_rows = {}
+            for campaign in catalog_targets:
+                campaign_id = str(campaign.get("id") or "")
+                game_id = str(campaign.get("game_id") or "")
+                allowed = set(str(value) for value in campaign.get("allowed_channel_ids") or [])
+                matched = []
+                for stream in streams_by_game.get(game_id, []):
+                    login = str(stream.get("user_login") or "").strip().lower()
+                    row = candidate_rows.get(login)
+                    if row is None:
+                        continue
+                    if campaign_id not in set(str(value) for value in catalog_ids_by_login.get(login, [])):
+                        continue
+                    if allowed and str(row.get("channel_id") or "") not in allowed:
+                        continue
+                    matched.append(row)
+                    matched_logins.add(login)
+                    if len(matched) >= 3:
+                        break
+                campaign_rows[campaign_id] = matched
+            users_by_id = {}
+            matched_rows = [candidate_rows[login] for login in matched_logins if login in candidate_rows]
+            for offset in range(0, len(matched_rows), 100):
+                batch = matched_rows[offset:offset + 100]
+                try:
+                    users = self.client.helix_get("users", [("id", str(item["channel_id"])) for item in batch])
+                    for user in users:
+                        if isinstance(user, dict):
+                            users_by_id[str(user.get("id") or "")] = user
+                except Exception as catalog_error:
+                    logging.getLogger("twitch_farming.drops").warning(
+                        "Не удалось загрузить профили каталога Drops: %s",
+                        catalog_error,
+                    )
+            for campaign in catalog_targets:
+                campaign_id = str(campaign.get("id") or "")
+                suggestions = []
+                for row in campaign_rows.get(campaign_id, []):
+                    user = users_by_id.get(str(row.get("channel_id") or ""), {})
+                    login = str(row.get("login") or "").lower()
+                    avatar = str(user.get("profile_image_url") or "")
+                    profile = {
+                        "login": login,
+                        "channel_id": str(row.get("channel_id") or ""),
+                        "display_name": str(user.get("display_name") or login),
+                        "avatar_url": avatar if avatar.startswith("https://") else "",
+                        "viewer_count": max(0, int(row.get("viewer_count") or 0)),
+                        "game_name": str(row.get("game_name") or ""),
+                        "game_id": str(row.get("game_id") or ""),
+                        "is_live": True,
+                        "is_followed": bool(row.get("is_followed")),
+                    }
+                    catalog_streamers[login] = profile
+                    suggestions.append(profile)
+                campaign["streamers"] = suggestions[:3]
+                campaign["streamer_source"] = "catalog" if suggestions else ""
+            campaigns = list(campaigns_by_id.values())
         except Exception as exception:
             error = str(exception)[:500] or exception.__class__.__name__
-        self.app.finish_drops_worker(self, self.request_id, campaigns, error, followers_error)
+        self.app.finish_drops_worker(
+            self,
+            self.request_id,
+            campaigns,
+            error,
+            followers_error,
+            catalog_streamers,
+        )
 
 
 class TwitchFarmingApi:
@@ -542,6 +661,7 @@ class TwitchFarmingApi:
         self.followed_channels_request_id = 0
         self.followed_channels_event = threading.Event()
         self.drops_campaigns = []
+        self.drops_catalog_streamers = {}
         self.drops_loading = False
         self.drops_loaded = False
         self.drops_error = ""
@@ -676,20 +796,23 @@ class TwitchFarmingApi:
         except Exception:
             logging.getLogger("twitch_farming.startup").exception("Existing log preparation failed")
 
-    def get_startup_state(self, after_event_id=0):
+    def get_startup_status(self, after_event_id=0):
         try:
             after_id = max(0, int(after_event_id or 0))
         except (TypeError, ValueError):
             after_id = 0
-        with self.lock:
-            return {
-                "ready": bool(self.startup_complete),
-                "error": self.startup_error,
-                "phase": self.startup_phase,
-                "elapsed": round(max(0.0, time.monotonic() - self.startup_started_at), 1),
-                "restore_pending": bool(self.restore_pending),
-                "diagnostics": [dict(item) for item in self.startup_events if item["id"] > after_id],
-            }
+        events = self.startup_events
+        return {
+            "ready": bool(self.startup_complete),
+            "error": self.startup_error,
+            "phase": self.startup_phase,
+            "elapsed": round(max(0.0, time.monotonic() - self.startup_started_at), 1),
+            "restore_pending": bool(self.restore_pending),
+            "diagnostics": [dict(item) for item in events if item["id"] > after_id],
+        }
+
+    def get_startup_state(self, after_event_id=0):
+        return self.get_startup_status(after_event_id)
 
     def _mark_webview_checkpoint(self, attribute, label):
         if not getattr(self, attribute):
@@ -1257,7 +1380,7 @@ class TwitchFarmingApi:
                 "active_campaigns": len(self.drops_campaigns),
             }
 
-    def finish_drops_worker(self, worker, request_id, campaigns, error="", followers_error=""):
+    def finish_drops_worker(self, worker, request_id, campaigns, error="", followers_error="", catalog_streamers=None):
         with self.lock:
             if self.drops_worker is not worker or self.drops_request_id != request_id:
                 return
@@ -1268,6 +1391,11 @@ class TwitchFarmingApi:
             self.drops_followers_error = str(followers_error or "")[:400]
             if not error:
                 self.drops_campaigns = [dict(item) for item in campaigns]
+                self.drops_catalog_streamers = {
+                    str(login).lower(): dict(profile)
+                    for login, profile in (catalog_streamers or {}).items()
+                    if isinstance(profile, dict)
+                }
                 self.drops_updated_at = time.time()
             self.drops_event.set()
 
@@ -1277,24 +1405,26 @@ class TwitchFarmingApi:
             return {"ok": False, "message": "Некорректный логин Twitch."}
         with self.lock:
             follow = next((dict(item) for item in self.followed_channels if item.get("login") == login), None)
-            if follow is None:
-                return {"ok": False, "message": "Стример больше не находится в списке фолловеров. Обнови Drops."}
+            catalog_profile = dict(self.drops_catalog_streamers.get(login) or {})
+            profile_source = follow or catalog_profile
+            if not profile_source:
+                return {"ok": False, "message": "Стример больше не найден в актуальном каталоге Drops. Обнови инвентарь."}
             already_configured = login in self.channels
             running = self.session_running
             worker = self.engine_worker
         if running:
             if worker is None or not worker.is_alive():
                 return {"ok": False, "message": "Фарм ещё запускается. Повтори добавление через несколько секунд."}
-            result = worker.add_streamer(login, follow.get("channel_id"))
+            result = worker.add_streamer(login, profile_source.get("channel_id"))
             if not result.get("ok"):
                 return result
             if not already_configured:
                 profile = {
                     "loaded": True,
-                    "display_name": str(follow.get("display_name") or login),
-                    "avatar_url": str(follow.get("avatar_url") or ""),
-                    "is_live": bool(follow.get("is_live")),
-                    "viewer_count": max(0, int(follow.get("viewer_count") or 0)),
+                    "display_name": str(profile_source.get("display_name") or login),
+                    "avatar_url": str(profile_source.get("avatar_url") or ""),
+                    "is_live": bool(profile_source.get("is_live")),
+                    "viewer_count": max(0, int(profile_source.get("viewer_count") or 0)),
                     "error": "",
                 }
                 with self.lock:
@@ -1309,10 +1439,10 @@ class TwitchFarmingApi:
             profile = {
                 "login": login,
                 "loaded": True,
-                "display_name": str(follow.get("display_name") or login),
-                "avatar_url": str(follow.get("avatar_url") or ""),
-                "is_live": bool(follow.get("is_live")),
-                "viewer_count": max(0, int(follow.get("viewer_count") or 0)),
+                "display_name": str(profile_source.get("display_name") or login),
+                "avatar_url": str(profile_source.get("avatar_url") or ""),
+                "is_live": bool(profile_source.get("is_live")),
+                "viewer_count": max(0, int(profile_source.get("viewer_count") or 0)),
                 "error": "",
             }
             result = self.save_channel_editor("add", "", login, [profile])
@@ -1381,6 +1511,7 @@ class TwitchFarmingApi:
             self.followed_channels_loaded = False
             self.followed_channels_error = ""
             self.drops_campaigns = []
+            self.drops_catalog_streamers = {}
             self.drops_loaded = False
             self.drops_error = ""
             self._set_status_locked("●  НЕ ЗАПУЩЕН", "#A9B2C3")
@@ -2058,6 +2189,7 @@ class TwitchFarmingApi:
                 "auth_worker_state": self.auth_worker_state,
                 "session_running": self.session_running,
                 "session_started_at": float(self.session_started_at or 0),
+                "window_maximized": bool(self.window_maximized),
                 "status_text": self.status_text,
                 "status_color": self.status_color,
                 "gained_total": self.gained_total,
@@ -2185,10 +2317,6 @@ class TwitchFarmingApi:
 
     def sync_window_maximized(self, maximized):
         self.window_maximized = bool(maximized)
-        try:
-            self.window.evaluate_js("window.setWindowMaximized(" + ("true" if self.window_maximized else "false") + ")")
-        except Exception:
-            pass
 
     def _load_startup_log_history(self):
         started = time.monotonic()

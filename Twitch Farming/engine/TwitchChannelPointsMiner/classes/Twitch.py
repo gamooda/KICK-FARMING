@@ -1127,11 +1127,22 @@ class Twitch(object):
             self._warn_drops_response("Inventory", "в ответе отсутствует data.currentUser.inventory", response)
             return {}
         progress = inventory.get("dropCampaignsInProgress")
+        if isinstance(progress, dict):
+            for key in ("edges", "nodes", "items"):
+                rows = progress.get(key)
+                if isinstance(rows, list):
+                    progress = [
+                        item.get("node") if isinstance(item, dict) and isinstance(item.get("node"), dict) else item
+                        for item in rows
+                    ]
+                    break
         if not isinstance(progress, list):
             self._warn_drops_response("Inventory", "отсутствует массив dropCampaignsInProgress", response)
             inventory["dropCampaignsInProgress"] = []
         elif not progress:
             self._warn_drops_response("Inventory", "массив dropCampaignsInProgress пуст", response)
+        else:
+            inventory["dropCampaignsInProgress"] = progress
         return inventory
 
     def __get_drops_dashboard(self, status=None):
@@ -1246,36 +1257,36 @@ class Twitch(object):
         dashboard_response = self.post_gql_request(copy.deepcopy(GQLOperations.ViewerDropsDashboard))
         dashboard_data = dashboard_response.get("data") or {} if isinstance(dashboard_response, dict) else {}
         current_user = dashboard_data.get("currentUser") or {}
-        dashboard_campaigns = current_user.get("dropCampaigns") if isinstance(current_user, dict) else None
-        available_campaigns = dashboard_data.get("rewardCampaignsAvailableToUser")
-        if not isinstance(dashboard_campaigns, list):
-            dashboard_campaigns = []
-        if not isinstance(available_campaigns, list):
-            available_campaigns = []
-        if not dashboard_campaigns and available_campaigns:
-            logger.info(
-                f"ViewerDropsDashboard: использую data.rewardCampaignsAvailableToUser ({len(available_campaigns)} кампаний)."
-            )
+
+        def collection_items(value):
+            if isinstance(value, list):
+                return [
+                    item.get("node") if isinstance(item, dict) and isinstance(item.get("node"), dict) else item
+                    for item in value
+                ]
+            if not isinstance(value, dict):
+                return []
+            for key in ("edges", "nodes", "items", "campaigns", "dropCampaigns", "rewardCampaignsAvailableToUser", "dropCampaignsInProgress", "gameEventDrops"):
+                nested = value.get(key)
+                if nested is not None:
+                    result = collection_items(nested)
+                    if result:
+                        return result
+            return [value] if value.get("id") else []
+
+        dashboard_campaigns = collection_items(current_user.get("dropCampaigns"))
+        available_value = dashboard_data.get("rewardCampaignsAvailableToUser") or current_user.get("rewardCampaignsAvailableToUser")
+        available_campaigns = collection_items(available_value)
         if isinstance(dashboard_response, dict) and dashboard_response.get("errors"):
             self._warn_drops_response("ViewerDropsDashboard", "Twitch вернул GraphQL-ошибку", dashboard_response)
-        if not dashboard_campaigns and not available_campaigns:
-            self._warn_drops_response(
-                "ViewerDropsDashboard",
-                "dropCampaigns и rewardCampaignsAvailableToUser пусты",
-                dashboard_response,
-            )
-        progress_campaigns = inventory.get("dropCampaignsInProgress") or []
-        if not isinstance(progress_campaigns, list):
-            progress_campaigns = []
-        event_drops = inventory.get("gameEventDrops") or []
-        if not isinstance(event_drops, list):
-            event_drops = []
-        progress_by_campaign = {
-            str(item.get("id")): item
-            for item in progress_campaigns
-            if isinstance(item, dict) and item.get("id") is not None
-        }
+        progress_campaigns = collection_items(inventory.get("dropCampaignsInProgress"))
+        event_drops = collection_items(inventory.get("gameEventDrops"))
         campaigns_by_id = {}
+        dashboard_ids = {
+            str(item.get("id") or "")
+            for item in dashboard_campaigns + available_campaigns
+            if isinstance(item, dict)
+        }
         for campaign in dashboard_campaigns + available_campaigns + progress_campaigns:
             if not isinstance(campaign, dict):
                 continue
@@ -1283,40 +1294,33 @@ class Twitch(object):
             if not campaign_id:
                 continue
             status = str(campaign.get("status") or "").upper()
-            if status and status not in ("ACTIVE", "UPCOMING") and campaign in dashboard_campaigns + available_campaigns:
+            if campaign_id in dashboard_ids and status and status not in ("ACTIVE", "UPCOMING"):
                 continue
-            existing = campaigns_by_id.get(campaign_id, {})
-            merged = dict(existing)
+            merged = dict(campaigns_by_id.get(campaign_id, {}))
             merged.update(campaign)
             campaigns_by_id[campaign_id] = merged
         for event in event_drops:
             if not isinstance(event, dict):
                 continue
-            campaign_id = str(
-                event.get("campaignID")
-                or event.get("campaignId")
-                or event.get("dropCampaignID")
-                or event.get("id")
-                or ""
-            )
+            campaign_id = str(event.get("campaignID") or event.get("campaignId") or event.get("dropCampaignID") or event.get("id") or "")
             if not campaign_id:
                 continue
-            existing = campaigns_by_id.get(campaign_id, {})
-            merged = dict(existing)
+            merged = dict(campaigns_by_id.get(campaign_id, {}))
             merged.setdefault("id", campaign_id)
-            for key in ("name", "game", "gameName", "startAt", "endAt", "timeBasedDrops", "subscriptionDrops"):
+            for key in ("name", "game", "gameName", "gameID", "startAt", "endAt", "timeBasedDrops"):
                 if key not in merged and key in event:
                     merged[key] = event[key]
             event_items = event.get("drops") or event.get("gameEventDrops")
-            if isinstance(event_items, list):
-                merged.setdefault("gameEventDrops", event_items)
+            if event_items is not None:
+                merged["gameEventDrops"] = event_items
             campaigns_by_id[campaign_id] = merged
-        result = []
-        drop_sources = (
-            ("watch", ("timeBasedDrops", "time_based_drops")),
-            ("subscription", ("subscriptionDrops", "subscriptionBasedDrops", "subscriptionDropRewards", "subDrops")),
-            ("watch", ("gameEventDrops",)),
-        )
+
+        progress_by_campaign = {
+            str(item.get("id")): item
+            for item in progress_campaigns
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+        drop_sources = ("timeBasedDrops", "time_based_drops", "gameEventDrops")
         image_keys = ("imageAssetURL", "imageUrl", "imageURL", "image_url", "url")
 
         def safe_int(value):
@@ -1325,87 +1329,70 @@ class Twitch(object):
             except (TypeError, ValueError):
                 return 0
 
-        def nested_items(value):
-            if isinstance(value, list):
-                return value
-            if isinstance(value, dict):
-                for key in ("edges", "nodes", "items"):
-                    nested = value.get(key)
-                    if isinstance(nested, list):
-                        return nested
-            return []
-
+        result = []
         for campaign_id, campaign in campaigns_by_id.items():
             game = campaign.get("game") or {}
             if not isinstance(game, dict):
                 game = {}
             active_progress = progress_by_campaign.get(campaign_id, {})
             progress_by_drop = {}
-            for source_keys in (
-                ("timeBasedDrops", "time_based_drops"),
-                ("subscriptionDrops", "subscriptionBasedDrops", "subscriptionDropRewards", "subDrops"),
-                ("gameEventDrops",),
-            ):
-                for source_key in source_keys:
-                    for item in nested_items(active_progress.get(source_key)):
-                        if not isinstance(item, dict):
-                            continue
-                        drop = item.get("drop") if isinstance(item.get("drop"), dict) else item
-                        drop_id = drop.get("id") or item.get("id")
-                        if drop_id is not None:
-                            progress_by_drop[str(drop_id)] = item.get("self") or item
+            for source_key in drop_sources:
+                for item in collection_items(active_progress.get(source_key)):
+                    if not isinstance(item, dict):
+                        continue
+                    drop = item.get("drop") if isinstance(item.get("drop"), dict) else item
+                    drop_id = drop.get("id") or item.get("id")
+                    if drop_id is not None:
+                        progress_by_drop[str(drop_id)] = item.get("self") or item
             drops = []
             seen_drop_ids = set()
-            for source_type, source_keys in drop_sources:
-                source_items = []
-                for source_key in source_keys:
-                    source_items.extend(nested_items(campaign.get(source_key)))
-                    source_items.extend(nested_items(active_progress.get(source_key)))
-                if not source_items and source_type == "watch" and source_keys[0] == "timeBasedDrops":
+            for source_key in drop_sources:
+                source_items = collection_items(campaign.get(source_key))
+                source_items.extend(collection_items(active_progress.get(source_key)))
+                if not source_items and source_key == "timeBasedDrops":
                     if campaign.get("unlockRequirements") or active_progress.get("currentMinutesWatched") is not None:
                         source_items.append(campaign)
                 for raw_drop in source_items:
                     if not isinstance(raw_drop, dict):
                         continue
                     drop = raw_drop.get("drop") if isinstance(raw_drop.get("drop"), dict) else raw_drop
+                    source_drop_type = str(drop.get("dropType") or drop.get("type") or raw_drop.get("dropType") or raw_drop.get("type") or "").upper()
+                    if source_drop_type in ("SUBSCRIPTION", "SUB"):
+                        continue
                     drop_id = str(drop.get("id") or raw_drop.get("id") or "")
                     unique_id = drop_id or str(id(raw_drop))
                     if unique_id in seen_drop_ids:
                         continue
                     seen_drop_ids.add(unique_id)
-                    progress = progress_by_drop.get(drop_id, {}) or raw_drop.get("self") or drop.get("self") or active_progress
+                    progress = progress_by_drop.get(drop_id) or raw_drop.get("self") or drop.get("self") or active_progress
+                    if not isinstance(progress, dict):
+                        progress = {}
                     unlock = drop.get("unlockRequirements") or {}
                     if not isinstance(unlock, dict):
                         unlock = {}
-                    required = safe_int(
-                        drop.get("requiredMinutesWatched")
-                        or drop.get("required_minutes")
-                        or unlock.get("minuteWatchedGoal")
-                        or unlock.get("minutesWatched")
-                    )
-                    watched = safe_int(
-                        progress.get("currentMinutesWatched")
-                        or progress.get("current_minutes_watched")
-                        or raw_drop.get("currentMinutesWatched")
-                        or raw_drop.get("current_minutes_watched")
-                    )
-                    claimed = bool(
-                        progress.get("isClaimed")
-                        or raw_drop.get("isClaimed")
-                        or drop.get("isClaimed")
-                        or drop.get("claimed")
-                        or progress.get("claimedAt")
-                    )
+                    required = safe_int(drop.get("requiredMinutesWatched") or drop.get("required_minutes") or unlock.get("minuteWatchedGoal") or unlock.get("minutesWatched"))
+                    watched = safe_int(progress.get("currentMinutesWatched") or progress.get("current_minutes_watched") or raw_drop.get("currentMinutesWatched") or raw_drop.get("current_minutes_watched"))
+                    claimed = bool(progress.get("isClaimed") or raw_drop.get("isClaimed") or drop.get("isClaimed") or drop.get("claimed") or progress.get("claimedAt"))
                     benefit_edges = drop.get("benefitEdges") or raw_drop.get("benefitEdges") or []
-                    if isinstance(benefit_edges, dict):
-                        benefit_edges = benefit_edges.get("edges") or benefit_edges.get("nodes") or []
                     benefit_names = []
+                    benefit_types = []
                     image_url = ""
-                    for edge in benefit_edges if isinstance(benefit_edges, list) else []:
-                        benefit = (edge or {}).get("benefit") or edge.get("node", {}).get("benefit") or {}
+                    for edge in collection_items(benefit_edges):
+                        if not isinstance(edge, dict):
+                            continue
+                        node = edge.get("node") if isinstance(edge.get("node"), dict) else {}
+                        benefit = edge.get("benefit") or node.get("benefit") or {}
+                        if not isinstance(benefit, dict):
+                            benefit = {}
                         name = str(benefit.get("name") or "").strip()
                         if name and name not in benefit_names:
                             benefit_names.append(name)
+                        benefit_type = benefit.get("benefitType") or benefit.get("type") or edge.get("benefitType") or edge.get("type") or ""
+                        if isinstance(benefit_type, dict):
+                            benefit_type = benefit_type.get("type") or benefit_type.get("name") or ""
+                        benefit_type = str(benefit_type or "").upper()
+                        if benefit_type and benefit_type not in benefit_types:
+                            benefit_types.append(benefit_type)
                         if not image_url:
                             for key in image_keys:
                                 candidate = str(benefit.get(key) or "")
@@ -1422,71 +1409,33 @@ class Twitch(object):
                         summary = drop.get("summary") or raw_drop.get("summary") or ""
                         if isinstance(summary, str) and summary.strip():
                             benefit_names.append(summary.strip())
-                    subscription_count = 0
-                    for key in ("requiredSubscriptions", "requiredSubscriptionsCount", "requiredSubs", "subscriptionCount", "subscriptionGoal"):
-                        subscription_count = safe_int(drop.get(key) or unlock.get(key))
-                        if subscription_count:
-                            break
-                    subscription_progress_keys = (
-                        "currentSubscriptions",
-                        "currentSubscriptionCount",
-                        "currentSubs",
-                        "subscriptionsCount",
-                    )
-                    subscriptions_progress_known = any(
-                        key in progress and progress.get(key) is not None
-                        for key in subscription_progress_keys
-                    )
-                    current_subscriptions = safe_int(
-                        progress.get("currentSubscriptions")
-                        or progress.get("currentSubscriptionCount")
-                        or progress.get("currentSubs")
-                        or progress.get("subscriptionsCount")
-                    )
-                    watch_percentage = min(100, int(watched * 100 / required)) if required else 100
-                    subscription_percentage = (
-                        min(100, int(current_subscriptions * 100 / subscription_count))
-                        if subscription_count else 100
-                    )
-                    if required and subscription_count:
-                        percentage_value = min(watch_percentage, subscription_percentage)
-                    elif required:
-                        percentage_value = watch_percentage
-                    elif subscription_count:
-                        percentage_value = subscription_percentage
-                    else:
-                        percentage_value = 100 if claimed else 0
+                    percentage = min(100, int(watched * 100 / required)) if required else 100
                     if claimed:
-                        watch_percentage = 100
-                        subscription_percentage = 100
-                        percentage_value = 100
-                    is_subscription = (
-                        source_type == "subscription"
-                        or subscription_count > 0
-                        or str(drop.get("dropType") or drop.get("type") or "").upper() in ("SUBSCRIPTION", "SUB")
-                    )
+                        percentage = 100
                     drops.append({
                         "id": drop_id,
                         "name": str(drop.get("name") or drop.get("summary") or "Награда"),
                         "benefit": ", ".join(benefit_names),
+                        "benefit_type": benefit_types[0] if benefit_types else source_drop_type,
+                        "benefit_types": benefit_types,
+                        "category": "twitch" if any(value in ("BADGE", "EMOTE") for value in benefit_types) else "game",
                         "image_url": image_url,
-                        "type": "subscription" if is_subscription else "watch",
+                        "type": "watch",
                         "required_minutes": required,
                         "watched_minutes": watched,
                         "remaining_minutes": max(0, required - watched) if required else 0,
-                        "percentage": percentage_value,
-                        "watch_percentage": watch_percentage,
-                        "subscription_percentage": subscription_percentage,
+                        "percentage": percentage,
+                        "watch_percentage": percentage,
                         "claimed": claimed,
                         "claimable": bool(progress.get("dropInstanceID") or progress.get("drop_instance_id") or raw_drop.get("dropInstanceID")) and not claimed,
-                        "required_subscriptions": subscription_count,
-                        "current_subscriptions": current_subscriptions,
-                        "subscriptions_progress_known": subscriptions_progress_known,
                         "start_at": str(drop.get("startAt") or campaign.get("startAt") or ""),
                         "end_at": str(drop.get("endAt") or campaign.get("endAt") or ""),
                     })
             allow = campaign.get("allow")
-            allowed_channels = allow.get("channels") if isinstance(allow, dict) else None
+            allowed_channels = collection_items(allow.get("channels")) if isinstance(allow, dict) else []
+            game_name = str(game.get("displayName") or game.get("name") or campaign.get("gameName") or "Игра")
+            slug_source = str(game.get("slug") or campaign.get("gameSlug") or game_name).lower()
+            game_slug = re.sub(r"[^a-z0-9]+", "-", slug_source).strip("-")
             game_image = ""
             for key in ("boxArtURL", "boxArtUrl", "imageURL", "imageUrl"):
                 candidate = str(game.get(key) or campaign.get(key) or "")
@@ -1497,20 +1446,21 @@ class Twitch(object):
             if not drops:
                 self._warn_drops_response(
                     "Inventory",
-                    f"кампания {campaign_id} ({campaign_name}) не содержит распознанных наград",
+                    f"кампания {campaign_id} ({campaign_name}) не содержит распознанных бесплатных наград за просмотр",
                     campaign,
                 )
             result.append({
                 "id": campaign_id,
                 "name": str(campaign_name),
-                "game": str(game.get("displayName") or game.get("name") or campaign.get("gameName") or "Игра"),
+                "game": game_name,
                 "game_id": str(game.get("id") or campaign.get("gameID") or ""),
+                "game_slug": game_slug,
                 "game_image": game_image,
                 "start_at": str(campaign.get("startAt") or ""),
                 "end_at": str(campaign.get("endAt") or ""),
                 "allowed_channel_ids": [
                     str(item.get("id"))
-                    for item in (allowed_channels or [])
+                    for item in allowed_channels
                     if isinstance(item, dict) and item.get("id")
                 ],
                 "drops": drops,
@@ -1518,8 +1468,8 @@ class Twitch(object):
         if not result:
             self._warn_drops_response(
                 "Inventory",
-                "не найдено кампаний в dropCampaignsInProgress, gameEventDrops или rewardCampaignsAvailableToUser",
-                inventory,
+                "не найдено кампаний в Inventory, ViewerDropsDashboard или rewardCampaignsAvailableToUser",
+                {"inventory": inventory, "dashboard": dashboard_response},
             )
         return result
 

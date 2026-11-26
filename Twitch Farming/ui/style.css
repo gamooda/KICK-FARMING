@@ -114,7 +114,7 @@ svg{display:block}
 .channel-watch-state{font-size:9px;font-weight:750;color:#bda3df;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .channel-watch-state.accepted{color:#65d99c}
 .channel-watch-state.error{color:#f17a8d}
-.channel-actions{position:absolute;right:9px;top:8px;display:flex;gap:4px;opacity:0;transition:opacity .14s}
+.channel-actions{position:absolute;right:9px;top:34px;display:flex;gap:4px;opacity:0;transition:opacity .14s}
 .channel-card:hover .channel-actions{opacity:1}
 .channel-icon-button{width:25px;height:25px;display:flex;align-items:center;justify-content:center;padding:0;border:1px solid #40344f;border-radius:7px;background:#17131f;color:#c2acd8}
 .channel-icon-button svg{width:20px;height:20px}
@@ -792,3 +792,14 @@ input,textarea,.log-view,.log-view *,#event-list,#event-list *,#event-list .feed
 
 .startup-debug-output,.startup-debug-output *{-webkit-user-select:text!important;user-select:text!important}
 @media(max-height:560px){.startup-card{max-height:calc(100vh - 58px);gap:10px;margin-top:26px;padding-top:12px;padding-bottom:12px}.startup-debug-output{height:115px;max-height:24vh}.startup-indicator{gap:6px}.startup-spinner{width:27px;height:27px;flex-basis:27px}}
+
+.channel-card-top{gap:5px;overflow:visible}
+.channel-card-top .channel-watch-slot{margin:0 0 0 auto;max-width:calc(100% - 66px);flex:0 1 auto;padding:3px 5px;font-size:6.8px;letter-spacing:.2px;overflow:hidden;text-overflow:ellipsis}
+.channel-card-top .channel-watch-slot strong{font-size:6.8px;white-space:nowrap}
+.drops-filterbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:2px 1px}
+.drops-filter{min-height:29px;padding:0 11px;border:1px solid #393046;border-radius:7px;background:#181520;color:#a69caf;font:800 9px "Segoe UI",Arial,sans-serif;cursor:pointer;transition:background .14s,border-color .14s,color .14s}
+.drops-filter:hover{border-color:#78519e;color:#eadcf8}
+.drops-filter.active{border-color:#8757b4;background:#30213f;color:#e1c6ff;box-shadow:inset 0 0 0 1px rgba(173,121,225,.12)}
+.drop-campaign-actions{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:0 0 auto}
+.drop-open-twitch{height:25px;min-height:25px;padding:0 8px;font-size:7px;white-space:nowrap}
+.drop-campaign-actions .drop-campaign-badge{display:inline-flex;align-items:center}

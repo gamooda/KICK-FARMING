@@ -381,23 +381,21 @@
       </section>
       <section class="page drops-page" id="page-drops">
         <header class="subpage-header drops-page-header">
-          <div><div class="page-title">Инвентарь Drops</div><div class="page-subtitle">Прогресс наград Twitch и подходящие стримеры из твоих подписок</div></div>
+          <div><div class="page-title">Инвентарь Drops</div><div class="page-subtitle">Все активные бесплатные награды за просмотр и доступные трансляции</div></div>
           <button class="button button-primary" id="refresh-drops"><svg><use href="#i-refresh"></use></svg>Обновить прогресс</button>
         </header>
         <div class="drops-summary">
           <div><strong id="drops-campaign-count">0</strong><span>активных кампаний</span></div>
-          <div><strong id="drops-reward-count">0</strong><span>наград в прогрессе</span></div>
+          <div><strong id="drops-reward-count">0</strong><span>бесплатных наград</span></div>
           <span id="drops-updated" class="drops-updated"></span>
         </div>
         <div class="drops-status" id="drops-status">Нажми «Обновить прогресс», чтобы получить актуальный инвентарь Twitch.</div>
-        <section class="drops-section">
-          <div class="drops-section-heading"><div><span class="drops-section-symbol watch-symbol"><svg><use href="#i-play"></use></svg></span><div><strong>Смотреть Drops</strong><small>Награды за время просмотра трансляций</small></div></div><span class="heading-count" id="drops-watch-count">0</span></div>
-          <div class="drops-campaign-grid" id="drops-watch-list"></div>
-        </section>
-        <section class="drops-section">
-          <div class="drops-section-heading"><div><span class="drops-section-symbol sub-symbol"><svg><use href="#i-gift"></use></svg></span><div><strong>Drops для подписки</strong><small>Награды за платные или подарочные подписки</small></div></div><span class="heading-count" id="drops-sub-count">0</span></div>
-          <div class="drops-campaign-grid" id="drops-sub-list"></div>
-        </section>
+        <div class="drops-filterbar" id="drops-category-filters">
+          <button class="drops-filter active" type="button" data-drops-category="all">Все</button>
+          <button class="drops-filter" type="button" data-drops-category="twitch">Награды Twitch (значки и иконки)</button>
+          <button class="drops-filter" type="button" data-drops-category="game">Игровые предметы</button>
+        </div>
+        <div class="drops-campaign-grid" id="drops-campaign-list"></div>
       </section>
       <section class="page settings-page" id="page-settings">
         <header class="subpage-header settings-page-header">

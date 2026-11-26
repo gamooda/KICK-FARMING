@@ -37,6 +37,8 @@ let followersPollTimer=null;
 let followersLoadSequence=0;
 let dropsPollTimer=null;
 let dropsLoadSequence=0;
+let activeDropsCategory="all";
+let dropsInventoryState=null;
 let sessionTimerInterval=null;
 let dropsAutoRefreshInterval=null;
 let mainPollInterval=null;
@@ -149,7 +151,7 @@ async function waitForBridge(){
       lastReport=now;
     }
   }
-  const required=["get_auth_state","get_state","get_startup_state","record_frontend_timing","record_startup_debug_batch","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","get_app_version","open_url","minimize_window","toggle_maximize_window","close_window"];
+  const required=["get_auth_state","get_state","get_startup_status","record_frontend_timing","record_startup_debug_batch","mark_frontend_ready","restart_app","begin_session_restore","login","reorder_channels","get_followed_channels_state","refresh_followed_channels","add_followed_channel","get_drops_inventory_state","refresh_drops_inventory","add_drop_channel_to_farm","clear_avatar_cache","clear_currency_cache","logout","clear_logs","get_app_version","open_url","minimize_window","toggle_maximize_window","close_window"];
   const missing=required.filter(name=>typeof bridge[name]!=="function");
   if(missing.length) throw new Error("Python API не содержит методов: "+missing.join(", "));
   pyApi=bridge;
@@ -394,14 +396,14 @@ function renderChannels(channels,online,running,profiles,watchStatuses,balances,
     const watchLabels={selected:"Смотрит",request:"Запрос…",accepted:"Принят",error:"Ошибка"};
     const watchMarkup=watchFresh&&watchLabels[watch.state]?"<span class='channel-watch-state "+esc(watch.state)+"'>"+esc(watchLabels[watch.state]+(watch.detail?" · "+watch.detail:""))+"</span>":"";
     const watchSlotIndex=running?activeWatchSlots.indexOf(login):-1;
-    const watchSlotMarkup=watchSlotIndex>=0?"<span class='channel-watch-slot'><svg viewBox='0 0 24 24' aria-hidden='true'><path d='M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z'></path><circle cx='12' cy='12' r='2.6'></circle></svg><strong>СМОТРИМ · СЛОТ "+(watchSlotIndex+1)+"</strong></span>":"";
+    const watchSlotMarkup=watchSlotIndex>=0?"<span class='channel-watch-slot'><svg viewBox='0 0 24 24' aria-hidden='true'><path d='M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z'></path><circle cx='12' cy='12' r='2.6'></circle></svg><strong>СМОТРИМ · СЛОТ "+(watchSlotIndex+1)+"/2</strong></span>":"";
     const initial=esc(displayName.charAt(0).toUpperCase()||"?");
     const avatarMarkup="<div class='channel-avatar "+(avatar?"":"avatar-fallback")+"'>"+(avatar?"<img draggable='false' loading='lazy' src='"+esc(avatar)+"' alt='' onerror='this.parentElement.classList.add(\"avatar-fallback\");this.remove()'>":"")+"<span class='avatar-initial'>"+initial+"</span></div>";
     const pointsText=points===null?"—":points.toLocaleString("ru-RU");
     const liveClass=live?"is-live":profile.error?"is-error":loaded?"is-offline":"is-pending";
     const extra=live&&viewers?"<span class='channel-viewers'>"+viewers.toLocaleString("ru-RU")+" зрителей</span>":watchMarkup;
     const searchKey=esc((login+" "+displayName).toLowerCase());
-    return "<article class='channel-card' data-channel='"+esc(login)+"' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span><div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть на Twitch'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Редактировать'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button channel-move-button' data-action='move' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Переместить канал' aria-label='Переместить канал' aria-pressed='false'>⋮⋮</button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div>"+watchSlotMarkup+"<div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
+    return "<article class='channel-card' data-channel='"+esc(login)+"' data-search='"+searchKey+"'><div class='channel-card-top'><span class='channel-live-pill "+liveClass+"'><i class='channel-status-dot "+(live?"is-live":"")+"'></i>"+status+"</span>"+watchSlotMarkup+"<div class='channel-actions'><button class='channel-icon-button' data-action='open' data-channel='"+esc(login)+"' title='Открыть на Twitch'><svg><use href='#i-external'></use></svg></button><button class='channel-icon-button' data-action='edit' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Редактировать'><svg><use href='#i-edit'></use></svg></button><button class='channel-icon-button channel-move-button' data-action='move' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Переместить канал' aria-label='Переместить канал' aria-pressed='false'>⋮⋮</button><button class='channel-icon-button remove' data-action='remove' data-channel='"+esc(login)+"' "+(running?"disabled":"")+" title='Удалить'><svg><use href='#i-trash'></use></svg></button></div></div>"+avatarMarkup+"<div class='channel-info'><div class='channel-name'>"+esc(displayName)+"</div><div class='channel-login'>@"+esc(login)+"</div><div class='channel-card-bottom'>"+pointsIcon+"<strong>"+pointsText+"</strong><span>"+esc(pointsName)+"</span></div><div class='channel-extra'>"+extra+"</div></div></article>";
   }).join("");
   $("add-channel").disabled=running;
   updateChannelMoveHighlights();
@@ -707,6 +709,7 @@ function applyAuthState(state){
 }
 
 function applyState(state,initial){
+  setWindowMaximized(Boolean(state.window_maximized));
   appState=state;
   cacheChannelProfiles(state);
   applyAuthState(state);
@@ -1415,13 +1418,24 @@ async function logoutAccount(){
   }
 }
 
-function renderDropsSection(campaigns,root,isSubscription){
-  const groups=campaigns.map(campaign=>({
-    campaign,
-    drops:(isSubscription?campaign.subscription_drops:campaign.watch_drops)||[]
-  })).filter(item=>item.drops.length);
+function getDropCategory(drop){
+  const category=String(drop&&drop.category||"").toLowerCase();
+  const type=String(drop&&drop.benefit_type||"").toUpperCase();
+  const types=Array.isArray(drop&&drop.benefit_types)?drop.benefit_types.map(value=>String(value).toUpperCase()):[];
+  return category==="twitch"||type==="BADGE"||type==="EMOTE"||types.some(value=>value==="BADGE"||value==="EMOTE")?"twitch":"game";
+}
+
+function renderDropsCampaigns(campaigns,root){
+  const groups=campaigns.map(campaign=>{
+    const allDrops=Array.isArray(campaign.watch_drops)?campaign.watch_drops:(campaign.drops||[]);
+    const drops=allDrops.filter(drop=>
+      String(drop&&drop.type||"watch").toLowerCase()!=="subscription"&&
+      (activeDropsCategory==="all"||getDropCategory(drop)===activeDropsCategory)
+    );
+    return {campaign,drops};
+  }).filter(item=>item.drops.length);
   if(!groups.length){
-    root.innerHTML="<div class='drops-empty'>"+(isSubscription?"Нет активных Drops для подписки.":"Нет активных наград за просмотр.")+"</div>";
+    root.innerHTML="<div class='drops-empty'>"+(activeDropsCategory==="all"?"Нет активных бесплатных наград за просмотр.":activeDropsCategory==="twitch"?"Нет активных значков и эмодзи Twitch.":"Нет активных игровых предметов.")+"</div>";
     return;
   }
   root.innerHTML=groups.map(({campaign,drops})=>{
@@ -1436,18 +1450,9 @@ function renderDropsSection(campaigns,root,isSubscription){
       const watched=Number(drop.watched_minutes||0);
       const required=Number(drop.required_minutes||0);
       const remaining=Number(drop.remaining_minutes||Math.max(0,required-watched));
-      const subscriptionRequired=Number(drop.required_subscriptions||0);
-      const subscriptionCurrent=Number(drop.current_subscriptions||0);
-      const requirementParts=[];
-      if(required>0) requirementParts.push("Просмотр: "+watched+" / "+required+" мин — осталось "+remaining+" мин");
-      if(subscriptionRequired>0) requirementParts.push(drop.subscriptions_progress_known?"Подписок: "+subscriptionCurrent+" / "+subscriptionRequired:"Нужно подписок: "+subscriptionRequired);
-      const progressText=claimed?"Получено":isSubscription
-        ?(requirementParts.join(" · ")||"Требуется платная или подарочная подписка Twitch")
-        :watched+" / "+required+" мин — осталось "+remaining+" мин";
-      const progressMarkup=isSubscription
-        ?"<div class='drop-progress-track'><span style='width:"+progress+"%'></span></div><div class='drop-progress-label'><span>"+esc(progressText)+"</span><strong>"+progress+"%</strong></div>"
-        :"<div class='drop-progress-track'><span style='width:"+progress+"%'></span></div><div class='drop-progress-label'><span>"+esc(progressText)+"</span><strong>"+progress+"%</strong></div>";
-      const status=claimed?"<span class='drop-claimed'>Получено</span>":"<span class='drop-active'>"+(isSubscription?"Подписка":"В процессе")+"</span>";
+      const progressText=claimed?"Получено":required>0?watched+" / "+required+" мин — осталось "+remaining+" мин":"Награда за просмотр";
+      const progressMarkup="<div class='drop-progress-track'><span style='width:"+progress+"%'></span></div><div class='drop-progress-label'><span>"+esc(progressText)+"</span><strong>"+progress+"%</strong></div>";
+      const status=claimed?"<span class='drop-claimed'>Получено</span>":"<span class='drop-active'>За просмотр</span>";
       return "<div class='drop-reward-row'><div class='drop-reward-image'>"+rewardThumb+"</div><div class='drop-reward-copy'><strong>"+esc(drop.name||"Награда")+"</strong><small>"+esc(drop.benefit||campaign.name||"Награда Twitch")+"</small>"+progressMarkup+"</div>"+status+"</div>";
     }).join("");
     const streamers=Array.isArray(campaign.streamers)?campaign.streamers:[];
@@ -1459,38 +1464,46 @@ function renderDropsSection(campaigns,root,isSubscription){
       const added=Boolean(appState&&Array.isArray(appState.channels)&&appState.channels.includes(login));
       const running=Boolean(appState&&appState.session_running);
       const button=added&&running?"<button class='button button-soft drop-streamer-add' disabled>Уже в фарме</button>":"<button class='button button-primary drop-streamer-add' data-drop-action='add' data-login='"+esc(login)+"'>"+(added?"Запустить фарм":"Добавить в фарм")+"</button>";
-      return "<div class='drop-streamer'><div class='drop-streamer-avatar'>"+image+"</div><div class='drop-streamer-info'><strong>"+esc(name)+"</strong><small><i></i>В эфире · "+Number(streamer.viewer_count||0).toLocaleString("ru-RU")+" зрителей</small></div>"+button+"</div>";
-    }).join(""):"<div class='drop-no-streamers'>Среди фолловеров сейчас нет подходящих стримеров в эфире.</div>";
-    return "<article class='drop-campaign-card'><div class='drop-campaign-head'><div class='drop-game-image'>"+gameMarkup+"</div><div class='drop-campaign-copy'><span class='drop-game-name'>"+esc(campaign.game||"Twitch Drops")+"</span><strong>"+esc(campaign.name||"Активная кампания")+"</strong><small>Кампания до "+esc(endDate)+"</small></div><span class='drop-campaign-badge'>"+(isSubscription?"SUB DROP":"WATCH DROP")+"</span></div><div class='drop-reward-list'>"+rewardMarkup+"</div><div class='drop-streamers-heading'>Подходящие стримеры из фолловеров <span>"+streamers.length+"</span></div><div class='drop-streamer-list'>"+streamMarkup+"</div></article>";
+      const followed=streamer.is_followed?" · фолловер":"";
+      return "<div class='drop-streamer'><div class='drop-streamer-avatar'>"+image+"</div><div class='drop-streamer-info'><strong>"+esc(name)+"</strong><small><i></i>В эфире · "+Number(streamer.viewer_count||0).toLocaleString("ru-RU")+" зрителей"+followed+"</small></div>"+button+"</div>";
+    }).join(""):"<div class='drop-no-streamers'>Нет найденных живых каналов с активной Drops-кампанией для этой игры.</div>";
+    const sourceLabel=campaign.streamer_source==="catalog"?"Топ Twitch · активные Drops":"Онлайн-фолловеры с этой Drops-кампанией";
+    const slug=String(campaign.game_slug||campaign.game||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+    const twitchUrl="https://www.twitch.tv/directory/category/"+encodeURIComponent(slug)+"?filter=drops";
+    return "<article class='drop-campaign-card'><div class='drop-campaign-head'><div class='drop-game-image'>"+gameMarkup+"</div><div class='drop-campaign-copy'><span class='drop-game-name'>"+esc(campaign.game||"Twitch Drops")+"</span><strong>"+esc(campaign.name||"Активная кампания")+"</strong><small>Кампания до "+esc(endDate)+"</small></div><div class='drop-campaign-actions'><span class='drop-campaign-badge'>FREE DROP</span><button class='button button-soft drop-open-twitch' data-drop-action='browse' data-url='"+esc(twitchUrl)+"'>Смотреть на Twitch</button></div></div><div class='drop-reward-list'>"+rewardMarkup+"</div><div class='drop-streamers-heading'>"+sourceLabel+" <span>"+streamers.length+"</span></div><div class='drop-streamer-list'>"+streamMarkup+"</div></article>";
   }).join("");
 }
 
 function renderDropsInventory(state){
-  const campaigns=Array.isArray(state&&state.campaigns)?state.campaigns:[];
-  const watchCount=campaigns.reduce((sum,item)=>sum+(item.watch_drops||[]).length,0);
-  const subCount=campaigns.reduce((sum,item)=>sum+(item.subscription_drops||[]).length,0);
-  $("drops-campaign-count").textContent=String(campaigns.length);
-  $("drops-badge").textContent=String(campaigns.length);
-  $("drops-badge").classList.toggle("visible",campaigns.length>0);
-  $("drops-reward-count").textContent=String(watchCount+subCount);
-  $("drops-watch-count").textContent=String(watchCount);
-  $("drops-sub-count").textContent=String(subCount);
-  $("drops-updated").textContent=Number(state.updated_at||0)?"Обновлено "+new Date(Number(state.updated_at)*1000).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}):"";
+  dropsInventoryState=state||{};
+  const campaigns=Array.isArray(dropsInventoryState.campaigns)?dropsInventoryState.campaigns:[];
+  const activeCampaigns=campaigns.filter(item=>
+    (Array.isArray(item.watch_drops)?item.watch_drops:(item.drops||[])).some(drop=>String(drop&&drop.type||"watch").toLowerCase()!=="subscription")
+  );
+  const rewardCount=activeCampaigns.reduce((sum,item)=>
+    sum+(Array.isArray(item.watch_drops)?item.watch_drops:(item.drops||[])).filter(drop=>String(drop&&drop.type||"watch").toLowerCase()!=="subscription").length,0);
+  $("drops-campaign-count").textContent=String(activeCampaigns.length);
+  $("drops-badge").textContent=String(activeCampaigns.length);
+  $("drops-badge").classList.toggle("visible",activeCampaigns.length>0);
+  $("drops-reward-count").textContent=String(rewardCount);
+  $("drops-updated").textContent=Number(dropsInventoryState.updated_at||0)?"Обновлено "+new Date(Number(dropsInventoryState.updated_at)*1000).toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}):"";
   const status=$("drops-status");
-  status.classList.toggle("is-error",Boolean(state.error));
-  if(state.loading){
-    status.textContent="Синхронизирую инвентарь Twitch Drops и список подходящих эфиров…";
-  }else if(state.error){
-    status.textContent="Не удалось получить Drops: "+state.error;
-  }else if(state.followers_error){
-    status.textContent="Drops загружены, но список фолловеров недоступен: "+state.followers_error;
-  }else if(state.loaded){
-    status.textContent=campaigns.length?"Активных кампаний: "+campaigns.length+". Прогресс получен из Twitch GraphQL.":"Активных кампаний Drops сейчас нет.";
+  status.classList.toggle("is-error",Boolean(dropsInventoryState.error));
+  if(dropsInventoryState.loading){
+    status.textContent="Загружаю полный список активных Twitch Drops и проверяю трансляции с Drops…";
+  }else if(dropsInventoryState.error){
+    status.textContent="Не удалось получить Drops: "+dropsInventoryState.error;
+  }else if(dropsInventoryState.followers_error){
+    status.textContent="Список фолловеров недоступен; каталог Twitch всё равно проверен. "+dropsInventoryState.followers_error;
+  }else if(dropsInventoryState.loaded){
+    status.textContent=activeCampaigns.length?"Активных бесплатных кампаний: "+activeCampaigns.length+". Наград: "+rewardCount+".":"Активных бесплатных кампаний Drops сейчас нет.";
   }else{
     status.textContent="Нажми «Обновить прогресс», чтобы загрузить кампании.";
   }
-  renderDropsSection(campaigns,$("drops-watch-list"),false);
-  renderDropsSection(campaigns,$("drops-sub-list"),true);
+  document.querySelectorAll("[data-drops-category]").forEach(button=>{
+    button.classList.toggle("active",button.dataset.dropsCategory===activeDropsCategory);
+  });
+  renderDropsCampaigns(activeCampaigns,$("drops-campaign-list"));
 }
 
 function stopDropsPolling(){
@@ -1610,33 +1623,48 @@ function nextTutorial(){
   }
 }
 
-async function waitForStartup(){
+function waitForStartup(){
   const started=Date.now();
   let lastReport=started;
-  while(true){
-    const result=await withTimeout(api().get_startup_state(lastPythonStartupEventId),15000,"Python API не ответил на get_startup_state за 15 секунд.");
-    displayPythonStartupEvents(result);
-    const phase=result&&result.phase?result.phase:"Подготовка настроек...";
-    const elapsed=Number(result&&result.elapsed||((Date.now()-started)/1000));
-    setStartupMessage(phase+" ("+elapsed.toFixed(1)+" сек.)");
-    if(phase!==lastStartupPhase){
-      lastStartupPhase=phase;
-      startupLog("INFO","Этап Python: "+phase);
-    }
-    if(result&&result.ready){
-      startupCompleteUi=true;
-      if(result.error) startupLog("ERROR","Python завершил загрузку конфигурации с ошибкой: "+result.error);
-      startupLog("INFO","Python завершил чтение конфигурации за "+elapsed.toFixed(1)+" сек.");
-      updateFarmToggleButton(false);
-      return result;
-    }
-    const now=Date.now();
-    if(now-lastReport>=5000){
-      startupLog("INFO","Python всё ещё выполняет этап «"+phase+"»; прошло "+((now-started)/1000).toFixed(1)+" сек.");
-      lastReport=now;
-    }
-    await sleep(280);
-  }
+  return new Promise((resolve,reject)=>{
+    let requestPending=false;
+    const timer=window.setInterval(()=>{
+      if(requestPending) return;
+      requestPending=true;
+      withTimeout(api().get_startup_status(lastPythonStartupEventId),10000,"Python API не ответил на get_startup_status за 10 секунд.")
+        .then(result=>{
+          displayPythonStartupEvents(result);
+          const phase=result&&result.phase?result.phase:"Подготовка настроек...";
+          const elapsed=Number(result&&result.elapsed||((Date.now()-started)/1000));
+          setStartupMessage(phase+" ("+elapsed.toFixed(1)+" сек.)");
+          if(phase!==lastStartupPhase){
+            lastStartupPhase=phase;
+            startupLog("INFO","Этап Python: "+phase);
+          }
+          if(result&&result.ready){
+            window.clearInterval(timer);
+            startupCompleteUi=true;
+            if(result.error) startupLog("ERROR","Python завершил загрузку конфигурации с ошибкой: "+result.error);
+            startupLog("INFO","Python завершил чтение конфигурации за "+elapsed.toFixed(1)+" сек.");
+            updateFarmToggleButton(false);
+            resolve(result);
+            return;
+          }
+          const now=Date.now();
+          if(now-lastReport>=5000){
+            startupLog("INFO","Python всё ещё выполняет этап «"+phase+"»; прошло "+((now-started)/1000).toFixed(1)+" сек.");
+            lastReport=now;
+          }
+        })
+        .catch(error=>{
+          window.clearInterval(timer);
+          reject(error);
+        })
+        .finally(()=>{
+          requestPending=false;
+        });
+    },300);
+  });
 }
 
 
@@ -1740,13 +1768,13 @@ async function waitForSessionRestore(){
       }else{
         startupLog("WARNING","Проверка сессии завершена без авторизации: "+String(auth.auth_error||auth.auth_status||"сессия отсутствует"));
       }
-      const diagnostics=await withTimeout(api().get_startup_state(lastPythonStartupEventId),10000,"Python API не ответил после проверки сессии.");
+      const diagnostics=await withTimeout(api().get_startup_status(lastPythonStartupEventId),10000,"Python API не ответил после проверки сессии.");
       displayPythonStartupEvents(diagnostics);
       return auth;
     }
     const now=Date.now();
     if(now-lastDiagnosticPoll>=900){
-      const diagnostics=await withTimeout(api().get_startup_state(lastPythonStartupEventId),10000,"Python API не ответил во время проверки сессии.");
+      const diagnostics=await withTimeout(api().get_startup_status(lastPythonStartupEventId),10000,"Python API не ответил во время проверки сессии.");
       displayPythonStartupEvents(diagnostics);
       lastDiagnosticPoll=now;
     }
@@ -1893,8 +1921,19 @@ document.addEventListener("DOMContentLoaded",()=>{
   });
   $("refresh-drops").addEventListener("click",()=>loadDropsInventory(true));
   $("page-drops").addEventListener("click",event=>{
-    const button=event.target.closest("[data-drop-action='add']");
-    if(button) addDropChannelToFarm(button.dataset.login,button);
+    const filter=event.target.closest("[data-drops-category]");
+    if(filter){
+      activeDropsCategory=filter.dataset.dropsCategory||"all";
+      renderDropsInventory(dropsInventoryState||{});
+      return;
+    }
+    const button=event.target.closest("[data-drop-action]");
+    if(!button) return;
+    if(button.dataset.dropAction==="add"){
+      addDropChannelToFarm(button.dataset.login,button);
+    }else if(button.dataset.dropAction==="browse"){
+      api().open_url(button.dataset.url).catch(error=>notify(error.message||"Не удалось открыть каталог Twitch."));
+    }
   });
   $("refresh-followers").addEventListener("click",()=>loadFollowedChannels(true));
   $("page-followers").addEventListener("click",event=>{

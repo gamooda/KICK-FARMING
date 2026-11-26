@@ -81,6 +81,33 @@ if (!html.includes("bridge.record_startup_debug_batch(batch)") ||
 if (!source.includes('"record_startup_debug_batch"') || !source.includes("await sleep(280);")) {
   throw new Error("Frontend startup polling is not using the batched diagnostic API and reduced cadence.");
 }
+if (!backend.includes("def get_startup_status(") ||
+    backend.slice(backend.indexOf("    def get_startup_status("), backend.indexOf("\n    def get_startup_state", backend.indexOf("    def get_startup_status("))).includes("with self.lock")) {
+  throw new Error("The lightweight non-blocking startup status API is missing or locks the UI.");
+}
+if (backend.includes("evaluate_js")) {
+  throw new Error("Python still calls evaluate_js during startup or window events.");
+}
+if (!source.includes("window.setInterval(()=>") ||
+    !source.includes("},300);") ||
+    !source.includes("get_startup_status(lastPythonStartupEventId)")) {
+  throw new Error("The startup overlay is not polling Python status every 300ms with setInterval.");
+}
+if (!source.includes("function getDropCategory(") ||
+    !source.includes("data-drops-category") ||
+    !source.includes("data-drop-action='browse'")) {
+  throw new Error("Drops category filtering or Twitch catalog actions are missing.");
+}
+if (html.includes("Drops для подписки") || html.includes("drops-sub-list") || !html.includes("drops-campaign-list")) {
+  throw new Error("Subscription Drops panel was not fully removed.");
+}
+const twitchParser = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/engine/TwitchChannelPointsMiner/classes/Twitch.py"), "utf8");
+if (!twitchParser.includes("rewardCampaignsAvailableToUser") ||
+    !twitchParser.includes('"category": "twitch"') ||
+    !twitchParser.includes('"category": "game"') ||
+    !twitchParser.includes("collection_items")) {
+  throw new Error("Full campaign collection parsing or reward category classification is missing.");
+}
 if (!html.includes("startup-window-bar pywebview-drag-region") ||
     !html.includes("startup-window-minimize") ||
     !html.includes("startup-window-close") ||
@@ -180,7 +207,7 @@ const bridge = {};
 const required = [
   "get_auth_state",
   "get_state",
-  "get_startup_state",
+  "get_startup_status",
   "record_frontend_timing",
   "record_startup_debug_batch",
   "mark_frontend_ready",
@@ -209,7 +236,7 @@ for (const name of required) {
   bridge[name] = () => Promise.resolve({ ok: true });
 }
 
-bridge.get_startup_state = () => Promise.resolve({ ready: true, phase: "Готово", elapsed: 0, error: "", diagnostics: [] });
+bridge.get_startup_status = () => Promise.resolve({ ready: true, phase: "Готово", elapsed: 0, error: "", diagnostics: [] });
 bridge.get_auth_state = () => {
   authCalls++;
   if (authCalls === 1) {
@@ -262,7 +289,11 @@ bridge.get_state = () => {
 const window = {
   setTimeout(callback) { return setImmediate(callback); },
   clearTimeout(handle) { clearImmediate(handle); },
-  setInterval() { intervalCount++; return intervalCount; },
+  setInterval(callback, delay) {
+    intervalCount++;
+    if (delay === 300) setImmediate(callback);
+    return intervalCount;
+  },
   clearInterval() {},
   __tfStartupDebug: {
     log() {},
@@ -306,8 +337,8 @@ appInitialized = true;
   if (!document.getElementById("startup-overlay").classList.contains("hidden")) {
     throw new Error("Startup overlay was not hidden after successful initialization.");
   }
-  if (intervalCount !== 3) {
-    throw new Error("Startup timers and polling were not initialized after readiness.");
+  if (intervalCount !== 4) {
+    throw new Error("Startup status timer and application polling were not initialized after readiness.");
   }
   if (!restoreStarted || authCalls < 3 || stateCalls !== 2) {
     throw new Error("Startup did not wait for the saved-session check to finish.");
