@@ -52,16 +52,16 @@ def acquire_single_instance():
 SVG_ICON_PATHS = {
     "external": '<path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M17 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h6"/>',
     "swap": '<path d="M4 8h15"/><path d="m15 4 4 4-4 4"/><path d="M20 16H5"/><path d="m9 12-4 4 4 4"/>',
-    "settings": '<circle cx="12" cy="12" r="3.1"/><path d="m19.4 15 .1.1a1.8 1.8 0 0 1-2.5 2.5l-.1-.1a1.8 1.8 0 0 0-3 .9v.2a1.8 1.8 0 0 1-3.6 0v-.2a1.8 1.8 0 0 0-3-.9l-.1.1a1.8 1.8 0 0 1-2.5-2.5l.1-.1a1.8 1.8 0 0 0-.9-3h-.2a1.8 1.8 0 0 1 0-3.6h.2a1.8 1.8 0 0 0 .9-3l-.1-.1a1.8 1.8 0 0 1 2.5-2.5l.1.1a1.8 1.8 0 0 0 3-.9v-.2a1.8 1.8 0 0 1 3.6 0v.2a1.8 1.8 0 0 0 3 .9l.1-.1a1.8 1.8 0 0 1 2.5 2.5l-.1.1a1.8 1.8 0 0 0 .9 3h.2a1.8 1.8 0 0 1 0 3.6h-.2a1.8 1.8 0 0 0-.9 3Z"/>',
+    "settings": "<circle cx=\"12\" cy=\"12\" r=\"3\"/><path d=\"M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z\"/>",
     "trash": '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="m6 7 1 13h10l1-13"/><path d="M9 7V4h6v3"/>',
     "minimize": '<path d="M5 18h14"/>',
     "maximize": '<rect x="5" y="5" width="14" height="14" rx="1.5"/>',
     "restore": '<rect x="8" y="4" width="12" height="12" rx="1.5"/><path d="M16 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1h3"/>',
     "close": '<path d="m6 6 12 12M18 6 6 18"/>',
-    "plus": '<path d="M12 5v14M5 12h14"/>',
+    "plus": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"4\"/><line x1=\"12\" y1=\"8\" x2=\"12\" y2=\"16\"/><line x1=\"8\" y1=\"12\" x2=\"16\" y2=\"12\"/>",
     "play": '<path d="m8 5 11 7-11 7V5Z"/>',
-    "stop": '<rect x="6" y="6" width="12" height="12" rx="1.5"/>',
-    "refresh": '<path d="M20 7v5h-5"/><path d="M19 12a7 7 0 1 1-2-5"/>',
+    "stop": "<polygon points=\"7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2\"/><rect x=\"9\" y=\"9\" width=\"6\" height=\"6\" rx=\"1\"/>",
+    "refresh": "<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>",
     "folder": '<path d="M3.5 7.5h6l2 2h9v9a1.5 1.5 0 0 1-1.5 1.5h-14A1.5 1.5 0 0 1 3.5 18.5v-11Z"/><path d="M3.5 9.5V6.8A1.8 1.8 0 0 1 5.3 5h4.2l2 2H18"/>',
     "save": '<path d="M5 4h12l3 3v13H4V4h1Z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/>',
     "logout": '<path d="M10 5H5a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h5"/><path d="M14 8l4 4-4 4M18 12H9"/>',
@@ -83,6 +83,7 @@ SVG_ICON_PATHS = {
     "power": '<path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/>',
     "coin": '<ellipse cx="12" cy="7" rx="8" ry="3.5"/><path d="M4 7v10c0 1.9 3.6 3.5 8 3.5s8-1.6 8-3.5V7M4 12c0 1.9 3.6 3.5 8 3.5s8-1.6 8-3.5"/>'
 }
+_SVG_ICON_STROKE_WIDTHS = {"refresh": 2.0, "settings": 1.9, "plus": 2.0, "stop": 2.0}
 _SVG_ICON_CACHE = {}
 
 
@@ -95,8 +96,10 @@ def _svg_icon_pixmap(name, color, size, device_pixel_ratio=1.0):
     path = SVG_ICON_PATHS.get(str(name))
     if not path:
         return QPixmap()
-    svg = ('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="' +
-           str(color) + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>')
+    stroke_width = _SVG_ICON_STROKE_WIDTHS.get(str(name), 1.8)
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" color="' +
+           str(color) + '" stroke="currentColor" stroke-width="' + str(stroke_width) +
+           '" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>')
     renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
     if not renderer.isValid():
         return QPixmap()
@@ -314,65 +317,125 @@ class ImageCache(QObject):
 
 
 class TwitchLogo(QWidget):
-    def __init__(self, pixmap, parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(66, 66)
-        self.logo_pixmap = pixmap
-        self._eye_offset = 0.0
-        self._blink = 0
-        self._next_blink = time.monotonic() + random.uniform(2.2, 4.8)
-        self.eye_animation = QPropertyAnimation(self, b"eyeOffset", self)
-        self.eye_animation.setDuration(520)
-        self.eye_animation.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.setFixedSize(36, 36)
+        self.setMouseTracking(True)
+        self._hovered = False
+        self._look_x = 0.0
+        self._look_y = 0.0
+        self._target_x = 0.0
+        self._target_y = 0.0
+        self._eye_height = 4.8
+        self._target_eye_height = 4.8
+        self._action_until = 0.0
+        self._blink_until = 0.0
+        self._next_action = time.monotonic() + random.uniform(2.2, 4.0)
         self.eye_timer = QTimer(self)
         self.eye_timer.timeout.connect(self._tick)
-        self.eye_timer.start(80)
+        self.eye_timer.start(30)
 
-    def get_eye_offset(self):
-        return self._eye_offset
+    def _set_gaze_from_position(self, position):
+        width = max(1.0, float(self.width()))
+        height = max(1.0, float(self.height()))
+        self._target_x = max(-1.5, min(1.5, (float(position.x()) / width - 0.5) * 3.0))
+        self._target_y = max(-0.8, min(0.8, (float(position.y()) / height - 0.5) * 1.6))
 
-    def set_eye_offset(self, value):
-        self._eye_offset = float(value)
-        self.update()
+    def enterEvent(self, event):
+        self._hovered = True
+        self._set_gaze_from_position(self.mapFromGlobal(QCursor.pos()))
+        super().enterEvent(event)
 
-    eyeOffset = Property(float, get_eye_offset, set_eye_offset)
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._target_x = 0.0
+        self._target_y = 0.0
+        self._target_eye_height = 4.8
+        self._action_until = 0.0
+        self._blink_until = 0.0
+        self._next_action = time.monotonic() + random.uniform(2.2, 4.0)
+        super().leaveEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._hovered:
+            self._set_gaze_from_position(event.position())
+        super().mouseMoveEvent(event)
 
     def _tick(self):
         now = time.monotonic()
-        if self._blink > 0:
-            self._blink -= 1
-            self.update()
-        elif now >= self._next_blink:
-            self._blink = 5
-            self._next_blink = now + random.uniform(2.4, 5.5)
-            self.update()
-        if self.eye_animation.state() != QPropertyAnimation.State.Running and random.random() < 0.018:
-            self.eye_animation.stop()
-            self.eye_animation.setStartValue(self._eye_offset)
-            self.eye_animation.setKeyValueAt(0.5, random.choice((-1.0, 1.0)))
-            self.eye_animation.setEndValue(0.0)
-            self.eye_animation.start()
+        if self._hovered:
+            self._target_eye_height = 3.2
+        elif now < self._blink_until:
+            self._target_eye_height = 0.3
+        elif now >= self._action_until:
+            self._target_x = 0.0
+            self._target_y = 0.0
+            self._target_eye_height = 4.8
+            if now >= self._next_action:
+                action = random.choice(("look", "squint", "blink"))
+                self._action_until = now + random.uniform(0.65, 1.2)
+                self._next_action = now + random.uniform(2.2, 4.0)
+                if action == "look":
+                    self._target_x = random.uniform(-1.5, 1.5)
+                    self._target_y = random.uniform(-0.8, 0.8)
+                elif action == "squint":
+                    self._target_eye_height = 2.2
+                else:
+                    self._blink_until = now + 0.12
+        self._look_x += (self._target_x - self._look_x) * 0.2
+        self._look_y += (self._target_y - self._look_y) * 0.2
+        self._eye_height += (self._target_eye_height - self._eye_height) * 0.28
+        self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.scale(self.width() / 48.0, self.height() / 48.0)
-        painter.drawPixmap(0, 0, 48, 48, self.logo_pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#FFFFFF"))
-        painter.drawRoundedRect(23, 15, 4, 12, 1, 1)
-        painter.drawRoundedRect(29, 15, 4, 12, 1, 1)
-        painter.setBrush(QColor("#6522CF"))
-        if self._blink:
-            painter.drawRoundedRect(22, 20, 6, 2, 1, 1)
-            painter.drawRoundedRect(28, 20, 6, 2, 1, 1)
-        else:
-            offset = int(round(self._eye_offset * 1.5))
-            vertical = int(round(self._eye_offset))
-            painter.drawRoundedRect(24 + offset, 17 + vertical, 2, 8, 1, 1)
-            painter.drawRoundedRect(30 + offset, 17 + vertical, 2, 8, 1, 1)
+        painter.scale(self.width() / 24.0, self.height() / 24.0)
+        parallax_x = self._look_x * 0.35
+        parallax_y = self._look_y * 0.35
+        extrusion = QPolygonF([
+            QPointF(4 - 1.6, 2 + 1.6),
+            QPointF(21 - 1.6, 2 + 1.6),
+            QPointF(21 - 1.6, 14 + 1.6),
+            QPointF(16 - 1.6, 19 + 1.6),
+            QPointF(11 - 1.6, 19 + 1.6),
+            QPointF(8 - 1.6, 22 + 1.6),
+            QPointF(8 - 1.6, 19 + 1.6),
+            QPointF(4 - 1.6, 19 + 1.6)
+        ])
+        painter.setBrush(QColor("#5B21B6"))
+        painter.drawPolygon(extrusion)
+        body = QPolygonF([
+            QPointF(5 + parallax_x, 1.5 + parallax_y),
+            QPointF(22 + parallax_x, 1.5 + parallax_y),
+            QPointF(22 + parallax_x, 13.5 + parallax_y),
+            QPointF(17 + parallax_x, 18.5 + parallax_y),
+            QPointF(12 + parallax_x, 18.5 + parallax_y),
+            QPointF(9 + parallax_x, 21.5 + parallax_y),
+            QPointF(9 + parallax_x, 18.5 + parallax_y),
+            QPointF(5 + parallax_x, 18.5 + parallax_y)
+        ])
+        painter.setBrush(QColor("#8B5CF6"))
+        painter.drawPolygon(body)
+        screen = QPolygonF([
+            QPointF(7.5 + parallax_x, 4 + parallax_y),
+            QPointF(19.5 + parallax_x, 4 + parallax_y),
+            QPointF(19.5 + parallax_x, 12.5 + parallax_y),
+            QPointF(16.2 + parallax_x, 15.8 + parallax_y),
+            QPointF(12.2 + parallax_x, 15.8 + parallax_y),
+            QPointF(10.2 + parallax_x, 17.8 + parallax_y),
+            QPointF(10.2 + parallax_x, 15.8 + parallax_y),
+            QPointF(7.5 + parallax_x, 15.8 + parallax_y)
+        ])
+        painter.setBrush(QColor("#F8FAFC"))
+        painter.drawPolygon(screen)
+        eye_y = 7.2 + (4.8 - self._eye_height) / 2.0 + parallax_y + self._look_y
+        eye_x = parallax_x + self._look_x
+        painter.setBrush(QColor("#1E1B2E"))
+        painter.drawRoundedRect(QRectF(10.6 + eye_x, eye_y, 2.0, self._eye_height), 0.6, 0.6)
+        painter.drawRoundedRect(QRectF(15.2 + eye_x, eye_y, 2.0, self._eye_height), 0.6, 0.6)
         painter.end()
-
 
 class TitleBar(QFrame):
     minimizeRequested = Signal()
@@ -1152,7 +1215,7 @@ class MainWindow(QMainWindow):
         side = QVBoxLayout(self.sidebar)
         side.setContentsMargins(8, 12, 8, 12)
         side.setSpacing(5)
-        logo = TwitchLogo(self.ui_icon_atlas.copy(0, 0, 48, 48) if not self.ui_icon_atlas.isNull() else QPixmap())
+        logo = TwitchLogo()
         side.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
         brand = QLabel("TWITCH FARMING")
         brand.setObjectName("brandText")
@@ -1237,7 +1300,7 @@ class MainWindow(QMainWindow):
         box = QVBoxLayout(card)
         box.setContentsMargins(26, 24, 26, 24)
         box.setSpacing(12)
-        logo = TwitchLogo(self.ui_icon_atlas.copy(0, 0, 48, 48) if not self.ui_icon_atlas.isNull() else QPixmap())
+        logo = TwitchLogo()
         box.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
         self.initialization_title = QLabel("Инициализация...")
         self.initialization_title.setObjectName("initializationTitle")
