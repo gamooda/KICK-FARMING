@@ -733,6 +733,10 @@ class Twitch(object):
                     for index in self._get_online_streamer_indices(streamers)
                 ]
                 if online_streamers and self.running:
+                    online_names = ", ".join(f"@{streamer.username}" for streamer in online_streamers)
+                    logger.info(
+                        f"Отправка minute-watched для {len(online_streamers)} онлайн-каналов: {online_names}"
+                    )
                     with ThreadPoolExecutor(
                         max_workers=len(online_streamers),
                         thread_name_prefix="twitch-watch",
