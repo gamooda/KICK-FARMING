@@ -70,6 +70,7 @@ class Twitch(object):
         "_watch_rotation_signature",
         "_watch_online_signature",
         "active_watch_channels",
+        "streamers_lock",
     ]
 
     def __init__(self, username, user_agent, password=None):
@@ -90,6 +91,7 @@ class Twitch(object):
         self._watch_rotation_signature = None
         self._watch_online_signature = ()
         self.active_watch_channels = []
+        self.streamers_lock = None
         # self.integrity = None
         # self.integrity_expire = 0
         self.client_session = token_hex(16)
@@ -798,12 +800,23 @@ class Twitch(object):
         )
         return selected
 
+    def get_active_watch_channels(self):
+        return list(self.active_watch_channels)
+
+    def _streamer_snapshot(self, streamers):
+        lock = getattr(self, "streamers_lock", None)
+        if lock is None:
+            return list(streamers or [])
+        with lock:
+            return list(streamers or [])
+
     def send_minute_watched_events(self, streamers, priority, chunk_size=3):
         watch_streak_counters = {}
         while self.running:
             cycle_started = time.monotonic()
             try:
-                for index in self._get_online_streamer_indices(streamers):
+                streamer_snapshot = self._streamer_snapshot(streamers)
+                for index in self._get_online_streamer_indices(streamer_snapshot):
                     if not self.running:
                         break
                     streamer = streamers[index]
@@ -811,8 +824,8 @@ class Twitch(object):
                         self.check_streamer_online(streamer)
 
                 online_streamers = [
-                    streamers[index]
-                    for index in self._get_online_streamer_indices(streamers)
+                    streamer_snapshot[index]
+                    for index in self._get_online_streamer_indices(streamer_snapshot)
                 ]
                 previous_slots = set(self.active_watch_channels)
                 current_streak_counters = {}
