@@ -681,36 +681,77 @@ class DropsInventoryWorker(threading.Thread):
                 item["streamers"] = candidates
                 item["streamer_source"] = "followers" if candidates else ""
                 campaigns_by_id[campaign_id] = item
-                if len(candidates) < 3 and game_id:
+                game_slug = str(campaign.get("game_slug") or "").strip().lower()
+                if len(candidates) < 3 and (game_id or game_slug):
                     catalog_targets.append(item)
+            game_info_cache = {}
+            for campaign in catalog_targets:
+                game_id = str(campaign.get("game_id") or "")
+                game_name = str(campaign.get("game") or "")
+                cache_key = "id:" + game_id if game_id else "name:" + game_name.casefold()
+                if cache_key not in game_info_cache:
+                    try:
+                        game_info_cache[cache_key] = self.client.get_game_info(game_id, game_name)
+                    except Exception as game_error:
+                        game_info_cache[cache_key] = {}
+                        logging.getLogger("twitch_farming.drops").warning(
+                            "Не удалось уточнить категорию Drops game_id=%s game=%s: %s",
+                            game_id,
+                            game_name,
+                            game_error,
+                        )
+                game_info = game_info_cache.get(cache_key) or {}
+                resolved_id = str(game_info.get("id") or "")
+                resolved_slug = str(game_info.get("slug") or "").strip().lower()
+                if resolved_id:
+                    campaign["game_id"] = resolved_id
+                if resolved_slug:
+                    campaign["game_slug"] = resolved_slug
+                if not campaign.get("game_id"):
+                    logging.getLogger("twitch_farming.drops").warning(
+                        "Не удалось определить game_id для Drops кампании %s (%s); поиск продолжится по slug=%s.",
+                        campaign.get("id"),
+                        game_name,
+                        campaign.get("game_slug") or "",
+                    )
             streams_by_game = {}
+            campaign_stream_keys = {}
+            game_search_stats = {}
             candidate_rows = {}
             for campaign in catalog_targets:
                 game_id = str(campaign.get("game_id") or "")
-                if game_id not in streams_by_game:
+                game_slug = str(campaign.get("game_slug") or "").strip().lower()
+                stream_key = game_id or ("slug:" + game_slug if game_slug else "")
+                if not stream_key:
+                    continue
+                campaign_stream_keys[str(campaign.get("id") or "")] = stream_key
+                if stream_key not in streams_by_game:
                     streams_by_login = {}
-                    helix_params = {"game_id": game_id, "first": 100}
-                    try:
-                        for page in range(5):
-                            payload = self.client.helix_get_payload("streams", helix_params)
-                            page_streams = payload.get("data", []) if isinstance(payload, dict) else []
-                            for stream in page_streams if isinstance(page_streams, list) else []:
-                                if not isinstance(stream, dict):
-                                    continue
-                                login = str(stream.get("user_login") or "").strip().lower()
-                                if login:
-                                    streams_by_login[login] = dict(stream)
-                            cursor = str((payload.get("pagination") or {}).get("cursor") or "") if isinstance(payload, dict) else ""
-                            if not cursor:
-                                break
-                            helix_params["after"] = cursor
-                    except Exception as catalog_error:
-                        logging.getLogger("twitch_farming.drops").warning(
-                            "Не удалось получить страницы Twitch Helix для game_id=%s: %s",
-                            game_id,
-                            catalog_error,
-                        )
-                    game_slug = str(campaign.get("game_slug") or "").strip().lower()
+                    helix_count = 0
+                    directory_count = 0
+                    if game_id:
+                        helix_params = {"game_id": game_id, "first": 100}
+                        try:
+                            for page in range(5):
+                                payload = self.client.helix_get_payload("streams", helix_params)
+                                page_streams = payload.get("data", []) if isinstance(payload, dict) else []
+                                for stream in page_streams if isinstance(page_streams, list) else []:
+                                    if not isinstance(stream, dict):
+                                        continue
+                                    login = str(stream.get("user_login") or "").strip().lower()
+                                    if login:
+                                        streams_by_login[login] = dict(stream)
+                                cursor = str((payload.get("pagination") or {}).get("cursor") or "") if isinstance(payload, dict) else ""
+                                if not cursor:
+                                    break
+                                helix_params["after"] = cursor
+                            helix_count = len(streams_by_login)
+                        except Exception as catalog_error:
+                            logging.getLogger("twitch_farming.drops").warning(
+                                "Не удалось получить страницы Twitch Helix для game_id=%s: %s",
+                                game_id,
+                                catalog_error,
+                            )
                     if game_slug:
                         try:
                             directory_streams = self.client.get_drops_streams_for_game(
@@ -724,6 +765,7 @@ class DropsInventoryWorker(threading.Thread):
                                 login = str(stream.get("user_login") or "").strip().lower()
                                 if not login:
                                     continue
+                                directory_count += 1
                                 merged_stream = dict(streams_by_login.get(login) or {})
                                 merged_stream.update({
                                     key: value
@@ -738,7 +780,7 @@ class DropsInventoryWorker(threading.Thread):
                                 game_id,
                                 catalog_error,
                             )
-                    streams_by_game[game_id] = sorted(
+                    streams_by_game[stream_key] = sorted(
                         list(streams_by_login.values()),
                         key=lambda stream: (
                             stream_uptime_seconds(stream.get("started_at")),
@@ -746,7 +788,12 @@ class DropsInventoryWorker(threading.Thread):
                         ),
                         reverse=True,
                     )
-                for stream in streams_by_game[game_id]:
+                    game_search_stats[stream_key] = {
+                        "helix": helix_count,
+                        "directory": directory_count,
+                        "combined": len(streams_by_login),
+                    }
+                for stream in streams_by_game[stream_key]:
                     login = str(stream.get("user_login") or "").strip().lower()
                     channel_id = str(stream.get("user_id") or "")
                     if not login or not channel_id:
@@ -758,7 +805,7 @@ class DropsInventoryWorker(threading.Thread):
                         "started_at": str(stream.get("started_at") or ""),
                         "uptime_seconds": stream_uptime_seconds(stream.get("started_at")),
                         "game_name": str(stream.get("game_name") or campaign.get("game") or ""),
-                        "game_id": game_id,
+                        "game_id": str(stream.get("game_id") or game_id),
                         "is_live": True,
                         "is_followed": login in followed_logins,
                         "drops_enabled": bool(stream.get("drops_enabled")),
@@ -776,9 +823,10 @@ class DropsInventoryWorker(threading.Thread):
             for campaign in catalog_targets:
                 campaign_id = str(campaign.get("id") or "")
                 game_id = str(campaign.get("game_id") or "")
+                stream_key = campaign_stream_keys.get(campaign_id, game_id)
                 allowed = set(str(value) for value in campaign.get("allowed_channel_ids") or [])
                 matched = []
-                for stream in streams_by_game.get(game_id, []):
+                for stream in streams_by_game.get(stream_key, []):
                     login = str(stream.get("user_login") or "").strip().lower()
                     row = candidate_rows.get(login)
                     if row is None:
@@ -795,6 +843,18 @@ class DropsInventoryWorker(threading.Thread):
                     if len(matched) >= 3:
                         break
                 campaign_rows[campaign_id] = matched
+                stats = game_search_stats.get(stream_key, {})
+                logging.getLogger("twitch_farming.drops").info(
+                    "Drops stream search campaign=%s game=%s game_id=%s slug=%s: Helix=%s, DROPS_ENABLED=%s, merged=%s, matched=%s.",
+                    campaign_id,
+                    campaign.get("game") or "",
+                    game_id,
+                    campaign.get("game_slug") or "",
+                    stats.get("helix", 0),
+                    stats.get("directory", 0),
+                    stats.get("combined", 0),
+                    len(matched),
+                )
             users_by_id = {}
             matched_rows = [candidate_rows[login] for login in matched_logins if login in candidate_rows]
             for offset in range(0, len(matched_rows), 100):

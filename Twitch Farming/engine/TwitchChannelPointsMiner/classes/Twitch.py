@@ -177,6 +177,31 @@ class Twitch(object):
     def helix_get(self, endpoint, params=None):
         return self.helix_get_payload(endpoint, params).get("data", [])
 
+    def get_game_info(self, game_id="", game_name=""):
+        requested_id = str(game_id or "").strip()
+        requested_name = str(game_name or "").strip()
+        params = {"id": requested_id} if requested_id else ({"name": requested_name} if requested_name else {})
+        if not params:
+            return {}
+        games = self.helix_get("games", params)
+        if not isinstance(games, list):
+            return {}
+        if requested_id:
+            for game in games:
+                if isinstance(game, dict) and str(game.get("id") or "") == requested_id:
+                    return dict(game)
+            return {}
+        normalized_name = " ".join(requested_name.casefold().split())
+        for game in games:
+            if not isinstance(game, dict):
+                continue
+            names = (game.get("name"), game.get("display_name"))
+            if any(" ".join(str(value or "").casefold().split()) == normalized_name for value in names):
+                return dict(game)
+        if len(games) == 1 and isinstance(games[0], dict):
+            return dict(games[0])
+        return {}
+
     def get_user_info(self, login):
         users = self.helix_get("users", {"login": login})
         return users[0] if users else None

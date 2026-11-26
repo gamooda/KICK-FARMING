@@ -49,6 +49,24 @@ with (
 assert helix_payload == {"data": [{"id": "12345"}]}
 assert helix_request.call_count == 2, "A transient Helix timeout must be retried once."
 
+game_info_client = Twitch.__new__(Twitch)
+game_lookup_calls = []
+
+def fake_game_lookup(self, endpoint, params):
+    game_lookup_calls.append((endpoint, params))
+    if params.get("id") == "4242":
+        return [{"id": "4242", "name": "Example Game", "display_name": "Example Game", "slug": "example-game"}]
+    if params.get("name") == "Example Game":
+        return [{"id": "4242", "name": "Example Game", "display_name": "Example Game", "slug": "example-game"}]
+    return []
+
+with patch.object(Twitch, "helix_get", fake_game_lookup):
+    game_by_id = game_info_client.get_game_info("4242", "Wrong fallback slug")
+    game_by_name = game_info_client.get_game_info("", "Example Game")
+assert game_by_id["slug"] == "example-game", "Drops searches must use Twitch's canonical game slug, not a slug guessed from the display name."
+assert game_by_name["id"] == "4242", "A campaign without a game ID must resolve it from its exact Twitch game name."
+assert game_lookup_calls == [("games", {"id": "4242"}), ("games", {"name": "Example Game"})]
+
 
 def make_streamer(username, online=True):
     stream = Stream()
@@ -753,6 +771,8 @@ assert "configured_logins = list(dict.fromkeys(" in backend_source and 'self.cli
 assert "get_drop_inventory_snapshot(" in backend_source and "available_campaigns_by_login\n            )" in backend_source, "AvailableDrops campaign summaries must be passed into catalog normalization."
 assert "get_drop_inventory_snapshot(" in backend_source and "helix_get_payload(\"streams\", helix_params)" in backend_source, "Drops streamer search must follow Helix pagination instead of stopping at the first 100 live channels."
 assert "get_drops_streams_for_game(" in backend_source, "Drops streamer search must also use Twitch's GameDirectory DROPS_ENABLED filter."
+assert "self.client.get_game_info(game_id, game_name)" in backend_source and "campaign_stream_keys" in backend_source, "Drops campaign search must resolve Twitch's canonical game ID and slug before finding live streams."
+assert '"game_id": str(stream.get("game_id") or game_id)' in backend_source, "GameDirectory streams must preserve their actual game ID when the campaign metadata is incomplete."
 assert 'if not item.get("drops_enabled")' in backend_source and 'and not row.get("drops_enabled")' in backend_source, "GameDirectory streams with DROPS_ENABLED must not be rejected by an extra per-channel campaign ID lookup."
 twitch_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8")
 assert "for attempt in range(2):" in twitch_source and "requests.exceptions.Timeout" in twitch_source, "Helix requests must retry transient timeouts."
