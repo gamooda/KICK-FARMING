@@ -13,15 +13,12 @@ import string
 import time
 import threading
 import requests
-import validators
-# import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urljoin, urlparse
 
 from pathlib import Path
 from secrets import choice, token_hex
 from typing import Dict, Any
-# from urllib.parse import quote
-# from base64 import urlsafe_b64decode
-# from datetime import datetime
 
 from TwitchChannelPointsMiner.classes.entities.Campaign import Campaign
 from TwitchChannelPointsMiner.classes.entities.CommunityGoal import CommunityGoal
@@ -33,7 +30,6 @@ from TwitchChannelPointsMiner.classes.Exceptions import (
 from TwitchChannelPointsMiner.classes.Settings import (
     Events,
     FollowersOrder,
-    Priority,
     Settings,
 )
 from TwitchChannelPointsMiner.classes.TwitchLogin import TwitchLogin
@@ -186,22 +182,15 @@ class Twitch(object):
             tags=tags,
             viewers_count=int(stream_info.get("viewer_count") or 0),
         )
-        event_properties = {
-            "channel_id": streamer.channel_id,
-            "broadcast_id": streamer.stream.broadcast_id,
-            "player": "site",
-            "user_id": self.twitch_login.get_user_id(),
-            "live": True,
-            "channel": streamer.username,
-        }
-        if streamer.stream.game_name() is not None and streamer.stream.game_id() is not None and streamer.settings.claim_drops is True:
-            event_properties["game"] = streamer.stream.game_name()
-            event_properties["game_id"] = streamer.stream.game_id()
+        if streamer.settings.claim_drops is True and streamer.stream.game_name() and streamer.stream.game_id():
             try:
                 streamer.stream.campaigns_ids = self.__get_campaign_ids_from_streamer(streamer)
             except Exception as error:
                 logger.warning(f"Не удалось обновить список Twitch Drops для @{streamer.username}: {error}")
-        streamer.stream.payload = [{"event": "minute-watched", "properties": event_properties}]
+        streamer.stream.payload = self._build_minute_watched_event(
+            streamer,
+            self.twitch_login.get_user_id(),
+        )
 
     def get_spade_url(self, streamer):
         try:
@@ -487,342 +476,287 @@ class Twitch(object):
             return self.client_version
 
     @staticmethod
-    def _streamer_has_pending_drops(streamer):
-        if streamer.drops_condition() is not True:
-            return False
-        stream = streamer.stream
-        if not bool(getattr(stream, "drops_campaigns_synced", False)):
-            return bool(getattr(stream, "campaigns_ids", []))
-        return any(
-            getattr(drop, "is_claimed", False) is not True
-            for campaign in (getattr(stream, "campaigns", []) or [])
-            for drop in (getattr(campaign, "drops", []) or [])
-        )
+    def _get_online_streamer_indices(streamers):
+        return [
+            index
+            for index, streamer in enumerate(streamers)
+            if streamer.is_online is True
+        ]
 
     @staticmethod
-    def _select_minute_watch_indices(streamers, streamers_index, priority):
-        pending_drop_indices = [
-            index
-            for index in streamers_index
-            if Twitch._streamer_has_pending_drops(streamers[index])
-        ]
-        if pending_drop_indices:
-            return [pending_drop_indices[0]], True
+    def _build_minute_watched_event(streamer, user_id):
+        stream = streamer.stream
+        channel_id = str(streamer.channel_id or "").strip()
+        broadcast_id = str(stream.broadcast_id or "").strip()
+        game_name = str(stream.game_name() or "").strip()
+        game_id = str(stream.game_id() or "").strip()
+        user_id_text = str(user_id or "").strip()
+        if not all((channel_id, broadcast_id, game_name, game_id, user_id_text.isdigit())):
+            return None
+        properties = {
+            "channel_id": channel_id,
+            "broadcast_id": broadcast_id,
+            "channel": streamer.username,
+            "client_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "game": game_name,
+            "game_id": game_id,
+            "hidden": False,
+            "is_live": True,
+            "live": True,
+            "location": "channel",
+            "logged_in": True,
+            "minutes_logged": 1,
+            "muted": False,
+            "player": "site",
+            "user_id": int(user_id_text),
+        }
+        return [{"event": "minute-watched", "properties": properties}]
 
-        max_watch_amount = 2
-        streamers_watching = []
+    @staticmethod
+    def _parse_hls_playlist_urls(playlist, base_url, master=False):
+        if not isinstance(playlist, str) or not playlist.lstrip().startswith("#EXTM3U"):
+            return []
+        expected_tag = "#EXT-X-STREAM-INF:" if master else "#EXTINF:"
+        urls = []
+        pending = False
+        try:
+            for raw in playlist.splitlines():
+                line = raw.strip()
+                if not line:
+                    continue
+                if line.startswith("#"):
+                    if line.startswith(expected_tag):
+                        pending = True
+                    continue
+                if not pending:
+                    return []
+                resolved = urljoin(base_url, line)
+                parsed = urlparse(resolved)
+                if parsed.scheme not in ("http", "https") or not parsed.netloc or parsed.username or parsed.password:
+                    return []
+                if master and not parsed.path.lower().endswith(".m3u8"):
+                    return []
+                urls.append(resolved)
+                pending = False
+            return [] if pending else urls
+        except (TypeError, ValueError):
+            return []
 
-        def add_watching(indices):
-            for index in indices:
-                if index not in streamers_watching:
-                    streamers_watching.append(index)
-                    if len(streamers_watching) >= max_watch_amount:
-                        break
+    def _get_hls_playlist_url(self, streamer):
+        stream = streamer.stream
+        if stream.hls_url:
+            return stream.hls_url
+        json_data = copy.deepcopy(GQLOperations.PlaybackAccessToken)
+        json_data["variables"] = {
+            "login": streamer.username,
+            "isLive": True,
+            "isVod": False,
+            "vodID": "",
+            "playerType": "site",
+            "platform": "web",
+        }
+        response = self.post_gql_request(json_data)
+        data = response.get("data") if isinstance(response, dict) else None
+        token_data = data.get("streamPlaybackAccessToken") if isinstance(data, dict) else None
+        if not isinstance(token_data, dict):
+            return None
+        signature = token_data.get("signature")
+        value = token_data.get("value")
+        if not signature or not value:
+            return None
+        master_url = f"https://usher.ttvnw.net/api/channel/hls/{streamer.username}.m3u8"
+        try:
+            response = requests.get(
+                master_url,
+                params={"sig": signature, "token": value},
+                headers={"User-Agent": self.user_agent},
+                timeout=8,
+            )
+            if response.status_code != 200:
+                return None
+            variants = self._parse_hls_playlist_urls(
+                response.text,
+                response.url or master_url,
+                master=True,
+            )
+            if not variants:
+                return None
+            stream.hls_url = variants[-1]
+            return stream.hls_url
+        except requests.exceptions.RequestException as error:
+            logger.debug(f"HLS master playlist request failed for @{streamer.username}: {type(error).__name__}")
+            return None
 
-        def remaining_watch_amount():
-            return max_watch_amount - len(streamers_watching)
+    def _watch_stream_playlist(self, streamer):
+        stream = streamer.stream
+        broadcast_id = str(stream.broadcast_id or "").strip()
+        if not self.running or streamer.is_online is not True or not broadcast_id:
+            return False
+        playlist_url = self._get_hls_playlist_url(streamer)
+        if not playlist_url or not self.running:
+            return False
+        headers = {"User-Agent": self.user_agent}
+        try:
+            response = requests.get(playlist_url, headers=headers, timeout=8)
+            if response.status_code != 200:
+                if response.status_code in (401, 403, 404):
+                    stream.hls_url = None
+                return False
+            segments = self._parse_hls_playlist_urls(
+                response.text,
+                response.url or playlist_url,
+            )
+            if not segments:
+                return False
+            succeeded = True
+            new_segments = 0
+            for segment_url in segments:
+                if (
+                    not self.running
+                    or streamer.is_online is not True
+                    or str(stream.broadcast_id or "").strip() != broadcast_id
+                ):
+                    return False
+                if segment_url in stream.watched_segments:
+                    continue
+                try:
+                    segment_response = requests.head(
+                        segment_url,
+                        headers=headers,
+                        timeout=5,
+                    )
+                    if segment_response.status_code == 200:
+                        stream.watched_segments[segment_url] = None
+                        new_segments += 1
+                        if len(stream.watched_segments) > 256:
+                            stream.watched_segments.popitem(last=False)
+                    else:
+                        succeeded = False
+                        if segment_response.status_code in (401, 403, 404):
+                            stream.hls_url = None
+                except requests.exceptions.RequestException:
+                    succeeded = False
+            if new_segments:
+                logger.debug(f"[WATCH] @{streamer.username}: HLS обработано новых сегментов: {new_segments}.")
+            return succeeded
+        except requests.exceptions.RequestException as error:
+            logger.debug(f"HLS media playlist request failed for @{streamer.username}: {type(error).__name__}")
+            return False
 
-        for prior in priority:
-            if remaining_watch_amount() <= 0:
-                break
-            if prior == Priority.ORDER:
-                add_watching(streamers_index)
-            elif prior in [Priority.POINTS_ASCENDING, Priority.POINTS_DESCENDING]:
-                items = [
-                    {"points": streamers[index].channel_points, "index": index}
-                    for index in streamers_index
-                ]
-                items = sorted(
-                    items,
-                    key=lambda item: item["points"],
-                    reverse=(prior == Priority.POINTS_DESCENDING),
-                )
-                add_watching([item["index"] for item in items])
-            elif prior == Priority.STREAK:
-                for index in streamers_index:
-                    streamer = streamers[index]
-                    if (
-                        streamer.settings.watch_streak is True
-                        and streamer.stream.watch_streak_missing is True
-                        and (
-                            streamer.offline_at == 0
-                            or ((time.time() - streamer.offline_at) // 60) > 30
+    def _log_drop_progress(self, streamer):
+        for campaign in streamer.stream.campaigns:
+            for drop in campaign.drops:
+                if drop.has_preconditions_met is not False and drop.is_printable is True:
+                    drop_messages = [
+                        f"{streamer} is streaming {streamer.stream}",
+                        f"Campaign: {campaign}",
+                        f"Drop: {drop}",
+                        f"{drop.progress_bar()}",
+                    ]
+                    for single_line in drop_messages:
+                        logger.info(
+                            single_line,
+                            extra={
+                                "event": Events.DROP_STATUS,
+                                "skip_telegram": True,
+                                "skip_discord": True,
+                                "skip_webhook": True,
+                                "skip_matrix": True,
+                                "skip_gotify": True,
+                            },
                         )
-                        and streamer.stream.minute_watched < 7
-                    ):
-                        add_watching([index])
-                        if remaining_watch_amount() <= 0:
-                            break
-            elif prior == Priority.DROPS:
-                add_watching(pending_drop_indices)
-            elif prior == Priority.SUBSCRIBED:
-                streamers_with_multiplier = [
-                    index
-                    for index in streamers_index
-                    if streamers[index].viewer_has_points_multiplier()
-                ]
-                streamers_with_multiplier = sorted(
-                    streamers_with_multiplier,
-                    key=lambda index: streamers[index].total_points_multiplier(),
-                    reverse=True,
-                )
-                add_watching(streamers_with_multiplier)
+                    for service in ("telegram", "discord", "webhook", "gotify"):
+                        notifier = getattr(Settings.logger, service, None)
+                        if notifier is not None:
+                            notifier.send("\n".join(drop_messages), Events.DROP_STATUS)
 
-        return streamers_watching[:max_watch_amount], False
+    def _send_minute_watched_for_streamer(self, streamer):
+        if not self.running or streamer.is_online is not True:
+            return
+        self._watch_stream_playlist(streamer)
+        if not self.running or streamer.is_online is not True:
+            return
+        stream = streamer.stream
+        now = time.monotonic()
+        if stream.last_minute_watched_sent and now - stream.last_minute_watched_sent < 59:
+            return
+        user_id = self.twitch_login.get_user_id()
+        payload = self._build_minute_watched_event(streamer, user_id)
+        if payload is None:
+            logger.warning(
+                f"WATCH_STATUS: {streamer.username}|error|Пропущен minute-watched: Twitch не предоставил channel_id, broadcast_id, game, game_id или user_id."
+            )
+            return
+        if not stream.spade_url and now - stream.last_spade_url_attempt >= 60:
+            stream.last_spade_url_attempt = now
+            self.get_spade_url(streamer)
+        if not stream.spade_url:
+            return
+        if not self.running or streamer.is_online is not True:
+            return
+        stream.payload = payload
+        stream.last_minute_watched_sent = time.monotonic()
+        try:
+            response = requests.post(
+                stream.spade_url,
+                data=stream.encode_payload(),
+                headers={"User-Agent": self.user_agent},
+                timeout=8,
+            )
+            if response.status_code == 204:
+                stream.update_minute_watched()
+                logger.info(
+                    f"WATCH_STATUS: {streamer.username}|accepted|Spade HTTP 204; локальный таймер: {stream.minute_watched:.2f} мин."
+                )
+                self._log_drop_progress(streamer)
+            else:
+                logger.warning(
+                    f"WATCH_STATUS: {streamer.username}|error|minute-watched HTTP {response.status_code}."
+                )
+        except requests.exceptions.RequestException as error:
+            logger.warning(
+                f"WATCH_STATUS: {streamer.username}|error|Ошибка отправки minute-watched: {type(error).__name__}."
+            )
 
     def send_minute_watched_events(self, streamers, priority, chunk_size=3):
         while self.running:
+            cycle_started = time.monotonic()
             try:
-                streamers_index = [
-                    i
-                    for i in range(0, len(streamers))
-                    if streamers[i].is_online is True
-                    and (
-                        streamers[i].online_at == 0
-                        or (time.time() - streamers[i].online_at) > 30
-                    )
+                for index in self._get_online_streamer_indices(streamers):
+                    if not self.running:
+                        break
+                    streamer = streamers[index]
+                    if streamer.stream.update_required():
+                        self.check_streamer_online(streamer)
+                online_streamers = [
+                    streamers[index]
+                    for index in self._get_online_streamer_indices(streamers)
                 ]
-
-                for index in streamers_index:
-                    if not self.running:
-                        break
-                    if (streamers[index].stream.update_elapsed() / 60) > 10:
-                        # Why this user It's currently online but the last updated was more than 10minutes ago?
-                        # Please perform a manually update and check if the user it's online
-                        self.check_streamer_online(streamers[index])
-
-                streamers_watching, drops_single_channel = self._select_minute_watch_indices(
-                    streamers,
-                    streamers_index,
-                    priority,
-                )
-                max_watch_amount = 1 if drops_single_channel else 2
-                selected_streamers = set(streamers_watching)
-                drops_target = streamers[streamers_watching[0]].username if drops_single_channel and streamers_watching else ""
-                for index in streamers_index:
-                    if index not in selected_streamers:
-                        username = streamers[index].username
-                        detail = (
-                            f"Активный Drops на @{drops_target}: минуты отправляются только в один поток."
-                            if drops_single_channel
-                            else "Ожидает очереди. Одновременно доступны два канала."
-                        )
-                        logger.info(f"WATCH_STATUS: {username}|waiting|{detail}")
-
-                streamers_watching = list(streamers_watching)[:max_watch_amount]
-
-                for index in streamers_watching:
-                    if not self.running:
-                        break
-                    username = streamers[index].username
-                    selected_detail = (
-                        "Активный Twitch Drops: отправка minute-watched только в один поток."
-                        if drops_single_channel
-                        else "Канал выбран для просмотра минут."
-                    )
-                    logger.info(f"WATCH_STATUS: {username}|selected|{selected_detail}")
-                    next_iteration = time.time() + 20 / len(streamers_watching)
-
-                    try:
-                        logger.info(f"WATCH_STATUS: {username}|request|Получение токена просмотра.")
-                        logger.debug(f"[WATCH] @{username}: запрос PlaybackAccessToken.")
-                        ####################################
-                        # Start of fix for 2024/5 API Change
-                        # Create the JSON data for the GraphQL request
-                        json_data = copy.deepcopy(
-                            GQLOperations.PlaybackAccessToken)
-                        json_data["variables"] = {
-                            "login": streamers[index].username,
-                            "isLive": True,
-                            "isVod": False,
-                            "vodID": "",
-                            "playerType": "site",
-                            # "playerType": "picture-by-picture",
-                            "platform": "web"
+                if online_streamers and self.running:
+                    with ThreadPoolExecutor(
+                        max_workers=min(32, len(online_streamers)),
+                        thread_name_prefix="twitch-watch",
+                    ) as executor:
+                        futures = {
+                            executor.submit(self._send_minute_watched_for_streamer, streamer): streamer
+                            for streamer in online_streamers
                         }
-
-                        # Get signature and value using the post_gql_request method
-                        try:
-                            responsePlaybackAccessToken = self.post_gql_request(
-                                json_data)
-                            if not self.running:
-                                break
-                            logger.debug(f"[WATCH] @{username}: ответ PlaybackAccessToken получен.")
-
-                            if 'data' not in responsePlaybackAccessToken:
-                                logger.warning(f"WATCH_STATUS: {username}|error|Twitch не вернул данные PlaybackAccessToken.")
-                                logger.error(f"Invalid PlaybackAccessToken response for @{username}.")
-                                continue
-
-                            streamPlaybackAccessToken = responsePlaybackAccessToken["data"].get(
-                                'streamPlaybackAccessToken', {})
-                            signature = streamPlaybackAccessToken.get(
-                                "signature")
-                            value = streamPlaybackAccessToken.get("value")
-
-                            if not signature or not value:
-                                logger.warning(f"WATCH_STATUS: {username}|error|В ответе Twitch отсутствует PlaybackAccessToken.")
-                                logger.error(f"Missing PlaybackAccessToken signature or value for @{username}.")
-                                continue
-
-                        except Exception as e:
-                            logger.warning(f"WATCH_STATUS: {username}|error|Не удалось получить токен просмотра.")
-                            logger.error(f"PlaybackAccessToken request failed for @{username}: {type(e).__name__}: {e}")
-                            continue
-
-                        # encoded_value = quote(json.dumps(value))
-
-                        # Construct the URL for the broadcast qualities
-                        RequestBroadcastQualitiesURL = f"https://usher.ttvnw.net/api/channel/hls/{streamers[index].username}.m3u8?sig={signature}&token={value}"
-
-                        # Get list of video qualities
-                        responseBroadcastQualities = requests.get(
-                            RequestBroadcastQualitiesURL,
-                            headers={"User-Agent": self.user_agent},
-                            timeout=20,
-                        )
-                        logger.debug(f"[WATCH] @{username}: HLS playlist HTTP {responseBroadcastQualities.status_code}.")
-                        if responseBroadcastQualities.status_code != 200:
-                            logger.warning(f"WATCH_STATUS: {username}|error|HLS playlist вернул HTTP {responseBroadcastQualities.status_code}.")
-                            continue
-                        if not self.running:
-                            break
-                        BroadcastQualities = responseBroadcastQualities.text
-
-                        # Just takes the last line, which should be the URL for the lowest quality
-                        BroadcastLowestQualityURL = BroadcastQualities.split("\n")[-1]
-                        if not validators.url(BroadcastLowestQualityURL):
-                            logger.warning(f"WATCH_STATUS: {username}|error|Twitch не вернул корректный URL HLS-потока.")
-                            continue
-                        logger.debug(f"[WATCH] @{username}: HLS playlist URL проверен.")
-
-                        # Get list of video URLs
-                        responseStreamURLList = requests.get(
-                            BroadcastLowestQualityURL,
-                            headers={"User-Agent": self.user_agent},
-                            timeout=20,
-                        )
-                        logger.debug(f"[WATCH] @{username}: stream playlist HTTP {responseStreamURLList.status_code}.")
-                        if responseStreamURLList.status_code != 200:
-                            logger.warning(f"WATCH_STATUS: {username}|error|Список видеопотоков вернул HTTP {responseStreamURLList.status_code}.")
-                            continue
-                        if not self.running:
-                            break
-                        StreamURLList = responseStreamURLList.text
-
-                        # Just takes the last line, which should be the URL for the lowest quality
-                        StreamLowestQualityURL = StreamURLList.split("\n")[-2]
-                        if not validators.url(StreamLowestQualityURL):
-                            logger.warning(f"WATCH_STATUS: {username}|error|Не найден корректный URL видеопотока.")
-                            continue
-                        logger.debug(f"[WATCH] @{username}: URL видеопотока проверен.")
-
-                        # Perform a HEAD request to simulate watching the stream
-                        responseStreamLowestQualityURL = requests.head(
-                            StreamLowestQualityURL,
-                            headers={"User-Agent": self.user_agent},
-                            timeout=20,
-                        )
-                        logger.debug(f"[WATCH] @{username}: video HEAD HTTP {responseStreamLowestQualityURL.status_code}.")
-                        if not self.running:
-                            break
-                        if responseStreamLowestQualityURL.status_code != 200:
-                            logger.warning(f"WATCH_STATUS: {username}|error|Видеопоток не ответил на HEAD: HTTP {responseStreamLowestQualityURL.status_code}.")
-                            continue
-                        # End of fix for 2024/5 API Change
-                        ##################################
-                        if not self.running:
-                            break
-                        logger.debug(f"[WATCH] @{username}: отправка minute-watched.")
-                        response = requests.post(
-                            streamers[index].stream.spade_url,
-                            data=streamers[index].stream.encode_payload(),
-                            headers={"User-Agent": self.user_agent},
-                            timeout=20,
-                        )
-                        logger.debug(f"[WATCH] @{username}: minute-watched HTTP {response.status_code}.")
-                        if response.status_code == 204:
-                            streamers[index].stream.update_minute_watched()
-                            watched = streamers[index].stream.minute_watched
-                            logger.info(f"WATCH_STATUS: {username}|accepted|Twitch принял minute-watched (HTTP 204). Накоплено минут: {watched:.2f}.")
-
-                            """
-                            Remember, you can only earn progress towards a time-based Drop on one participating channel at a time.  [ ! ! ! ]
-                            You can also check your progress towards Drops within a campaign anytime by viewing the Drops Inventory.
-                            For time-based Drops, if you are unable to claim the Drop in time, you will be able to claim it from the inventory page until the Drops campaign ends.
-                            """
-
-                            for campaign in streamers[index].stream.campaigns:
-                                for drop in campaign.drops:
-                                    # We could add .has_preconditions_met condition inside is_printable
-                                    if (
-                                        drop.has_preconditions_met is not False
-                                        and drop.is_printable is True
-                                    ):
-                                        drop_messages = [
-                                            f"{streamers[index]} is streaming {streamers[index].stream}",
-                                            f"Campaign: {campaign}",
-                                            f"Drop: {drop}",
-                                            f"{drop.progress_bar()}",
-                                        ]
-                                        for single_line in drop_messages:
-                                            logger.info(
-                                                single_line,
-                                                extra={
-                                                    "event": Events.DROP_STATUS,
-                                                    "skip_telegram": True,
-                                                    "skip_discord": True,
-                                                    "skip_webhook": True,
-                                                    "skip_matrix": True,
-                                                    "skip_gotify": True
-                                                },
-                                            )
-
-                                        if Settings.logger.telegram is not None:
-                                            Settings.logger.telegram.send(
-                                                "\n".join(drop_messages),
-                                                Events.DROP_STATUS,
-                                            )
-
-                                        if Settings.logger.discord is not None:
-                                            Settings.logger.discord.send(
-                                                "\n".join(drop_messages),
-                                                Events.DROP_STATUS,
-                                            )
-                                        if Settings.logger.webhook is not None:
-                                            Settings.logger.webhook.send(
-                                                "\n".join(drop_messages),
-                                                Events.DROP_STATUS,
-                                            )
-                                        if Settings.logger.gotify is not None:
-                                            Settings.logger.gotify.send(
-                                                "\n".join(drop_messages),
-                                                Events.DROP_STATUS,
-                                            )
-                        else:
-                            logger.warning(f"WATCH_STATUS: {username}|error|minute-watched отклонён: HTTP {response.status_code}.")
-
-                    except requests.exceptions.ConnectionError as e:
-                        logger.warning(f"WATCH_STATUS: {username}|error|Потеряно сетевое соединение при отправке minute-watched.")
-                        logger.error(f"Error while trying to send minute watched for @{username}: {e}")
-                        self.__check_connection_handler(chunk_size)
-                    except requests.exceptions.Timeout as e:
-                        logger.warning(f"WATCH_STATUS: {username}|error|Тайм-аут запроса minute-watched.")
-                        logger.error(f"Timeout while sending minute watched for @{username}: {e}")
-                    except Exception as e:
-                        logger.warning(f"WATCH_STATUS: {username}|error|Ошибка обработки запроса просмотра.")
-                        logger.error(f"Unexpected minute-watched error for @{username}: {type(e).__name__}: {e}", exc_info=True)
-
-                    self.__chuncked_sleep(
-                        next_iteration - time.time(), chunk_size=chunk_size
-                    )
-
-                if streamers_watching == []:
-                    # self.__chuncked_sleep(60, chunk_size=chunk_size)
-                    self.__chuncked_sleep(20, chunk_size=chunk_size)
+                        for future in as_completed(futures):
+                            streamer = futures[future]
+                            try:
+                                future.result()
+                            except Exception as error:
+                                logger.error(
+                                    f"Unexpected watch error for @{streamer.username}: {type(error).__name__}: {error}",
+                                    exc_info=True,
+                                )
+                self.__chuncked_sleep(
+                    max(0, 10 - (time.monotonic() - cycle_started)),
+                    chunk_size=chunk_size,
+                )
             except Exception:
-                logger.error(
-                    "Exception raised in send minute watched", exc_info=True)
+                logger.error("Exception raised in send minute watched", exc_info=True)
+                self.__chuncked_sleep(2, chunk_size=chunk_size)
 
     # === CHANNEL POINTS / PREDICTION === #
     # Load the amount of current points for a channel, check if a bonus is available
