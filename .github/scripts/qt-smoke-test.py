@@ -194,7 +194,7 @@ for marker in (
     "QPropertyAnimation",
     "image_cache",
     "Скачать и обновить",
-    "СМОТРИМ • СЛОТ",
+    "channelSlotBadge",
 ):
     check(marker in qt, "Native Qt interface feature is missing: " + marker)
 for excluded in ("QtWebEngine", "QtQml", "QtQuick", "QtSql", "Qt3D"):
