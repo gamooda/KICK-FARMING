@@ -1436,7 +1436,7 @@ class Twitch(object):
             for item in progress_campaigns
             if isinstance(item, dict) and campaign_id_of(item)
         }
-        drop_sources = ("timeBasedDrops", "time_based_drops", "gameEventDrops")
+        drop_sources = ("timeBasedDrops", "time_based_drops", "gameEventDrops", "drops")
         image_keys = ("imageAssetURL", "imageUrl", "imageURL", "image_url", "url")
 
         def safe_int(value):
