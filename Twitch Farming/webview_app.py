@@ -2903,7 +2903,7 @@ def main():
             f"TwitchFarmingApi.__init__: {api_init_ms:.2f} мс",
         )
 
-        index_url = (UI_DIR / "index.html").resolve().as_uri() + "?build=" + quote(APP_VERSION, safe="")
+        index_url = str((UI_DIR / "index.html").resolve())
         write_boot_log("INFO", "Профиль WebView2: " + str(WEBVIEW_PROFILE_DIR))
         window_started = time.perf_counter()
         window = webview.create_window(
