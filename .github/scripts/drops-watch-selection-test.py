@@ -362,7 +362,20 @@ snapshot_inventory = {
 snapshot_dashboard = {
     "data": {
         "currentUser": {"dropCampaigns": {"edges": [{"node": snapshot_campaign_one}]}},
-        "rewardCampaignsAvailableToUser": {"edges": [{"node": snapshot_campaign_two}]},
+        "rewardCampaignsAvailableToUser": {
+            "edges": [{"node": {"campaign": snapshot_campaign_two}}],
+        },
+        "extraCampaigns": {
+            "rewardCampaignsAvailableToUser": {
+                "nodes": [{"campaign": {
+                    "id": "campaign-upcoming",
+                    "status": "UPCOMING",
+                    "name": "Upcoming campaign",
+                    "game": {"id": "40", "displayName": "Upcoming Game"},
+                    "timeBasedDrops": [{"id": "upcoming-drop", "name": "Upcoming"}],
+                }}],
+            },
+        },
     }
 }
 snapshot_client._Twitch__get_inventory = lambda: snapshot_inventory
@@ -370,6 +383,11 @@ snapshot_client.post_gql_request = lambda request: snapshot_dashboard
 snapshot_client._warn_drops_response = lambda *args: None
 snapshot = snapshot_client.get_drop_inventory_snapshot()
 assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-three"}
+campaigns_by_id = {campaign["id"]: campaign for campaign in snapshot}
+assert campaigns_by_id["campaign-one"]["started"] is True
+assert campaigns_by_id["campaign-one"]["in_inventory"] is True
+assert campaigns_by_id["campaign-two"]["started"] is False
+assert "campaign-upcoming" not in campaigns_by_id
 snapshot_drops = {
     drop["id"]: drop
     for campaign in snapshot
@@ -379,6 +397,11 @@ assert set(snapshot_drops) == {"badge-drop", "game-drop", "emote-drop"}
 assert snapshot_drops["badge-drop"]["category"] == "twitch"
 assert snapshot_drops["emote-drop"]["category"] == "twitch"
 assert snapshot_drops["game-drop"]["category"] == "game"
+assert snapshot_drops["badge-drop"]["is_time_based"] is True
+assert snapshot_drops["badge-drop"]["is_twitch_view"] is True
+assert snapshot_drops["game-drop"]["is_twitch_view"] is False
+assert snapshot_drops["emote-drop"]["is_time_based"] is False
+assert snapshot_drops["emote-drop"]["is_twitch_view"] is False
 assert all(drop["type"] == "watch" for drop in snapshot_drops.values())
 assert "paid-drop" not in snapshot_drops
 
