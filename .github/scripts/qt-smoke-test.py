@@ -94,7 +94,7 @@ check("events_output" not in qt, "The duplicate event-log text area must be remo
 check("followers_list" not in qt, "Follower cards must use the compact grid layout.")
 check("QPushButton:focus { outline:none; border:none; }" in qt, "Button focus outlines must be disabled.")
 check("setFocusPolicy(Qt.FocusPolicy.NoFocus)" in qt, "Application buttons must not take keyboard focus.")
-check("CreateMutexW" in qt and "Local\\TwitchFarmingQt6SingleInstance" in qt, "The Windows single-instance mutex is missing.")
+check("CreateMutexW" in qt and "Local\\\\TwitchFarmingQt6SingleInstance" in qt, "The Windows single-instance mutex is missing.")
 check("self.channels_scroll = QScrollArea()" in qt and "frame.feed_scroll = scroll" in qt, "Independent main-screen scroll areas are missing.")
 check("setWindowIcon(QIcon(str(APP_ICON_FILE)))" in qt, "The main window app icon is missing.")
 check("events_output" not in qt, "The duplicate event-log text area must be removed.")
