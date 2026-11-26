@@ -325,6 +325,10 @@
             <button class="button button-primary button-start" id="farm-toggle" disabled><svg><use href="#i-play"></use></svg>Запустить</button>
           </div>
         </header>
+        <section class="active-farm-panel" id="active-farm-panel" aria-hidden="true">
+          <div class="active-farm-panel-heading"><strong>АКТИВНЫЙ ФАРМ СЕЙЧАС</strong><span>Два канала в ротации</span></div>
+          <div class="active-farm-slots" id="active-farm-slots"></div>
+        </section>
         <section class="channels-panel panel">
           <div class="panel-heading">
             <div class="section-heading">СТРИМЕРЫ <span class="heading-count" id="channel-count">0</span></div>
@@ -403,6 +407,19 @@
         </header>
         <div class="settings-panel">
           <div class="settings-grid">
+            <section class="settings-card settings-update-card">
+              <div class="settings-card-heading"><div><span class="settings-kicker">GITHUB RELEASES</span><h2>Обновление приложения</h2><p>Проверка последней версии Twitch Farming и установка обновлений.</p></div><span class="settings-card-mark settings-mark-purple"><svg><use href="#i-refresh"></use></svg></span></div>
+              <div class="update-version-row"><span>Текущая версия</span><strong id="update-current-version">v—</strong></div>
+              <div class="update-status" id="update-status">Нажмите кнопку, чтобы проверить наличие новой версии на GitHub</div>
+              <div class="update-progress-container" id="update-progress-container" hidden>
+                <div class="update-progress-track"><span id="update-progress-bar"></span></div>
+                <div class="update-progress-label" id="update-progress-label">Скачивание: 0% (0.0 / 0.0 МБ) • 0.0 МБ/с</div>
+              </div>
+              <div class="settings-card-actions">
+                <button class="button button-primary" id="update-check-button"><svg><use href="#i-refresh"></use></svg>Проверить обновления</button>
+                <button class="button button-soft" id="update-download-button" type="button" hidden>Скачать и обновить</button>
+              </div>
+            </section>
             <section class="settings-card settings-card-automation">
               <div class="settings-card-heading"><div><span class="settings-kicker">АВТОМАТИЗАЦИЯ</span><h2>Автоматизация фарма</h2><p>Выбери действия, которые Twitch Farming будет выполнять автоматически.</p></div><span class="settings-card-mark"><svg><use href="#i-settings"></use></svg></span></div>
               <div class="option-grid">
@@ -558,7 +575,7 @@
           <span class="about-modal-kicker">О ПРОЕКТЕ</span>
           <div class="about-modal-title-row">
             <h2 id="about-modal-title">Twitch Farming</h2>
-            <span class="about-version" id="about-version">v1.0.0</span>
+            <span class="about-version" id="about-version">v—</span>
           </div>
           <p>Инструмент для управления автоматизацией Twitch.</p>
         </div>
