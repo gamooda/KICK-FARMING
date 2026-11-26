@@ -217,8 +217,8 @@ if (!source.includes("Остановите фарм, чтобы изменить
     !backend.includes("Остановите фарм, чтобы изменить список каналов.")) {
   throw new Error("Live-farming channel additions are not blocked in both UI and API.");
 }
-if (!source.includes('"<div class=' + "'channel-name'" + '>") ||
-    !source.includes('"<div class=' + "'channel-login'" + '>') ||
+if (!source.includes(`"<div class='channel-name'>`) ||
+    !source.includes(`"<div class='channel-login'>`) ||
     !source.includes("watchSlotMarkup")) {
   throw new Error("Streamer nickname, login or watch-slot badge markup is missing.");
 }
