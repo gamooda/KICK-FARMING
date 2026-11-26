@@ -561,11 +561,12 @@ function renderRewards(rewards,channelCurrency){
   const currencyMap=channelCurrency&&typeof channelCurrency==="object"?channelCurrency:{};
   const html=items.length?items.map(item=>{
     const icon=icons[item.kind]||"i-diamond";
-    const currency=currencyMap[String(item.channel_login||"").toLowerCase()]||{};
-    const currencyName=String(item.currency_name||currency.name||"").trim();
-    const currencyIcon=String(item.currency_icon||currency.icon_url||"");
+    const login=String(item.channel_login||item.channel||"").trim().replace(/^@/,"").toLowerCase();
+    const currency=currencyMap[login]||{};
+    const currencyName=String(currency.name||item.currency_name||"").trim();
+    const currencyIcon=[currency.icon_url,currency.points_icon_url,item.currency_icon,item.points_icon_url].map(value=>String(value||"").trim()).find(value=>value.startsWith("https://"))||"";
     const description=currencyName?String(item.description||"").replace(/Channel Points/gi,currencyName):String(item.description||"Награда Twitch");
-    const iconMarkup=item.kind==="gem"&&currencyIcon.startsWith("https://")?"<img class='reward-currency-icon' draggable='false' src='"+esc(currencyIcon)+"' alt=''>":"<svg><use href='#"+icon+"'></use></svg>";
+    const iconMarkup=item.kind==="gem"&&currencyIcon?"<img class='reward-currency-icon' draggable='false' loading='lazy' src='"+esc(currencyIcon)+"' alt='' onerror='this.remove()'>":"<svg><use href='#"+icon+"'></use></svg>";
     return "<div class='feed-item'><div class='feed-item-icon reward-"+esc(item.kind||"gem")+"'>"+iconMarkup+"</div><div class='feed-item-copy'><strong>"+esc(item.title||"Награда")+"</strong><span>"+esc(description)+"</span></div><time>"+timeAgo(item.timestamp)+"</time></div>";
   }).join(""):"<div class='feed-empty'>Награды появятся после начисления Channel Points.</div>";
   if(root.dataset.signature!==html){
