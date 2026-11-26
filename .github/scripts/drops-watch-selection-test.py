@@ -1,65 +1,144 @@
+import base64
+import json
 import sys
+from collections import OrderedDict
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "Twitch Farming" / "engine"))
 
-from TwitchChannelPointsMiner.classes.Settings import Priority
 from TwitchChannelPointsMiner.classes.Twitch import Twitch
+from TwitchChannelPointsMiner.classes.entities.Stream import Stream
 
 
-class FakeStreamer:
-    def __init__(self, drops_active=False, synchronized=True, pending=False):
-        self._drops_active = drops_active
-        self.stream = SimpleNamespace(
-            drops_campaigns_synced=synchronized,
-            campaigns_ids=["active-campaign"] if drops_active else [],
-            campaigns=[
-                SimpleNamespace(drops=[SimpleNamespace(is_claimed=False)])
-            ] if pending else []
-        )
-
-    def drops_condition(self):
-        return self._drops_active
+class FakeResponse:
+    def __init__(self, status_code=200, text="", url=""):
+        self.status_code = status_code
+        self.text = text
+        self.url = url
 
 
-def select(streamers):
-    return Twitch._select_minute_watch_indices(
-        streamers,
-        list(range(len(streamers))),
-        [Priority.ORDER]
+def make_streamer(username, online=True):
+    stream = Stream()
+    stream.update(
+        "24680",
+        "Example Stream",
+        {"id": "13579", "name": "Example Game", "displayName": "Example Game"},
+        [],
+        100,
+    )
+    return SimpleNamespace(
+        username=username,
+        channel_id="67890",
+        is_online=online,
+        stream=stream,
     )
 
 
-watching, drops_mode = select([
-    FakeStreamer(drops_active=True, synchronized=True, pending=True),
-    FakeStreamer()
-])
-assert watching == [0] and drops_mode is True, "An active Drops channel must occupy the only watch slot."
+streamers = [make_streamer(f"channel_{index}", index % 4 != 0) for index in range(15)]
+online_indices = Twitch._get_online_streamer_indices(streamers)
+assert online_indices == [index for index in range(15) if index % 4 != 0]
+assert len(online_indices) > 2, "Every online channel must be included without a two-channel cap."
 
-watching, drops_mode = select([
-    FakeStreamer(),
-    FakeStreamer(drops_active=True, synchronized=True, pending=True)
-])
-assert watching == [1] and drops_mode is True, "A Drops channel in the second slot must be selected alone."
+streamer = make_streamer("example_channel")
+event = Twitch._build_minute_watched_event(streamer, "12345")
+assert event is not None and len(event) == 1
+streamer.stream.payload = event
+encoded = streamer.stream.encode_payload()["data"]
+properties = json.loads(base64.b64decode(encoded).decode("utf-8"))[0]["properties"]
+for key in ("channel_id", "broadcast_id", "game", "game_id", "player", "user_id"):
+    assert properties.get(key), f"minute-watched payload is missing {key}"
+assert properties["channel_id"] == "67890"
+assert properties["broadcast_id"] == "24680"
+assert properties["game"] == "Example Game"
+assert properties["game_id"] == "13579"
+assert properties["player"] == "site"
+assert properties["user_id"] == 12345
 
-watching, drops_mode = select([
-    FakeStreamer(drops_active=True, synchronized=True, pending=True),
-    FakeStreamer(drops_active=True, synchronized=True, pending=True)
-])
-assert watching == [0] and drops_mode is True, "Only one of multiple active Drops channels may be selected."
+missing_metadata = make_streamer("missing_metadata")
+missing_metadata.stream.game = {}
+assert Twitch._build_minute_watched_event(missing_metadata, "12345") is None
 
-watching, drops_mode = select([
-    FakeStreamer(drops_active=True, synchronized=True, pending=False),
-    FakeStreamer()
-])
-assert watching == [0, 1] and drops_mode is False, "Normal two-slot viewing must resume after Drops are completed."
+master_playlist = (
+    "#EXTM3U\n"
+    "#EXT-X-STREAM-INF:BANDWIDTH=64000\n"
+    "low/index.m3u8\n"
+    "#EXT-X-STREAM-INF:BANDWIDTH=128000\n"
+    "high/index.m3u8\n"
+)
+variants = Twitch._parse_hls_playlist_urls(
+    master_playlist,
+    "https://video.example/live/master.m3u8",
+    master=True,
+)
+assert variants == [
+    "https://video.example/live/low/index.m3u8",
+    "https://video.example/live/high/index.m3u8",
+]
 
-watching, drops_mode = select([
-    FakeStreamer(drops_active=True, synchronized=False, pending=False),
-    FakeStreamer()
-])
-assert watching == [0] and drops_mode is True, "An unsynchronized active Drops campaign must reserve one slot."
+media_playlist = (
+    "#EXTM3U\n"
+    "#EXT-X-MEDIA-SEQUENCE:10\n"
+    "#EXTINF:2.0,\n"
+    "segments/one.ts\n"
+    "#EXTINF:2.0,\n"
+    "../two.ts?part=2\n"
+)
+segments = Twitch._parse_hls_playlist_urls(
+    media_playlist,
+    "https://video.example/live/quality/index.m3u8",
+)
+assert segments == [
+    "https://video.example/live/quality/segments/one.ts",
+    "https://video.example/live/two.ts?part=2",
+]
+assert Twitch._parse_hls_playlist_urls(
+    "#EXTM3U\n#EXTINF:2.0,\nfile:///private/segment.ts\n",
+    "https://video.example/live/index.m3u8",
+) == []
 
-print("Drops minute-watched selection tests passed.")
+watcher = Twitch.__new__(Twitch)
+watcher.running = True
+playlist_url = "https://video.example/live/index.m3u8"
+streamer.stream.hls_url = playlist_url
+playlist_response = FakeResponse(
+    text=media_playlist,
+    url=playlist_url,
+)
+with (
+    patch("TwitchChannelPointsMiner.classes.Twitch.requests.get", return_value=playlist_response),
+    patch("TwitchChannelPointsMiner.classes.Twitch.requests.head", return_value=FakeResponse()) as head,
+):
+    assert watcher._watch_stream_playlist(streamer) is True
+    assert watcher._watch_stream_playlist(streamer) is True
+assert [call.args[0] for call in head.call_args_list] == segments
+assert len(streamer.stream.watched_segments) == 2
+
+stream = streamer.stream
+stream.hls_url = playlist_url
+stream.watched_segments = OrderedDict({segments[0]: None})
+stream.last_minute_watched_sent = 123.0
+stream.update(
+    "24680",
+    "Updated title",
+    {"id": "13579", "name": "Example Game", "displayName": "Example Game"},
+    [],
+    120,
+)
+assert stream.hls_url == playlist_url
+assert list(stream.watched_segments) == [segments[0]]
+assert stream.last_minute_watched_sent == 123.0
+stream.update(
+    "24681",
+    "New broadcast",
+    {"id": "13579", "name": "Example Game", "displayName": "Example Game"},
+    [],
+    120,
+)
+assert stream.hls_url is None
+assert not stream.watched_segments
+assert stream.last_minute_watched_sent == 0.0
+
+print("Multi-channel watch and Twitch Drops HLS tests passed.")
