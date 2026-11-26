@@ -1304,7 +1304,7 @@ class Twitch(object):
                         break
         return campaigns
 
-    def get_drop_inventory_snapshot(self):
+    def get_drop_inventory_snapshot(self, channel_campaigns=None):
         inventory = self.__get_inventory() or {}
         dashboard_response = self.post_gql_request(copy.deepcopy(GQLOperations.ViewerDropsDashboard))
         dashboard_data = dashboard_response.get("data") or {} if isinstance(dashboard_response, dict) else {}
@@ -1419,6 +1419,12 @@ class Twitch(object):
         available_campaigns.extend(
             find_named_collections(inventory, {"rewardCampaignsAvailableToUser"})
         )
+        channel_campaign_rows = []
+        if isinstance(channel_campaigns, dict):
+            for channel_rows in channel_campaigns.values():
+                for campaign in channel_rows if isinstance(channel_rows, list) else []:
+                    if isinstance(campaign, dict) and campaign.get("id"):
+                        channel_campaign_rows.append(campaign)
         if isinstance(dashboard_response, dict) and dashboard_response.get("errors"):
             self._warn_drops_response(
                 "ViewerDropsDashboard",
@@ -1432,6 +1438,14 @@ class Twitch(object):
             for item in progress_campaigns
             if isinstance(item, dict)
         }
+        channel_campaign_ids = {
+            campaign_id_of(campaign)
+            for campaign in channel_campaign_rows
+            if any(
+                campaign.get(key)
+                for key in ("timeBasedDrops", "time_based_drops", "drops")
+            )
+        }
         detail_candidates = {}
         for raw_campaign in dashboard_campaigns + available_campaigns + progress_campaigns:
             if not isinstance(raw_campaign, dict):
@@ -1440,7 +1454,7 @@ class Twitch(object):
             if not isinstance(candidate, dict):
                 continue
             candidate_id = campaign_id_of(candidate)
-            if candidate_id:
+            if candidate_id and candidate_id not in channel_campaign_ids:
                 detail_candidates[candidate_id] = candidate
         detailed_campaigns = (
             self.__get_campaigns_details(list(detail_candidates.values()))
@@ -1452,6 +1466,7 @@ class Twitch(object):
             + [(item, "available") for item in available_campaigns]
             + [(item, "inventory") for item in progress_campaigns]
             + [(item, "details") for item in detailed_campaigns]
+            + [(item, "channel") for item in channel_campaign_rows]
         )
         for raw_campaign, source in source_rows:
             if not isinstance(raw_campaign, dict):
@@ -1733,13 +1748,23 @@ class Twitch(object):
             self._warn_drops_response(
                 "Inventory",
                 "не найдено активных кампаний в Inventory, ViewerDropsDashboard или rewardCampaignsAvailableToUser",
-                {"inventory": inventory, "dashboard": dashboard_response},
+                {
+                    "inventory": inventory,
+                    "dashboard": dashboard_response,
+                    "available_channel_campaigns": len(channel_campaign_rows),
+                },
             )
         return result
 
-    def get_drop_campaign_ids_for_channels(self, channels):
-        rows = [item for item in (channels or []) if isinstance(item, dict) and item.get("channel_id")]
-        result = {}
+    def get_drop_campaigns_for_channels(self, channels):
+        rows = [
+            item for item in (channels or [])
+            if isinstance(item, dict) and item.get("channel_id")
+        ]
+        result = {
+            str(item.get("login") or "").lower(): []
+            for item in rows
+        }
         for offset in range(0, len(rows), 20):
             batch = rows[offset:offset + 20]
             requests_data = []
@@ -1748,15 +1773,44 @@ class Twitch(object):
                 request_data["variables"] = {"channelID": str(item["channel_id"])}
                 requests_data.append(request_data)
             response = self.post_gql_request(requests_data)
+            if isinstance(response, dict):
+                response = [response]
             if not isinstance(response, list):
                 continue
-            for item, payload in zip(batch, response):
+            for channel, payload in zip(batch, response):
+                login = str(channel.get("login") or "").lower()
                 try:
-                    available = payload["data"]["channel"]["viewerDropCampaigns"] or []
-                    result[str(item.get("login") or "").lower()] = [str(campaign["id"]) for campaign in available if campaign.get("id")]
-                except (KeyError, TypeError):
-                    result[str(item.get("login") or "").lower()] = []
+                    channel_data = (payload.get("data") or {}).get("channel") or {}
+                    available = channel_data.get("viewerDropCampaigns") or []
+                    if isinstance(available, dict):
+                        available = (
+                            available.get("nodes")
+                            or available.get("items")
+                            or available.get("edges")
+                            or []
+                        )
+                    campaigns = []
+                    for item in available if isinstance(available, list) else []:
+                        if not isinstance(item, dict):
+                            continue
+                        campaign = item.get("node") if isinstance(item.get("node"), dict) else item
+                        if campaign.get("id"):
+                            campaigns.append(dict(campaign))
+                    result[login] = campaigns
+                except (AttributeError, KeyError, TypeError):
+                    result[login] = []
         return result
+
+    def get_drop_campaign_ids_for_channels(self, channels):
+        campaigns_by_login = self.get_drop_campaigns_for_channels(channels)
+        return {
+            login: [
+                str(campaign["id"])
+                for campaign in campaigns
+                if isinstance(campaign, dict) and campaign.get("id")
+            ]
+            for login, campaigns in campaigns_by_login.items()
+        }
 
     def claim_drop(self, drop):
         logger.info(
