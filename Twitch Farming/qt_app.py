@@ -1273,10 +1273,10 @@ class CampaignCard(QFrame):
         self.setObjectName("campaignCard")
         self.setMinimumWidth(220)
         self.setMaximumWidth(440)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(9)
+        layout.setSpacing(10)
 
         game_value = campaign.get("game") or campaign.get("game_name") or "TWITCH"
         game_data = game_value if isinstance(game_value, dict) else {}
@@ -1332,7 +1332,7 @@ class CampaignCard(QFrame):
         for drop in campaign.get("visible_drops", []):
             reward_row = QFrame()
             reward_row.setObjectName("dropRewardRow")
-            reward_row.setMinimumHeight(88)
+            reward_row.setMinimumHeight(96)
             reward_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             reward_layout = QVBoxLayout(reward_row)
             reward_layout.setContentsMargins(10, 10, 10, 10)
