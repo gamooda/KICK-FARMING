@@ -1475,6 +1475,12 @@ class TwitchFarmingApi:
         return result
 
     def clear_avatar_cache(self):
+        import shutil
+        cache_dir = APP_DIR / "image_cache" / "avatars"
+        try:
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        except OSError:
+            pass
         with self.lock:
             cleared = 0
             for profile in self.channel_profiles.values():
@@ -1490,6 +1496,12 @@ class TwitchFarmingApi:
         return {"ok": True, "cleared": cleared, "message": "Кэш аватарок очищен. Профили обновляются."}
 
     def clear_currency_cache(self):
+        import shutil
+        cache_dir = APP_DIR / "image_cache" / "currency"
+        try:
+            shutil.rmtree(cache_dir, ignore_errors=True)
+        except OSError:
+            pass
         with self.lock:
             cleared = sum(1 for item in self.channel_points_branding_cache.values() if item.get("icon_url"))
             self.channel_points_branding_cache.clear()
