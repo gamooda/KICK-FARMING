@@ -365,6 +365,31 @@ async function saveChannelCardSwap(sourceLogin,targetLogin){
   }
 }
 
+function renderActiveFarmPanel(state){
+  const root=$("active-farm-panel");
+  const slotsRoot=$("active-farm-slots");
+  if(!root||!slotsRoot)return;
+  const running=Boolean(state&&state.session_running);
+  root.classList.toggle("is-visible",running);
+  root.setAttribute("aria-hidden",running?"false":"true");
+  if(!running){slotsRoot.innerHTML="";root.dataset.signature="";return;}
+  const slots=Array.isArray(state.watch_slots)?state.watch_slots:[];
+  const profiles=state.channel_profiles||{},balances=state.channel_balances||{},currencies=state.channel_currency||{},watchStatuses=state.watch_status||{};
+  const cards=[0,1].map(index=>{
+    const login=String(slots[index]||"").toLowerCase();
+    if(!login)return "<article class='active-farm-slot is-waiting'><span class='active-farm-slot-number'>СЛОТ "+(index+1)+"</span><div class='active-farm-slot-empty'>Ожидание следующего канала…</div></article>";
+    const profile=profiles[login]||{},name=String(profile.display_name||login),avatar=String(profile.avatar_url||"");
+    const image=avatar.startsWith("https://")?"<img draggable='false' src='"+esc(avatar)+"' alt='' onerror='this.remove()'>":"<span>"+esc(name.charAt(0).toUpperCase()||"?")+"</span>";
+    const currency=currencies[login]||{},balance=Object.prototype.hasOwnProperty.call(balances,login)?Number(balances[login]||0).toLocaleString("ru-RU"):"—";
+    const watch=watchStatuses[login]||{},age=Date.now()/1000-Number(watch.updated_at||0);
+    const labels={selected:"Выбран для просмотра",request:"Запрос отправляется",accepted:"Просмотр подтверждён",error:"Ошибка просмотра"};
+    const progress=age<120&&labels[watch.state]?labels[watch.state]+(watch.detail?" · "+watch.detail:""):profile.is_live?"Эфир активен · "+Number(profile.viewer_count||0).toLocaleString("ru-RU")+" зрителей":"Ожидание прогресса просмотра";
+    return "<article class='active-farm-slot'><span class='active-farm-slot-number'>СЛОТ "+(index+1)+"</span><div class='active-farm-slot-avatar'>"+image+"</div><div class='active-farm-slot-info'><strong>"+esc(name)+"</strong><span>@"+esc(login)+"</span><div class='active-farm-slot-balance'><b>"+balance+"</b><small>"+esc(String(currency.name||"баллов"))+"</small></div><div class='active-farm-slot-progress'><i></i>"+esc(progress)+"</div></div><span class='active-farm-slot-live'>● СМОТРИМ</span></article>";
+  }).join("");
+  const signature=JSON.stringify([slots,profiles,balances,currencies,watchStatuses]);
+  if(root.dataset.signature!==signature){root.dataset.signature=signature;slotsRoot.innerHTML=cards;}
+}
+
 function renderChannels(channels,online,running,profiles,watchStatuses,balances,currencies,watchSlots,temporaryChannels){
   if(running||!channels.includes(selectedChannelForMove)) selectedChannelForMove="";
   const activeWatchSlots=Array.isArray(watchSlots)?watchSlots:[];
