@@ -127,6 +127,61 @@ if (backend.includes("WEBVIEW_DIR.mkdir") || backend.includes("storage_path=str(
 
 const workflow = fs.readFileSync(path.resolve(__dirname, "../workflows/build-twitch-exe.yml"), "utf8");
 const versionInfo = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/version_info.py"), "utf8");
+const versionMatch = versionInfo.match(/APP_VERSION\s*=\s*["']([^"']+)["']/);
+const uiBuildInfo = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/ui/build_info.json"), "utf8"));
+if (!versionMatch || uiBuildInfo.version !== versionMatch[1]) {
+  throw new Error("The frontend bundle build version does not match the Python executable version.");
+}
+for (const marker of [
+  "settings-update-card",
+  "update-check-button",
+  "update-download-button",
+  "update-progress-bar",
+  "update-progress-label",
+  'data-drops-category="all_campaigns"',
+  'data-drops-category="started"',
+  'data-drops-category="twitch_view"',
+  "АКТИВНЫЙ ФАРМ СЕЙЧАС",
+  'id="active-farm-panel"',
+  'id="active-farm-slots"'
+]) {
+  if (!html.includes(marker)) throw new Error("Required #247 frontend markup is missing: " + marker);
+}
+if (html.includes("Drops для подписки") || html.includes("drops-sub-list")) {
+  throw new Error("The obsolete subscription Drops section is present in the frontend bundle.");
+}
+if (!source.includes("function renderActiveFarmPanel(") ||
+    !source.includes("function renderUpdateState(") ||
+    !source.includes("function renderDropsInventory(") ||
+    !source.includes("watchSlotMarkup") ||
+    !source.includes("<div class='channel-name'>") ||
+    !source.includes("<div class='channel-login'>")) {
+  throw new Error("One or more #247 frontend features are not wired into app.js.");
+}
+if (!css.includes(".active-farm-panel.is-visible") ||
+    !css.includes(".channel-card-top .channel-watch-slot{position:absolute") ||
+    !css.includes(".channel-info--always-visible .channel-name{display:block!important")) {
+  throw new Error("The active farm, watch-slot badge or streamer identity styles are missing.");
+}
+if (html.indexOf("settings-account-card") > html.indexOf("settings-update-card")) {
+  throw new Error("The updater card must be beside the Twitch account card.");
+}
+if (!backend.includes("def _resolve_ui_directory():") ||
+    !backend.includes("executable_dir / \"ui\"") ||
+    !backend.includes("RESOURCE_DIR / \"ui\"") ||
+    !backend.includes("def _validate_ui_bundle():") ||
+    !backend.includes("ui_manifest = _validate_ui_bundle()")) {
+  throw new Error("The application does not resolve and validate the actual version-matched UI bundle.");
+}
+const copyUiStepStart = workflow.indexOf("- name: Copy versioned frontend beside executable");
+const copyUiStepEnd = workflow.indexOf("\n      - name:", copyUiStepStart + 10);
+const copyUiStep = copyUiStepStart >= 0 && copyUiStepEnd >= 0
+  ? workflow.slice(copyUiStepStart, copyUiStepEnd)
+  : "";
+if (!copyUiStep.includes("Copy-Item -Path $source -Destination $destination") ||
+    !workflow.includes("Twitch Farming/ui/build_info.json")) {
+  throw new Error("The versioned UI bundle is not copied beside the executable.");
+}
 const buildStepStart = workflow.indexOf("- name: Build executable");
 const buildStepEnd = workflow.indexOf("\n      - name:", buildStepStart + 10);
 const buildStep = buildStepStart >= 0 && buildStepEnd >= 0
