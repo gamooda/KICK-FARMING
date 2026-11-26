@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "Twitch Farming" / "engine"))
 from TwitchChannelPointsMiner.classes.Twitch import Twitch
 from TwitchChannelPointsMiner.classes.entities.Stream import Stream
 from TwitchChannelPointsMiner.classes.Settings import Settings
+from TwitchChannelPointsMiner.constants import GQLOperations
 
 Settings.logger = SimpleNamespace(less=True)
 
@@ -312,6 +313,12 @@ with (
 assert inventory_result["dropCampaignsInProgress"] == [{"id": "inventory-edge-campaign"}]
 
 snapshot_client = Twitch.__new__(Twitch)
+snapshot_details_requested = []
+
+def return_campaign_details(self, candidates):
+    snapshot_details_requested.extend(candidates)
+    return candidates
+
 snapshot_campaign_one = {
     "id": "campaign-one",
     "status": "ACTIVE",
@@ -327,7 +334,7 @@ snapshot_campaign_one = {
                 "node": {
                     "benefit": {
                         "name": "Chat Badge",
-                        "benefitType": "BADGE",
+                        "distributionType": "BADGE",
                         "imageAssetURL": "https://example.test/badge.png",
                     }
                 }
@@ -348,7 +355,7 @@ snapshot_campaign_two = {
                 "name": "Game Item",
                 "requiredMinutesWatched": 30,
                 "benefitEdges": [{
-                    "benefit": {"name": "Weapon Skin", "benefitType": "GAME_ITEM", "imageAssetURL": "https://example.test/weapon.png"}
+                    "benefit": {"name": "Weapon Skin", "distributionType": "DIRECT_ENTITLEMENT", "imageAssetURL": "https://example.test/weapon.png"}
                 }],
             }
         }, {
@@ -373,7 +380,7 @@ snapshot_campaign_in_progress = {
         "requiredMinutesWatched": 20,
         "self": {"isClaimed": "false", "currentMinutesWatched": "7"},
         "benefitEdges": [{
-            "benefit": {"name": "GTAVI Emote", "benefitType": "EMOTE", "imageAssetURL": "https://example.test/gtavi-emote.png"}
+            "benefit": {"name": "GTAVI Emote", "distributionType": "EMOTE", "imageAssetURL": "https://example.test/gtavi-emote.png"}
         }],
     }],
 }
@@ -386,7 +393,7 @@ snapshot_campaign_no_game = {
         "id": "pokemon-drop",
         "name": "Pokemon reward",
         "benefitEdges": [{
-            "benefit": {"name": "Pokemon reward", "benefitType": "GAME_ITEM", "imageAssetURL": "https://example.test/pokemon.png"}
+            "benefit": {"name": "Pokemon reward", "distributionType": "DIRECT_ENTITLEMENT", "imageAssetURL": "https://example.test/pokemon.png"}
         }],
     }],
 }
@@ -405,7 +412,7 @@ snapshot_campaign_no_image = {
     "timeBasedDrops": [{
         "id": "drop-no-image",
         "name": "Unrenderable reward",
-        "benefitEdges": [{"benefit": {"name": "Reward", "benefitType": "GAME_ITEM"}}],
+        "benefitEdges": [{"benefit": {"name": "Reward", "distributionType": "DIRECT_ENTITLEMENT"}}],
     }],
 }
 snapshot_campaign_marvel = {
@@ -419,7 +426,7 @@ snapshot_campaign_marvel = {
         "requiredMinutesWatched": 45,
         "self": {"isClaimed": "false", "currentMinutesWatched": "12"},
         "benefitEdges": [{
-            "benefit": {"name": "Marvel Rivals Emote", "benefitType": "EMOTE", "imageAssetURL": "https://example.test/marvel-emote.png"}
+            "benefit": {"name": "Marvel Rivals Emote", "distributionType": "EMOTE", "imageAssetURL": "https://example.test/marvel-emote.png"}
         }],
     }],
 }
@@ -436,7 +443,7 @@ snapshot_inventory = {
             "benefitEdges": {
                 "edges": [{
                     "node": {
-                        "benefit": {"name": "Twitch Emote", "benefitType": "EMOTE"}
+                        "benefit": {"name": "Twitch Emote", "distributionType": "EMOTE"}
                     }
                 }]
             },
@@ -463,7 +470,7 @@ snapshot_dashboard = {
                         "id": "global-badge-drop",
                         "name": "Global Twitch Badge",
                         "requiredMinutesWatched": 30,
-                        "benefitEdges": [{"benefit": {"name": "Global Badge", "benefitType": "BADGE"}}],
+                        "benefitEdges": [{"benefit": {"name": "Global Badge", "distributionType": "BADGE"}}],
                     }],
                 }}},
                 {"node": {"campaign": {
@@ -499,11 +506,13 @@ snapshot_dashboard = {
 with (
     patch.object(Twitch, "_Twitch__get_inventory", lambda self: snapshot_inventory),
     patch.object(Twitch, "post_gql_request", lambda self, request: snapshot_dashboard),
+    patch.object(Twitch, "_Twitch__get_campaigns_details", return_campaign_details),
     patch.object(Twitch, "_warn_drops_response", lambda self, *args: None),
 ):
     snapshot = snapshot_client.get_drop_inventory_snapshot()
 assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-no-image", "marvel-rivals", "campaign-upcoming", "campaign-empty-status", "campaign-in-progress", "pokemon-evolutions", "global-twitch-rewards"}
 campaigns_by_id = {campaign["id"]: campaign for campaign in snapshot}
+assert {"campaign-one", "campaign-two", "marvel-rivals", "campaign-in-progress"}.issubset({str(item.get("id") or item.get("campaignID") or item.get("campaignId") or "") for item in snapshot_details_requested}), "Details must be requested for available campaigns before they are in inventory."
 assert campaigns_by_id["campaign-one"]["started"] is True
 assert campaigns_by_id["campaign-one"]["in_inventory"] is True
 assert campaigns_by_id["campaign-two"]["started"] is False
@@ -525,6 +534,7 @@ assert set(snapshot_drops) == {"badge-drop", "game-drop", "drop-no-image", "marv
 assert snapshot_drops["badge-drop"]["category"] == "twitch"
 assert snapshot_drops["marvel-emote-drop"]["category"] == "twitch"
 assert snapshot_drops["game-drop"]["category"] == "game"
+assert snapshot_drops["game-drop"]["benefit_type"] == "DIRECT_ENTITLEMENT"
 assert all(drop["is_time_based"] for drop in snapshot_drops.values())
 assert snapshot_drops["drop-no-image"]["image_url"] == ""
 assert snapshot_drops["upcoming-drop"]["image_url"] == "https://example.test/upcoming-box.png"
@@ -540,4 +550,10 @@ assert "paid-drop" not in snapshot_drops
 assert "paid-subs-goal" not in snapshot_drops
 assert "only-subs-goal" not in snapshot_drops
 
-print("Multi-channel watch, full Drops inventory parsing, reward categories and Twitch Drops HLS tests passed.")
+assert GQLOperations.Inventory["variables"]["fetchRewardCampaigns"] is False
+assert GQLOperations.ViewerDropsDashboard["variables"]["fetchRewardCampaigns"] is False
+assert GQLOperations.Inventory["extensions"]["persistedQuery"]["sha256Hash"] == "8337eb8541b314040b0edde0c09c5c7a2783ba1960aa9edfbf3bac16d0fec404"
+assert GQLOperations.ViewerDropsDashboard["extensions"]["persistedQuery"]["sha256Hash"] == "c16bb890cc8ce7647a96ee69cd313d423a378a3dedadf630a1017cde18975feb"
+assert GQLOperations.DropCampaignDetails["extensions"]["persistedQuery"]["sha256Hash"] == "039277bf98f3130929262cc7c6efd9c141ca3749cb6dca442fc8ead9a53f77c1"
+assert GQLOperations.DropsHighlightService_AvailableDrops["extensions"]["persistedQuery"]["sha256Hash"] == "782dad0f032942260171d2d80a654f88bdd0c5a9dddc392e9bc92218a0f42d20"
+print("Multi-channel watch, available Drops discovery, Twitch profile reward filtering, persisted queries and HLS tests passed.")
