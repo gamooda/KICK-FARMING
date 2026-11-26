@@ -223,7 +223,7 @@ if (!source.includes(`"<div class='channel-name'>`) ||
   throw new Error("Streamer nickname, login or watch-slot badge markup is missing.");
 }
 
-const inlineBootstrap = [...html.matchAll(/<script>([\\s\\S]*?)<\\/script>/gi)][0]?.[1];
+const inlineBootstrap = [...html.matchAll(/<script>([\s\S]*?)<\/script>/gi)][0]?.[1];
 if (!inlineBootstrap) throw new Error("Inline startup diagnostic bootstrap was not found.");
 new vm.Script(inlineBootstrap, { filename: "index.html:inline-startup" });
 const elements = new Map();
