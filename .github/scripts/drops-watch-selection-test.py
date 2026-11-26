@@ -12,6 +12,9 @@ sys.path.insert(0, str(ROOT / "Twitch Farming" / "engine"))
 
 from TwitchChannelPointsMiner.classes.Twitch import Twitch
 from TwitchChannelPointsMiner.classes.entities.Stream import Stream
+from TwitchChannelPointsMiner.classes.Settings import Settings
+
+Settings.logger = SimpleNamespace(less=True)
 
 
 class FakeResponse:
