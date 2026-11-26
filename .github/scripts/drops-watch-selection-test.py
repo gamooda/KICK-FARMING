@@ -662,7 +662,8 @@ assert detail_requests[1][0]["variables"]["channelLogin"] == "dv4roka"
 engine_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "TwitchChannelPointsMiner.py").read_text(encoding="utf-8")
 assert "except requests.exceptions.RequestException as error:" in engine_source, "A single Twitch API timeout must not terminate the Engine worker."
 backend_source = (ROOT / "Twitch Farming" / "backend.py").read_text(encoding="utf-8")
-assert "get_drop_campaigns_for_channels(live_followers)" in backend_source, "Drops catalog must request full AvailableDrops campaign objects for live followed channels."
+assert "get_drop_campaigns_for_channels(live_channels)" in backend_source, "Drops catalog must request full AvailableDrops campaign objects for all live farm/followed channels."
+assert "configured_logins = list(dict.fromkeys(" in backend_source and 'self.client.helix_get(\n                        "streams",' in backend_source, "Configured farm channels must be checked for live streams even when they are not followed."
 assert "get_drop_inventory_snapshot(" in backend_source and "available_campaigns_by_login\n            )" in backend_source, "AvailableDrops campaign summaries must be passed into catalog normalization."
 twitch_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8")
 assert "for attempt in range(2):" in twitch_source and "requests.exceptions.Timeout" in twitch_source, "Helix requests must retry transient timeouts."
