@@ -393,12 +393,13 @@ bridge.get_state = () => {
 };
 
 const window = {
+  intervalCount: 0,
   setTimeout(callback) { return setImmediate(callback); },
   clearTimeout(handle) { clearImmediate(handle); },
   setInterval(callback, delay) {
-    intervalCount++;
+    this.intervalCount++;
     if (delay === 300) setImmediate(callback);
-    return intervalCount;
+    return this.intervalCount;
   },
   clearInterval() {},
   __tfStartupDebug: {
@@ -443,7 +444,7 @@ appInitialized = true;
   if (!document.getElementById("startup-overlay").classList.contains("hidden")) {
     throw new Error("Startup overlay was not hidden after successful initialization.");
   }
-  if (intervalCount !== 4) {
+  if (window.intervalCount !== 4) {
     throw new Error("Startup status timer and application polling were not initialized after readiness.");
   }
   if (!restoreStarted || authCalls < 3 || stateCalls !== 2) {
