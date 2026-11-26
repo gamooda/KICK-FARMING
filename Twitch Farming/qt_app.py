@@ -2175,7 +2175,7 @@ class MainWindow(QMainWindow):
             self.farm_status.setStyleSheet("color:" + color + ";")
             running = bool(state.get("session_running"))
             self.farm_button.setText("Остановить фарм" if running else "Запустить фарм")
-        self.farm_button.setSvgIcon("stop" if running else "play", 15)
+            self.farm_button.setSvgIcon("stop" if running else "play", 15)
             self.add_channel_button.setEnabled(not running)
             self.add_channel_button.setToolTip("Остановите фарм, чтобы изменить список каналов." if running else "")
             self.username_input.setEnabled(not running)
