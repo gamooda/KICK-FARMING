@@ -316,9 +316,6 @@ class SwitchCheckBox(QCheckBox):
 
 
 
-
-class ChannelCard
-
 class ChannelCard(QFrame):
     selected = Signal(str)
 
