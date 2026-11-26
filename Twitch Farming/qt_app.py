@@ -544,7 +544,7 @@ class ImageCache(QObject):
 class TwitchLogo(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(36, 36)
+        self.setFixedSize(52, 52)
         self.setMouseTracking(True)
         self._hovered = False
         self._look_x = 0.0
@@ -833,106 +833,43 @@ class ChannelCard(QFrame):
         profile = profile if isinstance(profile, dict) else {}
         currency = currency if isinstance(currency, dict) else {}
         self.setObjectName("channelCard")
-        self.setMinimumWidth(260)
-        self.setFixedHeight(104)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFixedWidth(190)
+        self.setFixedHeight(232)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
 
-        root = QHBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 12)
-        root.setSpacing(12)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(10, 9, 10, 10)
+        root.setSpacing(5)
 
-        self.avatar = QLabel()
-        self.avatar.setObjectName("channelAvatar")
-        self.avatar.setFixedSize(44, 44)
-        self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.avatar.setText(str(profile.get("display_name") or login or "T")[:1].upper())
-        root.addWidget(self.avatar)
-
-        details = QVBoxLayout()
-        details.setContentsMargins(0, 0, 0, 0)
-        details.setSpacing(6)
-
-        title_row = QHBoxLayout()
-        title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(8)
-
-        self.name = QLabel(str(profile.get("display_name") or login or "Канал"))
-        self.name.setObjectName("channelName")
-        self.name.setMinimumWidth(0)
-        self.name.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        self.name.setWordWrap(False)
-        title_row.addWidget(self.name)
-
-        live = QLabel("• В ЭФИРЕ" if profile.get("is_live") else "• НЕ В ЭФИРЕ")
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(4)
+        live = QLabel("• В ЭФИРЕ" if profile.get("is_live") else "• ОФЛАЙН")
         live.setObjectName("liveBadge" if profile.get("is_live") else "offlineBadge")
-        title_row.addWidget(live, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        if temporary:
-            badge = QLabel("DROPS")
-            badge.setObjectName("temporaryBadge")
-            title_row.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        title_row.addStretch(1)
-        details.addLayout(title_row)
-
-        balance_row = QHBoxLayout()
-        balance_row.setContentsMargins(0, 0, 0, 0)
-        balance_row.setSpacing(5)
-
-        self.currency_icon = QLabel("✦")
-        self.currency_icon.setFixedSize(24, 24)
-        self.currency_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.currency_icon.setObjectName("channelCurrencyIcon")
-        balance_row.addWidget(self.currency_icon)
-
-        points = QLabel(f"{_ui_int(balance):,}".replace(",", " "))
-        points.setObjectName("channelBalance")
-        balance_row.addWidget(points)
-
-        currency_name = QLabel(str(currency.get("name") or "Channel Points"))
-        currency_name.setObjectName("channelCurrencyName")
-        currency_name.setMinimumWidth(0)
-        currency_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-        balance_row.addWidget(currency_name, 1)
-
-        details.addLayout(balance_row)
-        details.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        root.addLayout(details, 1)
-
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(0)
-
-        if slot:
-            watch = QLabel("СМОТРИМ • СЛОТ " + str(slot))
-            watch.setObjectName("watchBadge")
-            watch.setMinimumHeight(20)
-            watch.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            right.addWidget(watch, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-
-        right.addStretch(1)
+        top.addWidget(live, 0, Qt.AlignmentFlag.AlignVCenter)
+        top.addStretch(1)
 
         self.actions_panel = QFrame()
         self.actions_panel.setObjectName("channelActions")
-        self.actions_panel.setFixedHeight(24)
+        self.actions_panel.setFixedHeight(22)
         action_layout = QHBoxLayout(self.actions_panel)
         action_layout.setContentsMargins(0, 0, 0, 0)
-        action_layout.setSpacing(3)
+        action_layout.setSpacing(2)
 
         open_button = QPushButton()
         open_button.setObjectName("cardAction")
-        open_button.setSvgIcon("external", 14)
-        open_button.setFixedSize(24, 24)
+        open_button.setSvgIcon("external", 13)
+        open_button.setFixedSize(21, 21)
         open_button.setToolTip("Открыть на Twitch")
         open_button.clicked.connect(lambda checked=False, value=login: QDesktopServices.openUrl(QUrl("https://www.twitch.tv/" + value)))
         action_layout.addWidget(open_button)
 
         move = QPushButton()
         move.setObjectName("cardAction")
-        move.setSvgIcon("swap", 14)
-        move.setFixedSize(24, 24)
+        move.setSvgIcon("swap", 13)
+        move.setFixedSize(21, 21)
         move.setEnabled(bool(actions_enabled))
         move.setToolTip("Переместить: выбери вторую карточку")
         move.clicked.connect(lambda checked=False, value=login: move_callback(value))
@@ -940,17 +877,17 @@ class ChannelCard(QFrame):
 
         edit = QPushButton()
         edit.setObjectName("cardAction")
-        edit.setSvgIcon("settings", 14)
-        edit.setFixedSize(24, 24)
+        edit.setSvgIcon("settings", 13)
+        edit.setFixedSize(21, 21)
         edit.setEnabled(bool(actions_enabled))
-        edit.setToolTip("Настройки канала · Редактировать канал")
+        edit.setToolTip("Редактировать канал")
         edit.clicked.connect(lambda checked=False, value=login: edit_callback(value))
         action_layout.addWidget(edit)
 
         remove = QPushButton()
         remove.setObjectName("cardAction")
-        remove.setSvgIcon("trash", 14, danger=True)
-        remove.setFixedSize(24, 24)
+        remove.setSvgIcon("trash", 13, danger=True)
+        remove.setFixedSize(21, 21)
         remove.setEnabled(bool(actions_enabled))
         remove.setToolTip("Удалить канал")
         remove.clicked.connect(lambda checked=False, value=login: remove_callback(value))
@@ -960,11 +897,75 @@ class ChannelCard(QFrame):
         self.actions_opacity.setOpacity(0.0)
         self.actions_panel.setGraphicsEffect(self.actions_opacity)
         self.actions_panel.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        right.addWidget(self.actions_panel, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom)
-        root.addLayout(right)
+        top.addWidget(self.actions_panel, 0, Qt.AlignmentFlag.AlignRight)
+        root.addLayout(top)
+
+        badges = QHBoxLayout()
+        badges.setContentsMargins(0, 0, 0, 0)
+        badges.setSpacing(4)
+        if slot:
+            slot_badge = QLabel("СЛОТ " + str(slot))
+            slot_badge.setObjectName("channelSlotBadge")
+            badges.addWidget(slot_badge)
+        if temporary:
+            temporary_badge = QLabel("DROPS")
+            temporary_badge.setObjectName("temporaryBadge")
+            badges.addWidget(temporary_badge)
+        badges.addStretch(1)
+        root.addLayout(badges)
+
+        avatar_row = QHBoxLayout()
+        avatar_row.addStretch(1)
+        self.avatar = QLabel()
+        self.avatar.setObjectName("channelAvatar")
+        self.avatar.setFixedSize(64, 64)
+        self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.avatar.setText(str(profile.get("display_name") or login or "T")[:1].upper())
+        avatar_row.addWidget(self.avatar)
+        avatar_row.addStretch(1)
+        root.addLayout(avatar_row)
+
+        self.name = QLabel(str(profile.get("display_name") or login or "Канал"))
+        self.name.setObjectName("channelName")
+        self.name.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.name.setWordWrap(False)
+        root.addWidget(self.name)
+
+        self.login_label = QLabel("@" + login)
+        self.login_label.setObjectName("channelLogin")
+        self.login_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self.login_label)
+
+        balance_row = QHBoxLayout()
+        balance_row.setContentsMargins(0, 0, 0, 0)
+        balance_row.setSpacing(4)
+        balance_row.addStretch(1)
+        self.currency_icon = QLabel("✦")
+        self.currency_icon.setFixedSize(18, 18)
+        self.currency_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.currency_icon.setObjectName("channelCurrencyIcon")
+        balance_row.addWidget(self.currency_icon)
+        points = QLabel(f"{_ui_int(balance):,}".replace(",", " "))
+        points.setObjectName("channelBalance")
+        balance_row.addWidget(points)
+        currency_name = QLabel(str(currency.get("name") or "Channel Points"))
+        currency_name.setObjectName("channelCurrencyName")
+        currency_name.setMaximumWidth(66)
+        currency_name.setMinimumWidth(0)
+        currency_name.setWordWrap(False)
+        balance_row.addWidget(currency_name)
+        balance_row.addStretch(1)
+        root.addLayout(balance_row)
+
+        viewers = int(profile.get("viewer_count") or 0)
+        self.viewers = QLabel(f"{viewers:,}".replace(",", " ") + " зрителей" if profile.get("is_live") else "")
+        self.viewers.setObjectName("channelViewers")
+        self.viewers.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self.viewers)
+        root.addStretch(1)
 
         self.actions_opacity_animation = QPropertyAnimation(self.actions_opacity, b"opacity", self)
-        self.actions_opacity_animation.setDuration(150)
+        self.actions_opacity_animation.setDuration(140)
         self.actions_opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.actions_opacity_animation.finished.connect(self._finish_actions_animation)
 
@@ -999,6 +1000,7 @@ class ChannelCard(QFrame):
         if event.button() == Qt.MouseButton.LeftButton:
             self.selected.emit(self.login)
         super().mousePressEvent(event)
+
 
 
 
@@ -1172,81 +1174,190 @@ def log_entry_matches_level(line, level, fallback="INFO"):
     return severity == selected.upper()
 
 
+def _format_campaign_date(campaign):
+    value = ""
+    if isinstance(campaign, dict):
+        for key in ("end_at", "endAt", "end_date", "endDate", "ends_at", "endsAt"):
+            if campaign.get(key):
+                value = campaign.get(key)
+                break
+    if isinstance(value, (int, float)):
+        try:
+            date_value = datetime.fromtimestamp(float(value))
+        except (OverflowError, OSError, ValueError):
+            date_value = None
+    else:
+        raw = str(value or "").strip()
+        date_value = None
+        if raw:
+            try:
+                date_value = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                try:
+                    date_value = datetime.strptime(raw[:10], "%Y-%m-%d")
+                except (TypeError, ValueError):
+                    date_value = None
+    if date_value is None:
+        return "Дата окончания не указана"
+    months = ("янв.", "фев.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сен.", "окт.", "ноя.", "дек.")
+    return f"Кампания до {date_value.day} {months[date_value.month - 1]} {date_value.year} г."
+
+
 class CampaignCard(QFrame):
     def __init__(self, campaign, image_cache, add_callback, parent=None, add_enabled=True):
         super().__init__(parent)
         self.setObjectName("campaignCard")
+        self.setMinimumWidth(220)
+        self.setMaximumWidth(440)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+
         header = QHBoxLayout()
-        image = QLabel()
-        image.setFixedSize(54, 68)
-        image.setObjectName("campaignImage")
-        image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        image.setText("DROP")
-        header.addWidget(image)
+        header.setSpacing(9)
+        game_image = QLabel()
+        game_image.setFixedSize(44, 58)
+        game_image.setObjectName("campaignImage")
+        game_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        game_image.setText("GAME")
+        header.addWidget(game_image, 0, Qt.AlignmentFlag.AlignTop)
+
         title_box = QVBoxLayout()
+        title_box.setSpacing(3)
+        game_value = campaign.get("game") or "TWITCH"
+        game_text = str(game_value).upper()
+        game = QLabel(game_text)
+        game.setObjectName("campaignGame")
+        game.setWordWrap(False)
+        title_box.addWidget(game)
+
         name = QLabel(str(campaign.get("name") or "Кампания Twitch"))
         name.setObjectName("cardTitle")
+        name.setWordWrap(True)
         title_box.addWidget(name)
-        game = QLabel(str(campaign.get("game") or "Награды Twitch"))
-        game.setObjectName("mutedText")
-        title_box.addWidget(game)
-        date = QLabel("До: " + str(campaign.get("end_at") or "не указано"))
+
+        date = QLabel(_format_campaign_date(campaign))
         date.setObjectName("smallMuted")
+        date.setWordWrap(True)
         title_box.addWidget(date)
         header.addLayout(title_box, 1)
-        count = QLabel(str(len(campaign.get("visible_drops", []))) + " наград")
-        count.setObjectName("purpleBadge")
-        header.addWidget(count, 0, Qt.AlignmentFlag.AlignTop)
+
+        watch_badge = QLabel("WATCH DROP")
+        watch_badge.setObjectName("watchDropBadge")
+        header.addWidget(watch_badge, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(header)
-        for drop in campaign.get("visible_drops", []):
-            row = QHBoxLayout()
-            reward_image = QLabel()
-            reward_image.setFixedSize(44, 44)
-            reward_image.setObjectName("rewardIcon")
-            reward_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            reward_image.setText("🎁")
-            row.addWidget(reward_image)
-            details = QVBoxLayout()
-            reward_name = QLabel(str(drop.get("name") or drop.get("benefit") or "Награда Twitch"))
-            reward_name.setObjectName("rewardTitle")
-            details.addWidget(reward_name)
-            progress = QLabel(
-                f"{int(drop.get('watched_minutes') or 0)} / {int(drop.get('required_minutes') or 0)} мин · "
-                f"{int(drop.get('percentage') or 0)}%"
-            )
-            progress.setObjectName("smallMuted")
-            details.addWidget(progress)
-            bar = QProgressBar()
-            bar.setRange(0, 100)
-            bar.setValue(max(0, min(100, int(drop.get("percentage") or 0))))
-            bar.setTextVisible(False)
-            bar.setFixedHeight(6)
-            details.addWidget(bar)
-            row.addLayout(details, 1)
-            layout.addLayout(row)
-            if image_cache:
-                image_cache.request(reward_image, drop.get("image_url", ""), False)
+
+        game_image_url = ""
+        for key in ("game_image_url", "gameImageURL", "gameImageUrl", "box_art_url", "boxArtURL", "boxArtUrl", "image_url", "imageURL"):
+            candidate = str(campaign.get(key) or "").strip()
+            if candidate.startswith("https://"):
+                game_image_url = candidate
+                break
+        if image_cache and game_image_url:
+            image_cache.request(game_image, game_image_url, False)
+
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setObjectName("separator")
         layout.addWidget(separator)
-        streamers = campaign.get("streamers", [])
+
+        for drop in campaign.get("visible_drops", []):
+            reward_row = QFrame()
+            reward_row.setObjectName("dropRewardRow")
+            reward_layout = QVBoxLayout(reward_row)
+            reward_layout.setContentsMargins(8, 8, 8, 8)
+            reward_layout.setSpacing(6)
+
+            reward_header = QHBoxLayout()
+            reward_header.setSpacing(8)
+            reward_image = QLabel()
+            reward_image.setFixedSize(40, 40)
+            reward_image.setObjectName("rewardIcon")
+            reward_image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            reward_image.setText("DROP")
+            reward_header.addWidget(reward_image)
+
+            reward_name_value = drop.get("name") or drop.get("benefit") or "Награда Twitch"
+            if isinstance(reward_name_value, dict):
+                reward_name_value = reward_name_value.get("name") or reward_name_value.get("displayName") or "Награда Twitch"
+            reward_name = QLabel(str(reward_name_value))
+            reward_name.setObjectName("rewardTitle")
+            reward_name.setWordWrap(True)
+            reward_header.addWidget(reward_name, 1)
+
+            watched = _ui_int(drop.get("watched_minutes", drop.get("current_minutes", drop.get("currentMinutes", 0))))
+            required = _ui_int(drop.get("required_minutes", drop.get("requiredMinutes", drop.get("duration_minutes", 0))))
+            percentage_value = drop.get("percentage")
+            if percentage_value is None:
+                percentage_value = (watched * 100.0 / required) if required > 0 else 0
+            percentage = max(0, min(100, int(float(percentage_value or 0))))
+            claimed = _flag_enabled(drop.get("claimed")) or _flag_enabled(drop.get("is_claimed"))
+            received = claimed or percentage >= 100
+            status = QLabel("Получено" if received else "В прогрессе")
+            status.setObjectName("dropReceivedBadge" if received else "dropProgressBadge")
+            reward_header.addWidget(status, 0, Qt.AlignmentFlag.AlignTop)
+            reward_layout.addLayout(reward_header)
+
+            bar = QProgressBar()
+            bar.setObjectName("dropProgressBar")
+            bar.setRange(0, 100)
+            bar.setValue(percentage)
+            bar.setTextVisible(False)
+            bar.setFixedHeight(6)
+            reward_layout.addWidget(bar)
+
+            remaining_value = drop.get("remaining_minutes")
+            remaining = max(0, _ui_int(remaining_value, max(0, required - watched)))
+            footer = QHBoxLayout()
+            footer.setSpacing(4)
+            time_label = QLabel(f"{watched} / {required} мин · осталось {remaining} мин")
+            time_label.setObjectName("smallMuted")
+            footer.addWidget(time_label, 1)
+            percent_label = QLabel(str(percentage) + "%")
+            percent_label.setObjectName("dropPercent")
+            footer.addWidget(percent_label, 0, Qt.AlignmentFlag.AlignRight)
+            reward_layout.addLayout(footer)
+            layout.addWidget(reward_row)
+            if image_cache:
+                image_cache.request(reward_image, drop.get("image_url", ""), False)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setObjectName("separator")
+        layout.addWidget(separator)
+
+        streamers = [item for item in campaign.get("streamers", []) if isinstance(item, dict)]
+        toggle_row = QHBoxLayout()
+        toggle_row.setContentsMargins(0, 0, 0, 0)
+        toggle = QPushButton("Подходящие стримеры из фолловеров")
+        toggle.setObjectName("campaignStreamerToggle")
+        toggle.setCheckable(True)
+        toggle.setChecked(False)
+        toggle_row.addWidget(toggle, 1)
+        count = QLabel(str(len(streamers)))
+        count.setObjectName("purpleBadge")
+        toggle_row.addWidget(count, 0, Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(toggle_row)
+
+        streamers_panel = QFrame()
+        streamers_panel.setObjectName("campaignStreamers")
+        streamers_layout = QVBoxLayout(streamers_panel)
+        streamers_layout.setContentsMargins(0, 2, 0, 0)
+        streamers_layout.setSpacing(6)
         if streamers:
-            heading = QLabel("ПОДХОДЯЩИЕ СТРИМЕРЫ · СНАЧАЛА ДОЛГИЕ ЭФИРЫ")
-            heading.setObjectName("sectionEyebrow")
-            layout.addWidget(heading)
             for streamer in streamers:
                 row = QHBoxLayout()
+                row.setSpacing(6)
                 avatar = QLabel()
-                avatar.setFixedSize(34, 34)
+                avatar.setFixedSize(30, 30)
                 avatar.setObjectName("miniAvatar")
                 avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 avatar.setText(str(streamer.get("display_name") or streamer.get("login") or "?")[:1].upper())
                 row.addWidget(avatar)
+
                 info = QVBoxLayout()
+                info.setSpacing(1)
                 title = QLabel(str(streamer.get("display_name") or streamer.get("login") or "Стример"))
                 title.setObjectName("streamerName")
                 info.addWidget(title)
@@ -1254,31 +1365,42 @@ class CampaignCard(QFrame):
                 description = QLabel(
                     "@" + str(streamer.get("login") or "") + " · "
                     + f"{int(streamer.get('viewer_count') or 0):,}".replace(",", " ")
-                    + " зрителей · " + uptime + " в эфире"
+                    + " зрителей · " + uptime
                 )
                 description.setObjectName("smallMuted")
                 info.addWidget(description)
                 row.addLayout(info, 1)
-                open_button = QPushButton("Открыть")
-                open_button.setSvgIcon("external", 14)
-                open_button.setObjectName("softButton")
+
                 login = str(streamer.get("login") or "")
+                open_button = QPushButton()
+                open_button.setObjectName("cardAction")
+                open_button.setSvgIcon("external", 13)
+                open_button.setFixedSize(22, 22)
+                open_button.setToolTip("Открыть на Twitch")
                 open_button.clicked.connect(lambda checked=False, value=login: QDesktopServices.openUrl(QUrl("https://www.twitch.tv/" + value)))
                 row.addWidget(open_button)
-                add_button = QPushButton("Фармить")
-                add_button.setSvgIcon("play", 14)
-                add_button.setObjectName("primaryButton")
+
+                add_button = QPushButton()
+                add_button.setObjectName("cardAction")
+                add_button.setSvgIcon("play", 13)
+                add_button.setFixedSize(22, 22)
                 add_button.setEnabled(bool(add_enabled))
-                add_button.setToolTip("Остановите фарм, чтобы изменить список каналов." if not add_enabled else "")
+                add_button.setToolTip("Остановите фарм, чтобы добавить канал." if not add_enabled else "Добавить канал в Drops-фарм")
                 add_button.clicked.connect(lambda checked=False, value=login, cid=str(campaign.get("id") or ""): add_callback(value, cid))
                 row.addWidget(add_button)
-                layout.addLayout(row)
+                streamers_layout.addLayout(row)
                 if image_cache:
                     image_cache.request(avatar, streamer.get("avatar_url", ""), True)
         else:
-            empty = QLabel("Подходящих активных стримеров Twitch сейчас не найдено.")
+            empty = QLabel("Подходящих стримеров для этой кампании не найдено.")
             empty.setObjectName("mutedText")
-            layout.addWidget(empty)
+            empty.setWordWrap(True)
+            streamers_layout.addWidget(empty)
+        streamers_panel.hide()
+        toggle.clicked.connect(lambda checked=False, panel=streamers_panel: panel.setVisible(checked))
+        layout.addWidget(streamers_panel)
+
+
 
 
 class ModalOverlay(QWidget):
@@ -1393,6 +1515,9 @@ class MainWindow(QMainWindow):
         self.poll_running = False
         self.last_log_id = 0
         self.latest_state = {}
+        self.latest_auth_state = {}
+        self._startup_snapshot_received = False
+        self._channel_columns = 0
         self.drops_state = {}
         self.followed_state = {}
         self.update_state = self.api.get_update_state()
@@ -1455,17 +1580,17 @@ class MainWindow(QMainWindow):
         outer.addLayout(body, 1)
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebar")
-        self.sidebar.setFixedWidth(196)
+        self.sidebar.setFixedWidth(238)
         side = QVBoxLayout(self.sidebar)
         side.setContentsMargins(8, 12, 8, 12)
-        side.setSpacing(5)
+        side.setSpacing(6)
         logo = TwitchLogo()
         side.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
         brand = QLabel("TWITCH FARMING")
         brand.setObjectName("brandText")
         brand.setAlignment(Qt.AlignmentFlag.AlignCenter)
         side.addWidget(brand)
-        side.addSpacing(12)
+        side.addSpacing(8)
         self.nav_buttons = []
         nav_items = [
             ("Каналы", 0, "channels"),
@@ -1480,8 +1605,8 @@ class MainWindow(QMainWindow):
             button = QPushButton(title)
             button.setObjectName("navButton")
             button.setCheckable(True)
-            button.setFixedHeight(36)
-            button.setSvgIcon(icon_name, 18)
+            button.setFixedHeight(44)
+            button.setSvgIcon(icon_name, 20)
             button.clicked.connect(lambda checked=False, value=index: self._navigate(value))
             side.addWidget(button)
             self.nav_buttons.append(button)
@@ -1608,8 +1733,8 @@ class MainWindow(QMainWindow):
         QLabel#accountAvatar { border-radius:17px; }
         QLabel#accountAvatarLarge { border-radius:26px; font-size:16px; }
         QFrame#sidebar { background:#11101B; border:0; border-right:1px solid #2B263D; border-radius:0; }
-        QLabel#brandText { color:#F5F1FF; font-size:11px; font-weight:900; letter-spacing:1px; }
-        QPushButton#navButton { background:transparent; border:1px solid transparent; border-radius:9px; text-align:left; padding:5px 7px; color:#AFA9C0; font-size:10.5px; font-weight:650; }
+        QLabel#brandText { color:#F5F1FF; font-size:15px; font-weight:800; letter-spacing:1.2px; }
+        QPushButton#navButton { min-height:44px; background:transparent; border:1px solid transparent; border-radius:10px; text-align:left; padding:8px 10px; color:#AFA9C0; font-size:14px; font-weight:650; }
         QPushButton#navButton:hover { background:#211D31; color:#FFFFFF; border-color:#302944; }
         QPushButton#navButton:checked { background:#352253; border-color:#65448F; color:#E7D8FF; }
         QPushButton#navButton:checked:hover { background:#3B275F; }
@@ -1643,13 +1768,16 @@ class MainWindow(QMainWindow):
         QPushButton#cardAction { background:#211E2C; border:1px solid #383247; color:#D2CBE0; padding:0; border-radius:6px; font-size:11px; font-weight:700; }
         QPushButton#cardAction:hover { background:#2B263B; border-color:#7656A2; }
         QPushButton#cardAction:disabled, QPushButton#smallDanger:disabled { color:#696575; background:#181720; border-color:#282632; }
-        QLabel#channelAvatar { background:#29243A; border:1px solid #4A3A63; border-radius:22px; color:#C9B8F0; font-weight:800; }
+        QLabel#channelAvatar { background:#29243A; border:1px solid #6A5687; border-radius:32px; color:#C9B8F0; font-size:18px; font-weight:800; }
         QLabel#slotAvatar, QLabel#miniAvatar { background:transparent; border:0; border-radius:0; color:#C9B8F0; font-weight:800; }
         QLabel#campaignImage { background:#241D36; border-radius:8px; color:#A98AFF; font-weight:800; }
         QLabel#rewardIcon { background:#242034; border-radius:8px; color:#E7D6FF; }
-        QLabel#channelName { color:#FFFFFF; font-size:15px; font-weight:700; }
+        QLabel#channelName { color:#FFFFFF; font-size:14px; font-weight:800; }
+        QLabel#channelLogin { color:#928BA2; font-size:11px; }
+        QLabel#channelViewers { color:#AAA3B8; font-size:9px; }
+        QLabel#channelSlotBadge { color:#D8C5FF; background:#392858; border:1px solid #5E4383; border-radius:5px; padding:2px 6px; font-size:8px; font-weight:900; }
         QLabel#channelBalance { color:#FFFFFF; font-size:14px; font-weight:700; }
-        QLabel#channelCurrencyName { color:#BDB7C9; font-size:14px; font-weight:500; }
+        QLabel#channelCurrencyName { color:#BDB7C9; font-size:9px; font-weight:600; }
         QLabel#channelCurrencyIcon { background:transparent; border:none; border-radius:0; color:#D8C7F6; font-size:18px; font-weight:900; padding:0; }
         QLabel#liveBadge, QLabel#offlineBadge, QLabel#watchBadge, QLabel#temporaryBadge, QLabel#purpleBadge { font-size:8px; font-weight:900; padding:3px 5px; border-radius:5px; }
         QLabel#liveBadge { color:#FF8593; background:#36202A; }
@@ -1658,6 +1786,21 @@ class MainWindow(QMainWindow):
         QLabel#temporaryBadge { color:#F5C36B; background:#322A1B; }
         QLabel#purpleBadge { color:#D4BCFF; background:#302345; }
         QFrame#activeSlotCard { background:#201A30; border:1px solid #44335F; border-radius:8px; }
+        QFrame#dropsSummary { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #211B31,stop:1 #171522); border:1px solid #45365E; border-radius:12px; }
+        QLabel#dropSummaryValue { color:#FFFFFF; font-size:22px; font-weight:900; }
+        QLabel#dropSummaryCaption { color:#A49BB5; font-size:10px; font-weight:700; }
+        QLabel#dropSummaryUpdated { color:#BEB5CF; font-size:10px; font-weight:650; }
+        QLabel#campaignGame { color:#B79BEB; font-size:9px; font-weight:900; letter-spacing:1px; }
+        QLabel#watchDropBadge { color:#D9C6FF; background:#34244D; border:1px solid #574173; border-radius:6px; padding:4px 6px; font-size:8px; font-weight:900; }
+        QFrame#dropRewardRow { background:#171622; border:1px solid #302B40; border-radius:9px; }
+        QLabel#dropProgressBadge { color:#D7BFFF; background:#302344; border-radius:5px; padding:3px 5px; font-size:8px; font-weight:800; }
+        QLabel#dropReceivedBadge { color:#82D8B3; background:#1D352D; border-radius:5px; padding:3px 5px; font-size:8px; font-weight:800; }
+        QLabel#dropPercent { color:#C7A9FF; font-size:9px; font-weight:900; }
+        QProgressBar#dropProgressBar { background:#282238; border:0; border-radius:3px; }
+        QProgressBar#dropProgressBar::chunk { background:#9660F2; border-radius:3px; }
+        QPushButton#campaignStreamerToggle { background:#211C2D; border:1px solid #39304C; border-radius:7px; color:#CFC3E4; padding:7px 8px; text-align:left; font-size:9px; font-weight:700; }
+        QPushButton#campaignStreamerToggle:hover, QPushButton#campaignStreamerToggle:checked { background:#312342; border-color:#674B8A; color:#F0E6FF; }
+        QFrame#campaignStreamers { background:transparent; border:0; }
         QLabel#slotCaption { font-size:8px; font-weight:900; color:#AA89FF; }
         QLabel#slotName { font-size:11px; font-weight:800; color:#F7F4FF; }
         QLabel#slotBalance { color:#BDB5CC; font-size:9px; }
