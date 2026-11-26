@@ -123,6 +123,43 @@ if (backend.includes("WEBVIEW_DIR.mkdir") || backend.includes("storage_path=str(
   throw new Error("The WebView2 profile is still prepared synchronously during application startup.");
 }
 
+const workflow = fs.readFileSync(path.resolve(__dirname, "../workflows/build-twitch-exe.yml"), "utf8");
+const versionInfo = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/version_info.py"), "utf8");
+if (!workflow.includes("--onedir") || workflow.includes("--onefile") || !workflow.includes("Twitch.Farming.zip")) {
+  throw new Error("The Windows build must use onedir and publish the updater ZIP package.");
+}
+if (!workflow.includes("GITHUB_RUN_NUMBER") || !versionInfo.includes("APP_VERSION")) {
+  throw new Error("The application version is not generated from the GitHub Actions build number.");
+}
+if (backend.includes("import webview\\n") || !backend.includes("def _start_native_splash():") || !backend.includes("NativeStartupSplash")) {
+  throw new Error("WebView2 is not lazily imported after the early native startup splash.");
+}
+if (!backend.includes("def get_update_state(") ||
+    !backend.includes("def check_for_updates(") ||
+    !backend.includes("def download_update(") ||
+    !backend.includes("Twitch.Farming.zip")) {
+  throw new Error("The GitHub updater API or ZIP installer is incomplete.");
+}
+if (!html.includes("active-farm-panel") || !html.includes("update-check-button") ||
+    !html.includes("update-download-button") || !source.includes("function renderActiveFarmPanel(")) {
+  throw new Error("The active farming panel or application update card is missing.");
+}
+if (!source.includes("ВРЕМЕННЫЙ • DROPS") ||
+    !backend.includes("self.temporary_channels") ||
+    !backend.includes("permanent_channels = [login for login in self.channels if login not in self.temporary_channels]") ||
+    !backend.includes("Временные Drops-каналы удалены после завершения фарма")) {
+  throw new Error("Drops channels are not marked and cleaned as temporary channels.");
+}
+if (!source.includes("Остановите фарм, чтобы изменить список каналов") ||
+    !backend.includes("Остановите фарм, чтобы изменить список каналов.")) {
+  throw new Error("Live-farming channel additions are not blocked in both UI and API.");
+}
+if (!source.includes('"<div class=' + "'channel-name'" + '>") ||
+    !source.includes('"<div class=' + "'channel-login'" + '>') ||
+    !source.includes("watchSlotMarkup")) {
+  throw new Error("Streamer nickname, login or watch-slot badge markup is missing.");
+}
+
 const inlineBootstrap = [...html.matchAll(/<script>([\\s\\S]*?)<\\/script>/gi)][0]?.[1];
 if (!inlineBootstrap) throw new Error("Inline startup diagnostic bootstrap was not found.");
 new vm.Script(inlineBootstrap, { filename: "index.html:inline-startup" });
@@ -141,6 +178,7 @@ function getElement(id) {
       value: "",
       title: "",
       disabled: false,
+      setAttribute() {},
       dataset: {},
       style: {},
       classList: (() => {
@@ -226,6 +264,9 @@ const required = [
   "logout",
   "clear_logs",
   "get_app_version",
+  "get_update_state",
+  "check_for_updates",
+  "download_update",
   "open_url",
   "minimize_window",
   "toggle_maximize_window",
