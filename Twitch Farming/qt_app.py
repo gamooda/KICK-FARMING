@@ -1021,6 +1021,20 @@ class MainWindow(QMainWindow):
         filter_row.addWidget(self.bet_filter_value, 1)
         filters.layout().addLayout(filter_row)
         layout.addWidget(filters)
+        self.bet_filter_enabled.toggled.connect(lambda value: (self.bet_filter_by.setEnabled(value), self.bet_filter_condition.setEnabled(value), self.bet_filter_value.setEnabled(value)))
+        tracked_widgets = [
+            self.bet_strategy, self.bet_percentage, self.bet_gap, self.bet_max,
+            self.bet_minimum, self.bet_delay, self.bet_delay_mode,
+            self.bet_stealth, self.bet_filter_enabled, self.bet_filter_by,
+            self.bet_filter_condition, self.bet_filter_value
+        ]
+        for widget in tracked_widgets:
+            if isinstance(widget, QLineEdit):
+                widget.textEdited.connect(lambda value, target=widget: target.setProperty("dirty", True))
+            elif isinstance(widget, QComboBox):
+                widget.currentTextChanged.connect(lambda value, target=widget: target.setProperty("dirty", True))
+            else:
+                widget.toggled.connect(lambda value, target=widget: target.setProperty("dirty", True))
         save = QPushButton("Сохранить параметры прогнозов")
         save.setObjectName("primaryButton")
         save.clicked.connect(self._save_bets)
@@ -1188,6 +1202,7 @@ class MainWindow(QMainWindow):
                 check.setChecked(bool(self.latest_state.get("app_settings", {}).get(key, DEFAULT_APP_SETTINGS.get(key, False))))
                 check.blockSignals(False)
         self._load_bet_values(self.latest_state.get("bet_settings") or DEFAULT_BET_SETTINGS)
+        self._load_bet_presets(self.latest_state.get("custom_presets") or {}, self.latest_state.get("selected_preset") or "Оптимальный")
         self.account_sidebar.setText("●  " + str(self.latest_state.get("authenticated_username") or "АККАУНТ НЕ ПОДКЛЮЧЁН"))
         self.version_sidebar.setText("v" + str(self.latest_state.get("app_version") or APP_VERSION))
 
@@ -1221,8 +1236,7 @@ class MainWindow(QMainWindow):
 
     def _render_reward_feed(self, rewards):
         items = [dict(item) for item in (rewards or [])[-5:] if isinstance(item, dict)]
-        session_running = bool(self.latest_state.get("session_running"))
-        signature = json.dumps([items, session_running], sort_keys=True, ensure_ascii=False)
+        signature = json.dumps(items, sort_keys=True, ensure_ascii=False)
         if signature == self._last_reward_signature:
             return
         self._last_reward_signature = signature
@@ -1278,7 +1292,7 @@ class MainWindow(QMainWindow):
             self.events_feed.feed_layout.addWidget(label)
 
     def _watch_slot_map(self):
-        result = {
+        result = {}
         slots = self.latest_state.get("watch_slots") or []
         for index, item in enumerate(slots[:2], 1):
             if isinstance(item, dict):
@@ -1434,22 +1448,104 @@ class MainWindow(QMainWindow):
                 self._notify(str((result or {}).get("message") or "Не удалось сохранить настройки."))
         self._run_task("save-settings", self.api.save_settings, (self._collect_payload(),), completed)
 
+    def _collect_bet_values(self):
+        return {
+            "strategy": self.bet_strategy.currentText(),
+            "percentage": float(self.bet_percentage.text()),
+            "percentage_gap": float(self.bet_gap.text()),
+            "max_points": int(self.bet_max.text()),
+            "minimum_points": int(self.bet_minimum.text()),
+            "delay": float(self.bet_delay.text()),
+            "delay_mode": self.bet_delay_mode.currentText(),
+            "stealth_mode": self.bet_stealth.isChecked(),
+            "filter_enabled": self.bet_filter_enabled.isChecked(),
+            "filter_by": self.bet_filter_by.currentText(),
+            "filter_condition": self.bet_filter_condition.currentText(),
+            "filter_value": float(self.bet_filter_value.text() or 0)
+        }
+
+    def _reset_bet_dirty(self):
+        for widget in (
+            self.bet_strategy, self.bet_percentage, self.bet_gap, self.bet_max,
+            self.bet_minimum, self.bet_delay, self.bet_delay_mode,
+            self.bet_stealth, self.bet_filter_enabled, self.bet_filter_by,
+            self.bet_filter_condition, self.bet_filter_value
+        ):
+            widget.setProperty("dirty", False)
+
     def _save_bets(self):
-        current = dict(self.latest_state.get("bet_settings") or DEFAULT_BET_SETTINGS)
         try:
-            current.update({
-                "strategy": self.bet_strategy.currentText(),
-                "percentage": float(self.bet_percentage.text()),
-                "percentage_gap": float(self.bet_gap.text()),
-                "max_points": int(self.bet_max.text()),
-                "minimum_points": int(self.bet_minimum.text()),
-                "delay": float(self.bet_delay.text()),
-                "stealth_mode": self.bet_stealth.isChecked()
-            })
+            values = self._collect_bet_values()
         except ValueError:
             QMessageBox.warning(self, "Прогнозы", "Проверь числовые параметры.")
             return
-        self._call("apply_bet_settings", current, str(self.latest_state.get("selected_preset") or "Оптимальный"), message="Настройки прогнозов сохранены.")
+        selected = self.bet_preset.currentText() or "Оптимальный"
+        def completed(result, error):
+            if not error and isinstance(result, dict) and result.get("ok"):
+                self._reset_bet_dirty()
+                self._notify(str(result.get("message") or "Параметры прогнозов сохранены."))
+            elif not error:
+                self._notify(str((result or {}).get("message") or "Не удалось сохранить параметры."))
+        self._run_task("apply-bet-settings", self.api.apply_bet_settings, (values, selected), completed)
+
+    def _save_bet_preset(self):
+        name = self.bet_preset_name.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Пресеты", "Введи название пресета.")
+            return
+        try:
+            values = self._collect_bet_values()
+        except ValueError:
+            QMessageBox.warning(self, "Пресеты", "Проверь числовые параметры.")
+            return
+        def completed(result, error):
+            if not error and isinstance(result, dict) and result.get("ok"):
+                self._reset_bet_dirty()
+                self._last_preset_signature = None
+                self._poll_state()
+                self._notify(str(result.get("message") or "Пресет сохранён."))
+            elif not error:
+                self._notify(str((result or {}).get("message") or "Не удалось сохранить пресет."))
+        self._run_task("save-bet-preset", self.api.save_preset, (name, values), completed)
+        self.bet_preset_name.clear()
+
+    def _delete_bet_preset(self):
+        selected = self.bet_preset.currentText()
+        if selected == "Оптимальный":
+            QMessageBox.information(self, "Пресеты", "Стандартный пресет нельзя удалить.")
+            return
+        def completed(result, error):
+            if not error and isinstance(result, dict) and result.get("ok"):
+                self._reset_bet_dirty()
+                self._last_preset_signature = None
+                self._poll_state()
+                self._notify(str(result.get("message") or "Пресет удалён."))
+            elif not error:
+                self._notify(str((result or {}).get("message") or "Не удалось удалить пресет."))
+        self._run_task("delete-bet-preset", self.api.delete_preset, (selected,), completed)
+
+    def _select_bet_preset(self, name):
+        if not name:
+            return
+        presets = self.latest_state.get("custom_presets") or {}
+        values = presets.get(name) if name != "Оптимальный" else DEFAULT_BET_SETTINGS
+        if isinstance(values, dict):
+            self._reset_bet_dirty()
+            self._load_bet_values(values)
+
+    def _load_bet_presets(self, presets, selected):
+        signature = json.dumps([presets, selected], sort_keys=True, ensure_ascii=False)
+        if signature == self._last_preset_signature:
+            return
+        self._last_preset_signature = signature
+        self.bet_preset.blockSignals(True)
+        self.bet_preset.clear()
+        self.bet_preset.addItem("Оптимальный")
+        for name in sorted(presets):
+            if name and name != "Оптимальный":
+                self.bet_preset.addItem(name)
+        self.bet_preset.setCurrentText(selected if self.bet_preset.findText(selected) >= 0 else "Оптимальный")
+        self.bet_preset.blockSignals(False)
 
     def _load_bet_values(self, values):
         mapping = (
@@ -1458,17 +1554,30 @@ class MainWindow(QMainWindow):
             (self.bet_gap, "percentage_gap"),
             (self.bet_max, "max_points"),
             (self.bet_minimum, "minimum_points"),
-            (self.bet_delay, "delay")
+            (self.bet_delay, "delay"),
+            (self.bet_delay_mode, "delay_mode"),
+            (self.bet_filter_by, "filter_by"),
+            (self.bet_filter_condition, "filter_condition"),
+            (self.bet_filter_value, "filter_value")
         )
         for widget, key in mapping:
+            if widget.property("dirty") or (isinstance(widget, QLineEdit) and widget.hasFocus()):
+                continue
             value = str(values.get(key, DEFAULT_BET_SETTINGS.get(key, "")))
             if isinstance(widget, QComboBox):
                 widget.blockSignals(True)
                 widget.setCurrentText(value)
                 widget.blockSignals(False)
-            elif not widget.hasFocus():
+            else:
                 widget.setText(value)
-        self.bet_stealth.setChecked(bool(values.get("stealth_mode", False)))
+        if not self.bet_stealth.property("dirty"):
+            self.bet_stealth.setChecked(bool(values.get("stealth_mode", False)))
+        if not self.bet_filter_enabled.property("dirty"):
+            self.bet_filter_enabled.setChecked(bool(values.get("filter_enabled", False)))
+        enabled = self.bet_filter_enabled.isChecked()
+        self.bet_filter_by.setEnabled(enabled)
+        self.bet_filter_condition.setEnabled(enabled)
+        self.bet_filter_value.setEnabled(enabled)
 
     def _render_drops(self):
         if not hasattr(self, "drops_list"):
@@ -1510,7 +1619,8 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "followers_list"):
             return
         items = self.followed_state.get("channels", [])
-        signature = json.dumps(items, sort_keys=True, ensure_ascii=False)
+        session_running = bool(self.latest_state.get("session_running"))
+        signature = json.dumps([items, session_running], sort_keys=True, ensure_ascii=False)
         if signature == self._last_followed_signature:
             return
         self._last_followed_signature = signature
