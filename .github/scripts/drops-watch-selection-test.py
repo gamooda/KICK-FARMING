@@ -293,7 +293,7 @@ assert stream.last_minute_watched_sent == 0.0
 
 
 inventory_reader = Twitch.__new__(Twitch)
-inventory_reader.post_gql_request = lambda request: {
+inventory_response = {
     "data": {
         "currentUser": {
             "inventory": {
@@ -304,8 +304,11 @@ inventory_reader.post_gql_request = lambda request: {
         }
     }
 }
-inventory_reader._warn_drops_response = lambda *args: None
-inventory_result = inventory_reader._Twitch__get_inventory()
+with (
+    patch.object(Twitch, "post_gql_request", lambda self, request: inventory_response),
+    patch.object(Twitch, "_warn_drops_response", lambda self, *args: None),
+):
+    inventory_result = inventory_reader._Twitch__get_inventory()
 assert inventory_result["dropCampaignsInProgress"] == [{"id": "inventory-edge-campaign"}]
 
 snapshot_client = Twitch.__new__(Twitch)
@@ -390,10 +393,12 @@ snapshot_dashboard = {
         },
     }
 }
-snapshot_client._Twitch__get_inventory = lambda: snapshot_inventory
-snapshot_client.post_gql_request = lambda request: snapshot_dashboard
-snapshot_client._warn_drops_response = lambda *args: None
-snapshot = snapshot_client.get_drop_inventory_snapshot()
+with (
+    patch.object(Twitch, "_Twitch__get_inventory", lambda self: snapshot_inventory),
+    patch.object(Twitch, "post_gql_request", lambda self, request: snapshot_dashboard),
+    patch.object(Twitch, "_warn_drops_response", lambda self, *args: None),
+):
+    snapshot = snapshot_client.get_drop_inventory_snapshot()
 assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-three"}
 campaigns_by_id = {campaign["id"]: campaign for campaign in snapshot}
 assert campaigns_by_id["campaign-one"]["started"] is True
