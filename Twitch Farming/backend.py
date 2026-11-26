@@ -39,6 +39,31 @@ def stream_uptime_seconds(value):
         return 0
 
 
+def select_drops_streamers(followed_streamers, catalog_streamers, limit=3):
+    try:
+        maximum = max(0, int(limit))
+    except (TypeError, ValueError):
+        maximum = 3
+    if maximum == 0:
+        return []
+    selected = []
+    seen = set()
+    for source in (followed_streamers, catalog_streamers):
+        if not isinstance(source, (list, tuple)):
+            continue
+        for item in source:
+            if not isinstance(item, dict):
+                continue
+            login = str(item.get("login") or "").strip().lower()
+            if not login or login in seen:
+                continue
+            seen.add(login)
+            selected.append(dict(item))
+            if len(selected) >= maximum:
+                return selected
+    return selected
+
+
 def write_boot_log(level, message):
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -685,7 +710,7 @@ class DropsInventoryWorker(threading.Thread):
                 if len(candidates) < 3 and (game_id or game_slug):
                     catalog_targets.append(item)
             game_info_cache = {}
-            for campaign in catalog_targets:
+            for campaign in campaigns_by_id.values():
                 game_id = str(campaign.get("game_id") or "")
                 game_name = str(campaign.get("game") or "")
                 cache_key = "id:" + game_id if game_id else "name:" + game_name.casefold()
@@ -783,8 +808,8 @@ class DropsInventoryWorker(threading.Thread):
                     streams_by_game[stream_key] = sorted(
                         list(streams_by_login.values()),
                         key=lambda stream: (
-                            stream_uptime_seconds(stream.get("started_at")),
                             max(0, int(stream.get("viewer_count") or 0)),
+                            stream_uptime_seconds(stream.get("started_at")),
                         ),
                         reverse=True,
                     )
@@ -891,22 +916,15 @@ class DropsInventoryWorker(threading.Thread):
                     }
                     catalog_streamers[login] = profile
                     suggestions.append(profile)
-                combined = {
-                    str(item.get("login") or "").lower(): dict(item)
-                    for item in campaign.get("streamers", [])
+                followed_suggestions = [
+                    item for item in campaign.get("streamers", [])
                     if isinstance(item, dict) and item.get("login")
-                }
-                for profile in suggestions:
-                    combined[str(profile.get("login") or "").lower()] = profile
-                ordered = sorted(
-                    combined.values(),
-                    key=lambda item: (
-                        max(0, int(item.get("uptime_seconds") or 0)),
-                        max(0, int(item.get("viewer_count") or 0)),
-                    ),
-                    reverse=True,
+                ]
+                campaign["streamers"] = select_drops_streamers(
+                    followed_suggestions,
+                    suggestions,
+                    3,
                 )
-                campaign["streamers"] = ordered[:3]
                 campaign["streamer_source"] = "followers+catalog" if campaign.get("streamers") and suggestions else ("followers" if campaign.get("streamers") else "")
             campaigns = list(campaigns_by_id.values())
         except Exception as exception:

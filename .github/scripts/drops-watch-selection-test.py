@@ -16,6 +16,9 @@ from TwitchChannelPointsMiner.classes.entities.Stream import Stream
 from TwitchChannelPointsMiner.classes.Settings import Settings
 from TwitchChannelPointsMiner.constants import GQLOperations
 
+sys.path.insert(0, str(ROOT / "Twitch Farming"))
+from backend import select_drops_streamers
+
 Settings.logger = SimpleNamespace(less=True)
 
 
@@ -66,6 +69,21 @@ with patch.object(Twitch, "helix_get", fake_game_lookup):
 assert game_by_id["slug"] == "example-game", "Drops searches must use Twitch's canonical game slug, not a slug guessed from the display name."
 assert game_by_name["id"] == "4242", "A campaign without a game ID must resolve it from its exact Twitch game name."
 assert game_lookup_calls == [("games", {"id": "4242"}), ("games", {"name": "Example Game"})]
+
+selected_drops_streamers = select_drops_streamers(
+    [
+        {"login": "follow_one", "is_followed": True},
+        {"login": "follow_two", "is_followed": True},
+    ],
+    [
+        {"login": "global_top", "is_followed": False, "viewer_count": 12000},
+        {"login": "follow_one", "is_followed": True, "viewer_count": 15000},
+        {"login": "global_second", "is_followed": False, "viewer_count": 9000},
+    ],
+    3,
+)
+assert [item["login"] for item in selected_drops_streamers] == ["follow_one", "follow_two", "global_top"], "Followed live Drops channels must be kept first and the general Twitch catalog must fill only the remaining slots without duplicates."
+assert len(select_drops_streamers([], [{"login": "one"}, {"login": "two"}, {"login": "three"}, {"login": "four"}])) == 3, "The campaign streamer list must be capped at three entries."
 
 
 def make_streamer(username, online=True):
@@ -772,6 +790,9 @@ assert "get_drop_inventory_snapshot(" in backend_source and "available_campaigns
 assert "get_drop_inventory_snapshot(" in backend_source and "helix_get_payload(\"streams\", helix_params)" in backend_source, "Drops streamer search must follow Helix pagination instead of stopping at the first 100 live channels."
 assert "get_drops_streams_for_game(" in backend_source, "Drops streamer search must also use Twitch's GameDirectory DROPS_ENABLED filter."
 assert "self.client.get_game_info(game_id, game_name)" in backend_source and "campaign_stream_keys" in backend_source, "Drops campaign search must resolve Twitch's canonical game ID and slug before finding live streams."
+assert "select_drops_streamers(" in backend_source and 'campaign["streamers"] = select_drops_streamers(' in backend_source, "Drops cards must keep followed matches first and fill the remaining slots from the general catalog."
+assert "max(0, int(stream.get("viewer_count") or 0))" in backend_source, "The general Twitch catalog must rank live streams by viewer count before selecting the top three."
+
 assert '"game_id": str(stream.get("game_id") or game_id)' in backend_source, "GameDirectory streams must preserve their actual game ID when the campaign metadata is incomplete."
 assert 'if not item.get("drops_enabled")' in backend_source and 'and not row.get("drops_enabled")' in backend_source, "GameDirectory streams with DROPS_ENABLED must not be rejected by an extra per-channel campaign ID lookup."
 twitch_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8")

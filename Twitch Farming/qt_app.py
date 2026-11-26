@@ -1394,7 +1394,9 @@ class CampaignCard(QFrame):
             reward_name = QLabel(str(reward_name_value))
             reward_name.setObjectName("rewardTitle")
             reward_name.setWordWrap(True)
-            reward_name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            reward_name.setMinimumHeight(42)
+            reward_name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+            reward_header.setAlignment(Qt.AlignmentFlag.AlignTop)
             reward_header.addWidget(reward_name, 1)
 
             watched = _ui_int(drop.get("watched_minutes", drop.get("current_minutes", drop.get("currentMinutes", 0))))
@@ -1441,18 +1443,34 @@ class CampaignCard(QFrame):
         separator.setObjectName("separator")
         layout.addWidget(separator)
 
-        streamers = [item for item in campaign.get("streamers", []) if isinstance(item, dict) and ("is_followed" not in item or _flag_enabled(item.get("is_followed")))]
+        streamers = [item for item in campaign.get("streamers", []) if isinstance(item, dict) and item.get("login")]
         toggle_row = QHBoxLayout()
         toggle_row.setContentsMargins(0, 0, 0, 0)
-        toggle = QPushButton("Подходящие стримеры из фолловеров")
+        toggle = QPushButton("Подходящие стримеры")
         toggle.setObjectName("campaignStreamerToggle")
         toggle.setCheckable(True)
         toggle.setChecked(False)
         toggle_row.addWidget(toggle, 1)
         count = QLabel(str(len(streamers)))
-        count.setObjectName("purpleBadge")
-        toggle_row.addWidget(count, 0, Qt.AlignmentFlag.AlignRight)
+        count.setObjectName("dropStreamerCount")
+        count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        count.setFixedSize(22, 20)
+        toggle_row.addWidget(count, 0, Qt.AlignmentFlag.AlignVCenter)
         layout.addLayout(toggle_row)
+
+        category_slug = str(campaign.get("game_slug") or "").strip().lower()
+        if not category_slug:
+            category_slug = re.sub(r"[^a-z0-9]+", "-", game_text.casefold()).strip("-")
+        category_button = QPushButton("Открыть на Twitch")
+        category_button.setObjectName("softButton")
+        category_button.setFixedHeight(27)
+        category_button.setEnabled(bool(category_slug))
+        category_button.clicked.connect(
+            lambda checked=False, slug=category_slug: QDesktopServices.openUrl(
+                QUrl("https://www.twitch.tv/directory/category/" + slug + "?filter=drops")
+            )
+        )
+        layout.addWidget(category_button)
 
         streamers_panel = QFrame()
         streamers_panel.setObjectName("campaignStreamers")
@@ -1472,14 +1490,21 @@ class CampaignCard(QFrame):
 
                 info = QVBoxLayout()
                 info.setSpacing(1)
+                title_row = QHBoxLayout()
+                title_row.setSpacing(5)
                 title = QLabel(str(streamer.get("display_name") or streamer.get("login") or "Стример"))
                 title.setObjectName("streamerName")
-                info.addWidget(title)
+                title_row.addWidget(title, 1)
+                live_badge = QLabel("LIVE")
+                live_badge.setObjectName("liveBadge")
+                live_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+                title_row.addWidget(live_badge, 0, Qt.AlignmentFlag.AlignRight)
+                info.addLayout(title_row)
                 uptime = format_duration(streamer.get("uptime_seconds") or 0)
                 description = QLabel(
                     "@" + str(streamer.get("login") or "") + " · "
                     + f"{int(streamer.get('viewer_count') or 0):,}".replace(",", " ")
-                    + " зрителей · " + uptime
+                    + " зрителей · " + uptime + " · Drops"
                 )
                 description.setObjectName("smallMuted")
                 info.addWidget(description)
@@ -1490,14 +1515,15 @@ class CampaignCard(QFrame):
                 open_button.setObjectName("cardAction")
                 open_button.setSvgIcon("external", 13)
                 open_button.setFixedSize(22, 22)
-                open_button.setToolTip("Открыть на Twitch")
+                open_button.setToolTip("Открыть канал на Twitch")
                 open_button.clicked.connect(lambda checked=False, value=login: QDesktopServices.openUrl(QUrl("https://www.twitch.tv/" + value)))
                 row.addWidget(open_button)
 
-                add_button = QPushButton()
-                add_button.setObjectName("cardAction")
-                add_button.setSvgIcon("play", 13)
-                add_button.setFixedSize(22, 22)
+                add_button = QPushButton("Добавить в фарм")
+                add_button.setObjectName("softButton")
+                add_button.setSvgIcon("play", 12)
+                add_button.setFixedHeight(25)
+                add_button.setMinimumWidth(112)
                 add_button.setEnabled(bool(add_enabled))
                 add_button.setToolTip("Остановите фарм, чтобы добавить канал." if not add_enabled else "Добавить канал в Drops-фарм")
                 add_button.clicked.connect(lambda checked=False, value=login, cid=str(campaign.get("id") or ""): add_callback(value, cid))
@@ -1923,6 +1949,7 @@ class MainWindow(QMainWindow):
         QLabel#dropProgressBadge { color:#D7BFFF; background:#302344; border-radius:5px; padding:3px 5px; font-size:8px; font-weight:800; }
         QLabel#dropReceivedBadge { color:#82D8B3; background:#1D352D; border-radius:5px; padding:3px 5px; font-size:8px; font-weight:800; }
         QLabel#dropPercent { color:#C7A9FF; font-size:9px; font-weight:900; }
+        QLabel#dropStreamerCount { color:#D4BCFF; background:#302345; border:1px solid #49345F; border-radius:6px; font-size:9px; font-weight:900; padding:0; }
         QProgressBar#dropProgressBar { background:#282238; border:0; border-radius:3px; }
         QProgressBar#dropProgressBar::chunk { background:#9660F2; border-radius:3px; }
         QPushButton#campaignStreamerToggle { background:#211C2D; border:1px solid #39304C; border-radius:7px; color:#CFC3E4; padding:7px 8px; text-align:left; font-size:9px; font-weight:700; }
