@@ -125,7 +125,7 @@ check("QLabel#sidebarAccount { color:#E8E2F2; font-size:14px; font-weight:700;" 
 check("def _animate_actions(self, visible)" in qt and "self.actions_opacity_animation" in qt, "Channel card actions must fade in and out on hover.")
 check("QDesktopServices.openUrl(QUrl(\"https://www.twitch.tv/\" + value))" in qt and "Открыть на Twitch" in qt, "Channel cards must open their Twitch page in the system browser.")
 check('QLabel("МЕНЮ")' not in qt, "The redundant sidebar menu heading must be removed.")
-check("self.sidebar.setFixedWidth(196)" in qt, "The sidebar must fit all navigation labels.")
+check("self.sidebar.setFixedWidth(238)" in qt, "The redesigned sidebar must fit all navigation labels.")
 check("self.farm_status.hide()" in qt and "self.session_label.hide()" in qt, "The duplicate channel-page session status must be hidden.")
 check('setContentsMargins(10 if title == "Последние награды" else 0, 0, 4, 0)' in qt, "The rewards column left inset is missing.")
 check('QLabel#slotAvatar, QLabel#miniAvatar { background:transparent; border:0;' in qt, "Slot and follower avatars must not have square frames.")
