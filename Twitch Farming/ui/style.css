@@ -853,3 +853,21 @@ input,textarea,.log-view,.log-view *,#event-list,#event-list *,#event-list .feed
   .active-farm-slot{padding:6px}
   .active-farm-slot-live{font-size:6px}
 }
+
+.channel-list{grid-auto-rows:238px}
+.channel-card{height:238px;overflow:visible}
+.channel-card-top{position:relative;justify-content:flex-start;overflow:visible}
+.channel-card-top .channel-watch-slot{position:absolute;top:-2px;right:-2px;z-index:5;margin:0;max-width:calc(100% - 112px);padding:4px 7px;font-size:7px;flex:0 0 auto;overflow:visible;text-overflow:clip;box-shadow:0 2px 9px rgba(0,0,0,.35)}
+.channel-card-top .channel-watch-slot strong{font-size:7px;white-space:nowrap}
+.channel-info--always-visible{display:flex!important;flex:1 0 auto!important;flex-direction:column!important;align-items:center!important;justify-content:flex-start!important;min-height:79px!important;overflow:visible!important}
+.channel-info--always-visible .channel-name{display:block!important;visibility:visible!important;opacity:1!important;flex:0 0 auto!important;min-height:16px}
+.channel-info--always-visible .channel-login{display:block!important;visibility:visible!important;opacity:1!important;flex:0 0 auto!important;min-height:12px}
+.active-farm-panel.is-visible{max-height:230px}
+@media(max-height:690px){
+  .channel-list{grid-auto-rows:72px}
+  .channel-card{height:72px}
+  .channel-info--always-visible{min-height:0!important}
+}
+@media(max-width:850px){
+  .active-farm-panel.is-visible{max-height:275px}
+}
