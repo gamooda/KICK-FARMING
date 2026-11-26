@@ -17,8 +17,6 @@ if not getattr(sys, "frozen", False):
 
 
 APP_DIR = Path(os.environ.get("APPDATA", str(Path.home()))) / "Twitch Farming"
-LOCAL_APP_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "Twitch Farming"
-WEBVIEW_PROFILE_DIR = LOCAL_APP_DIR / "WebView2"
 CONFIG_FILE = APP_DIR / "config.json"
 LOG_DIR = APP_DIR / "logs"
 LOG_FILE = LOG_DIR / "TwitchFarming.log"
@@ -167,8 +165,6 @@ class AppLogHandler(logging.Handler):
         self.app = app
 
     def emit(self, record):
-        if record.name.startswith(("pywebview", "webview", "clr")):
-            return
         try:
             message = record.getMessage()
             if record.exc_info:
@@ -706,7 +702,6 @@ class TwitchFarmingApi:
         self.channel_points_branding_cache = {}
         self.channel_points_branding_worker = None
         self.rewards = []
-        self.window_maximized = False
         self.online_channels = set()
         self.watch_status = {}
         self.profile_worker = None
@@ -2272,7 +2267,6 @@ class TwitchFarmingApi:
                 "auth_worker_state": self.auth_worker_state,
                 "session_running": self.session_running,
                 "session_started_at": float(self.session_started_at or 0),
-                "window_maximized": bool(self.window_maximized),
                 "app_version": APP_VERSION,
                 "status_text": self.status_text,
                 "status_color": self.status_color,
