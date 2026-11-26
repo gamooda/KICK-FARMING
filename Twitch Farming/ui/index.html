@@ -395,9 +395,9 @@
         </div>
         <div class="drops-status" id="drops-status">Нажми «Обновить прогресс», чтобы получить актуальный инвентарь Twitch.</div>
         <div class="drops-filterbar" id="drops-category-filters">
-          <button class="drops-filter active" type="button" data-drops-category="all">Все</button>
-          <button class="drops-filter" type="button" data-drops-category="twitch">Награды Twitch (значки и иконки)</button>
-          <button class="drops-filter" type="button" data-drops-category="game">Игровые предметы</button>
+          <button class="drops-filter active" type="button" data-drops-category="all_campaigns">Все кампании</button>
+          <button class="drops-filter" type="button" data-drops-category="started">Начатые (Инвентарь)</button>
+          <button class="drops-filter" type="button" data-drops-category="twitch_view">Значки и награды Twitch (за просмотр)</button>
         </div>
         <div class="drops-campaign-grid" id="drops-campaign-list"></div>
       </section>
@@ -407,19 +407,7 @@
         </header>
         <div class="settings-panel">
           <div class="settings-grid">
-            <section class="settings-card settings-update-card">
-              <div class="settings-card-heading"><div><span class="settings-kicker">GITHUB RELEASES</span><h2>Обновление приложения</h2><p>Проверка последней версии Twitch Farming и установка обновлений.</p></div><span class="settings-card-mark settings-mark-purple"><svg><use href="#i-refresh"></use></svg></span></div>
-              <div class="update-version-row"><span>Текущая версия</span><strong id="update-current-version">v—</strong></div>
-              <div class="update-status" id="update-status">Нажмите кнопку, чтобы проверить наличие новой версии на GitHub</div>
-              <div class="update-progress-container" id="update-progress-container" hidden>
-                <div class="update-progress-track"><span id="update-progress-bar"></span></div>
-                <div class="update-progress-label" id="update-progress-label">Скачивание: 0% (0.0 / 0.0 МБ) • 0.0 МБ/с</div>
-              </div>
-              <div class="settings-card-actions">
-                <button class="button button-primary" id="update-check-button"><svg><use href="#i-refresh"></use></svg>Проверить обновления</button>
-                <button class="button button-soft" id="update-download-button" type="button" hidden>Скачать и обновить</button>
-              </div>
-            </section>
+
             <section class="settings-card settings-card-automation">
               <div class="settings-card-heading"><div><span class="settings-kicker">АВТОМАТИЗАЦИЯ</span><h2>Автоматизация фарма</h2><p>Выбери действия, которые Twitch Farming будет выполнять автоматически.</p></div><span class="settings-card-mark"><svg><use href="#i-settings"></use></svg></span></div>
               <div class="option-grid">
@@ -471,6 +459,19 @@
                 <div><strong id="settings-account-name">Twitch</strong><span id="settings-account-login">@—</span><small id="settings-account-status">Не подключён</small></div>
               </div>
               <div class="settings-card-actions"><button class="button button-danger" id="logout-account">Выйти из аккаунта</button></div>
+            </section>
+            <section class="settings-card settings-update-card">
+              <div class="settings-card-heading"><div><span class="settings-kicker">GITHUB RELEASES</span><h2>Обновление приложения</h2><p>Проверка последней версии Twitch Farming и установка обновлений.</p></div><span class="settings-card-mark settings-mark-purple"><svg><use href="#i-refresh"></use></svg></span></div>
+              <div class="update-version-row"><span>Текущая версия</span><strong id="update-current-version">v—</strong></div>
+              <div class="update-status" id="update-status">Нажмите кнопку, чтобы проверить наличие новой версии на GitHub</div>
+              <div class="update-progress-container" id="update-progress-container" hidden>
+                <div class="update-progress-track"><span id="update-progress-bar"></span></div>
+                <div class="update-progress-label" id="update-progress-label">Скачивание: 0% (0.0 / 0.0 МБ) • 0.0 МБ/с</div>
+              </div>
+              <div class="settings-card-actions">
+                <button class="button button-primary" id="update-check-button"><svg><use href="#i-refresh"></use></svg>Проверить обновления</button>
+                <button class="button button-soft" id="update-download-button" type="button" hidden>Скачать и обновить</button>
+              </div>
             </section>
           </div>
           <div class="settings-savebar">
