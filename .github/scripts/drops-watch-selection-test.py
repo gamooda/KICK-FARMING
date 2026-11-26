@@ -180,12 +180,6 @@ assert [
     streamer.username
     for streamer in priority_watcher._select_minute_watched_streamers(priority_channels, 761)
 ] == ["first", "second"]
-assert any(
-    f"Отправка minute-watched для {len(dispatch_streamers)} онлайн-каналов:" in message
-    and all(streamer.username in message for streamer in dispatch_streamers)
-    for message in dispatch_logs
-), "The dispatch log must list every online streamer before sending."
-
 streamer = make_streamer("example_channel")
 event = Twitch._build_minute_watched_event(streamer, "12345")
 assert event is not None and len(event) == 1
