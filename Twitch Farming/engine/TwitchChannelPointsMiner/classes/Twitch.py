@@ -1994,6 +1994,7 @@ class Twitch(object):
                 "game_name": str(stream_game.get("displayName") or stream_game.get("name") or slug),
                 "viewer_count": viewers,
                 "started_at": str(node.get("startedAt") or ""),
+                "drops_enabled": True,
             })
         return result
 

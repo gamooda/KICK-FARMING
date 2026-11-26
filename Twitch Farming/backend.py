@@ -761,10 +761,15 @@ class DropsInventoryWorker(threading.Thread):
                         "game_id": game_id,
                         "is_live": True,
                         "is_followed": login in followed_logins,
+                        "drops_enabled": bool(stream.get("drops_enabled")),
                     }
+            campaign_lookup_rows = [
+                item for item in candidate_rows.values()
+                if not item.get("drops_enabled")
+            ]
             catalog_ids_by_login = (
-                self.client.get_drop_campaign_ids_for_channels(list(candidate_rows.values()))
-                if candidate_rows else {}
+                self.client.get_drop_campaign_ids_for_channels(campaign_lookup_rows)
+                if campaign_lookup_rows else {}
             )
             matched_logins = set()
             campaign_rows = {}
@@ -778,7 +783,10 @@ class DropsInventoryWorker(threading.Thread):
                     row = candidate_rows.get(login)
                     if row is None:
                         continue
-                    if campaign_id not in set(str(value) for value in catalog_ids_by_login.get(login, [])):
+                    if (
+                        campaign_id not in set(str(value) for value in catalog_ids_by_login.get(login, []))
+                        and not row.get("drops_enabled")
+                    ):
                         continue
                     if allowed and str(row.get("channel_id") or "") not in allowed:
                         continue

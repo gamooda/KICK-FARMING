@@ -689,6 +689,7 @@ assert directory_streams[0]["user_login"] == "drops_live"
 assert directory_streams[0]["user_id"] == "9001"
 assert directory_streams[0]["game_id"] == "4242"
 assert directory_streams[0]["viewer_count"] == 4321
+assert directory_streams[0]["drops_enabled"] is True
 assert directory_request[0]["operationName"] == "DirectoryPage_Game"
 assert directory_request[0]["variables"]["options"]["systemFilters"] == ["DROPS_ENABLED"]
 
@@ -752,6 +753,7 @@ assert "configured_logins = list(dict.fromkeys(" in backend_source and 'self.cli
 assert "get_drop_inventory_snapshot(" in backend_source and "available_campaigns_by_login\n            )" in backend_source, "AvailableDrops campaign summaries must be passed into catalog normalization."
 assert "get_drop_inventory_snapshot(" in backend_source and "helix_get_payload(\"streams\", helix_params)" in backend_source, "Drops streamer search must follow Helix pagination instead of stopping at the first 100 live channels."
 assert "get_drops_streams_for_game(" in backend_source, "Drops streamer search must also use Twitch's GameDirectory DROPS_ENABLED filter."
+assert 'if not item.get("drops_enabled")' in backend_source and 'and not row.get("drops_enabled")' in backend_source, "GameDirectory streams with DROPS_ENABLED must not be rejected by an extra per-channel campaign ID lookup."
 twitch_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8")
 assert "for attempt in range(2):" in twitch_source and "requests.exceptions.Timeout" in twitch_source, "Helix requests must retry transient timeouts."
 assert "campaigns_update = 0" in twitch_source and "requests.exceptions.RequestException" in twitch_source, "Drops sync must retry after transient request failures."
