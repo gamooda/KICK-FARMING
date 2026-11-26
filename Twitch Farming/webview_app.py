@@ -343,12 +343,17 @@ class EngineWorker(threading.Thread):
                 return
             miner.mine(streamers=prepared_streamers, followers=False)
         except BaseException as error:
+            details = traceback.format_exc()
+            write_crash_log("ENGINE", "Ошибка EngineWorker: " + str(error) + "\n" + details)
+            logging.getLogger("twitch_farming.engine").exception("Engine worker failed")
             self.app.enqueue_ui_state("engine_error", message=str(error) or error.__class__.__name__)
         finally:
             if miner is not None:
                 try:
                     miner.stop()
-                except Exception as error:
+                except BaseException as error:
+                    details = traceback.format_exc()
+                    write_crash_log("ENGINE_STOP", "Ошибка остановки майнера: " + str(error) + "\n" + details)
                     self.app.enqueue_ui_state("engine_error", message=str(error))
             if session_client is not None:
                 try:
@@ -2803,7 +2808,6 @@ class TwitchFarmingApi:
                 pass
 
 
-def main():
 def main():
     api = None
     try:
