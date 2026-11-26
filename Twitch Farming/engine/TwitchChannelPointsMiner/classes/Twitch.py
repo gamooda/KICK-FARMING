@@ -486,6 +486,90 @@ class Twitch(object):
             logger.error(f"Error with update_client_version: {e}")
             return self.client_version
 
+    @staticmethod
+    def _streamer_has_pending_drops(streamer):
+        if streamer.drops_condition() is not True:
+            return False
+        stream = streamer.stream
+        if not bool(getattr(stream, "drops_campaigns_synced", False)):
+            return bool(getattr(stream, "campaigns_ids", []))
+        return any(
+            getattr(drop, "is_claimed", False) is not True
+            for campaign in (getattr(stream, "campaigns", []) or [])
+            for drop in (getattr(campaign, "drops", []) or [])
+        )
+
+    @staticmethod
+    def _select_minute_watch_indices(streamers, streamers_index, priority):
+        pending_drop_indices = [
+            index
+            for index in streamers_index
+            if Twitch._streamer_has_pending_drops(streamers[index])
+        ]
+        if pending_drop_indices:
+            return [pending_drop_indices[0]], True
+
+        max_watch_amount = 2
+        streamers_watching = []
+
+        def add_watching(indices):
+            for index in indices:
+                if index not in streamers_watching:
+                    streamers_watching.append(index)
+                    if len(streamers_watching) >= max_watch_amount:
+                        break
+
+        def remaining_watch_amount():
+            return max_watch_amount - len(streamers_watching)
+
+        for prior in priority:
+            if remaining_watch_amount() <= 0:
+                break
+            if prior == Priority.ORDER:
+                add_watching(streamers_index)
+            elif prior in [Priority.POINTS_ASCENDING, Priority.POINTS_DESCENDING]:
+                items = [
+                    {"points": streamers[index].channel_points, "index": index}
+                    for index in streamers_index
+                ]
+                items = sorted(
+                    items,
+                    key=lambda item: item["points"],
+                    reverse=(prior == Priority.POINTS_DESCENDING),
+                )
+                add_watching([item["index"] for item in items])
+            elif prior == Priority.STREAK:
+                for index in streamers_index:
+                    streamer = streamers[index]
+                    if (
+                        streamer.settings.watch_streak is True
+                        and streamer.stream.watch_streak_missing is True
+                        and (
+                            streamer.offline_at == 0
+                            or ((time.time() - streamer.offline_at) // 60) > 30
+                        )
+                        and streamer.stream.minute_watched < 7
+                    ):
+                        add_watching([index])
+                        if remaining_watch_amount() <= 0:
+                            break
+            elif prior == Priority.DROPS:
+                add_watching(pending_drop_indices)
+            elif prior == Priority.SUBSCRIBED:
+                streamers_with_multiplier = [
+                    index
+                    for index in streamers_index
+                    if streamers[index].viewer_has_points_multiplier()
+                ]
+                streamers_with_multiplier = sorted(
+                    streamers_with_multiplier,
+                    key=lambda index: streamers[index].total_points_multiplier(),
+                    reverse=True,
+                )
+                add_watching(streamers_with_multiplier)
+
+        return streamers_watching[:max_watch_amount], False
+
     def send_minute_watched_events(self, streamers, priority, chunk_size=3):
         while self.running:
             try:
@@ -507,82 +591,23 @@ class Twitch(object):
                         # Please perform a manually update and check if the user it's online
                         self.check_streamer_online(streamers[index])
 
-                """
-                Twitch has a limit - you can't watch more than 2 channels at one time.
-                We'll take the first two streamers from the final list as they have the highest priority.
-                """
-                max_watch_amount = 2
-                streamers_watching = []
-
-                def add_watching(indices):
-                    for index in indices:
-                        if index not in streamers_watching:
-                            streamers_watching.append(index)
-                            if len(streamers_watching) >= max_watch_amount:
-                                break
-
-                def remaining_watch_amount():
-                    return max_watch_amount - len(streamers_watching)
-
-                for prior in priority:
-                    if remaining_watch_amount() <= 0:
-                        break
-
-                    if prior == Priority.ORDER:
-                        add_watching(streamers_index)
-
-                    elif prior in [Priority.POINTS_ASCENDING, Priority.POINTS_DESCENDING]:
-                        items = [
-                            {"points": streamers[index].channel_points, "index": index}
-                            for index in streamers_index
-                        ]
-                        items = sorted(
-                            items,
-                            key=lambda x: x["points"],
-                            reverse=(prior == Priority.POINTS_DESCENDING),
-                        )
-                        add_watching([item["index"] for item in items])
-
-                    elif prior == Priority.STREAK:
-                        for index in streamers_index:
-                            if (
-                                streamers[index].settings.watch_streak is True
-                                and streamers[index].stream.watch_streak_missing is True
-                                and (
-                                    streamers[index].offline_at == 0
-                                    or ((time.time() - streamers[index].offline_at) // 60) > 30
-                                )
-                                and streamers[index].stream.minute_watched < 7
-                            ):
-                                add_watching([index])
-                                if remaining_watch_amount() <= 0:
-                                    break
-
-                    elif prior == Priority.DROPS:
-                        for index in streamers_index:
-                            if streamers[index].drops_condition() is True:
-                                add_watching([index])
-                                if remaining_watch_amount() <= 0:
-                                    break
-
-                    elif prior == Priority.SUBSCRIBED:
-                        streamers_with_multiplier = [
-                            index
-                            for index in streamers_index
-                            if streamers[index].viewer_has_points_multiplier()
-                        ]
-                        streamers_with_multiplier = sorted(
-                            streamers_with_multiplier,
-                            key=lambda x: streamers[x].total_points_multiplier(),
-                            reverse=True,
-                        )
-                        add_watching(streamers_with_multiplier)
-
+                streamers_watching, drops_single_channel = self._select_minute_watch_indices(
+                    streamers,
+                    streamers_index,
+                    priority,
+                )
+                max_watch_amount = 1 if drops_single_channel else 2
                 selected_streamers = set(streamers_watching)
+                drops_target = streamers[streamers_watching[0]].username if drops_single_channel and streamers_watching else ""
                 for index in streamers_index:
                     if index not in selected_streamers:
                         username = streamers[index].username
-                        logger.info(f"WATCH_STATUS: {username}|waiting|Ожидает очереди. Одновременно доступны два канала.")
+                        detail = (
+                            f"Активный Drops на @{drops_target}: минуты отправляются только в один поток."
+                            if drops_single_channel
+                            else "Ожидает очереди. Одновременно доступны два канала."
+                        )
+                        logger.info(f"WATCH_STATUS: {username}|waiting|{detail}")
 
                 streamers_watching = list(streamers_watching)[:max_watch_amount]
 
@@ -590,7 +615,12 @@ class Twitch(object):
                     if not self.running:
                         break
                     username = streamers[index].username
-                    logger.info(f"WATCH_STATUS: {username}|selected|Канал выбран для просмотра минут.")
+                    selected_detail = (
+                        "Активный Twitch Drops: отправка minute-watched только в один поток."
+                        if drops_single_channel
+                        else "Канал выбран для просмотра минут."
+                    )
+                    logger.info(f"WATCH_STATUS: {username}|selected|{selected_detail}")
                     next_iteration = time.time() + 20 / len(streamers_watching)
 
                     try:
@@ -1528,6 +1558,7 @@ class Twitch(object):
                                 campaigns,
                             )
                         )
+                        streamers[i].stream.drops_campaigns_synced = True
 
             except (ValueError, KeyError, requests.exceptions.ConnectionError) as e:
                 logger.error(f"Error while syncing inventory: {e}")
