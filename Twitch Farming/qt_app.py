@@ -140,6 +140,8 @@ class ImageCache(QObject):
 
     def _image_ready(self, url, data, error):
         self.pending.discard(url)
+        if error:
+            _log_ui_exception("загрузка иконки " + str(url)[:120], RuntimeError(str(error)))
         if data:
             self.data[url] = data
         targets = self.waiting.pop(url, [])
