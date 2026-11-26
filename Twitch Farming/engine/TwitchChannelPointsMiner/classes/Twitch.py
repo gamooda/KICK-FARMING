@@ -1391,21 +1391,31 @@ class Twitch(object):
             )
         progress_campaigns = collection_items(inventory.get("dropCampaignsInProgress"))
         event_drops = collection_items(inventory.get("gameEventDrops"))
-        dashboard_ids = {
-            campaign_id_of(item)
-            for item in dashboard_campaigns + available_campaigns
-            if isinstance(item, dict)
-        }
         progress_ids = {
             campaign_id_of(item)
             for item in progress_campaigns
             if isinstance(item, dict)
         }
+        detail_candidates = {}
+        for raw_campaign in dashboard_campaigns + available_campaigns + progress_campaigns:
+            if not isinstance(raw_campaign, dict):
+                continue
+            candidate = unwrap_item(raw_campaign)
+            if not isinstance(candidate, dict):
+                continue
+            candidate_id = campaign_id_of(candidate)
+            if candidate_id:
+                detail_candidates[candidate_id] = candidate
+        detailed_campaigns = (
+            self.__get_campaigns_details(list(detail_candidates.values()))
+            if detail_candidates else []
+        )
         campaigns_by_id = {}
         source_rows = (
             [(item, "dashboard") for item in dashboard_campaigns]
             + [(item, "available") for item in available_campaigns]
             + [(item, "inventory") for item in progress_campaigns]
+            + [(item, "details") for item in detailed_campaigns]
         )
         for raw_campaign, source in source_rows:
             if not isinstance(raw_campaign, dict):
@@ -1573,8 +1583,12 @@ class Twitch(object):
                             if name and name not in benefit_names:
                                 benefit_names.append(name)
                             benefit_type = (
-                                benefit_row.get("benefitType")
+                                benefit_row.get("distributionType")
+                                or benefit_row.get("distribution_type")
+                                or benefit_row.get("benefitType")
                                 or benefit_row.get("type")
+                                or edge.get("distributionType")
+                                or edge.get("distribution_type")
                                 or edge.get("benefitType")
                                 or edge.get("type")
                                 or ""
