@@ -1647,6 +1647,11 @@ class Twitch(object):
                             if isinstance(benefit_type, dict):
                                 benefit_type = benefit_type.get("type") or benefit_type.get("name") or ""
                             benefit_type = str(benefit_type or "").upper()
+                            if not benefit_type:
+                                if "game" in benefit_row and benefit_row.get("game") is None:
+                                    benefit_type = "EMOTE"
+                                elif isinstance(benefit_row.get("game"), dict):
+                                    benefit_type = "DIRECT_ENTITLEMENT"
                             if benefit_type and benefit_type not in benefit_types:
                                 benefit_types.append(benefit_type)
                             if not image_url:
