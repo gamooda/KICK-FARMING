@@ -521,13 +521,55 @@ class DropsInventoryWorker(threading.Thread):
                 self.app.followed_channels_event.wait(45)
             with self.app.lock:
                 followed = [dict(item) for item in self.app.followed_channels]
-            live_followers = [
-                item for item in followed
+                configured_logins = list(dict.fromkeys(
+                    str(login).strip().lower()
+                    for login in self.app.channels
+                    if str(login).strip()
+                ))
+            live_channels_by_login = {
+                str(item.get("login") or "").lower(): dict(item)
+                for item in followed
                 if item.get("is_live") and item.get("channel_id") and item.get("login")
+            }
+            missing_configured = [
+                login for login in configured_logins
+                if login not in live_channels_by_login
             ]
+            for offset in range(0, len(missing_configured), 100):
+                batch = missing_configured[offset:offset + 100]
+                try:
+                    streams = self.client.helix_get(
+                        "streams",
+                        [("user_login", login) for login in batch],
+                    )
+                    for stream in streams:
+                        if not isinstance(stream, dict):
+                            continue
+                        login = str(stream.get("user_login") or "").strip().lower()
+                        channel_id = str(stream.get("user_id") or "")
+                        if not login or not channel_id:
+                            continue
+                        live_channels_by_login[login] = {
+                            "login": login,
+                            "channel_id": channel_id,
+                            "display_name": str(stream.get("user_name") or login),
+                            "avatar_url": "",
+                            "game_name": str(stream.get("game_name") or ""),
+                            "game_id": str(stream.get("game_id") or ""),
+                            "is_live": True,
+                            "viewer_count": max(0, int(stream.get("viewer_count") or 0)),
+                            "started_at": str(stream.get("started_at") or ""),
+                            "uptime_seconds": stream_uptime_seconds(stream.get("started_at")),
+                        }
+                except Exception as stream_error:
+                    logging.getLogger("twitch_farming.drops").warning(
+                        "Не удалось получить эфиры каналов из списка фарма: %s",
+                        stream_error,
+                    )
+            live_channels = list(live_channels_by_login.values())
             available_campaigns_by_login = (
-                self.client.get_drop_campaigns_for_channels(live_followers)
-                if live_followers else {}
+                self.client.get_drop_campaigns_for_channels(live_channels)
+                if live_channels else {}
             )
             campaign_ids_by_login = {
                 login: [
@@ -543,9 +585,9 @@ class DropsInventoryWorker(threading.Thread):
                 for campaign_id in campaign_ids
             }
             logging.getLogger("twitch_farming.drops").info(
-                "AvailableDrops: найдено %s кампаний на %s живых подписанных каналах.",
+                "AvailableDrops: найдено %s кампаний на %s живых каналах.",
                 len(discovered_campaign_ids),
-                len(live_followers),
+                len(live_channels),
             )
             raw_campaigns = self.client.get_drop_inventory_snapshot(
                 available_campaigns_by_login
@@ -611,7 +653,7 @@ class DropsInventoryWorker(threading.Thread):
                 allowed = set(str(value) for value in campaign.get("allowed_channel_ids") or [])
                 game_id = str(campaign.get("game_id") or "")
                 candidates = []
-                for streamer in live_followers:
+                for streamer in live_channels:
                     login = str(streamer.get("login") or "").lower()
                     channel_id = str(streamer.get("channel_id") or "")
                     streamer_game_id = str(streamer.get("game_id") or "")
