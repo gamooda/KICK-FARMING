@@ -368,6 +368,7 @@ class TwitchLogo(QWidget):
         if self._hovered:
             self._blink_phase = 0
             self._target_eye_height = 3.2
+            self._eye_height += (self._target_eye_height - self._eye_height) * 0.28
         elif self._blink_phase == 1:
             self._eye_height += (0.3 - self._eye_height) * 0.82
             if self._eye_height <= 0.55:
