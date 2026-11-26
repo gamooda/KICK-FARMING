@@ -676,12 +676,14 @@ class ModalOverlay(QWidget):
         if input_mode == "single":
             self.editor = QLineEdit()
             self.editor.setObjectName("modalInput")
+            self.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
             self.editor.setText(str(initial_value or ""))
             self.editor.selectAll()
             box.addWidget(self.editor)
         elif input_mode == "multiline":
             self.editor = QTextEdit()
             self.editor.setObjectName("modalEditor")
+            self.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
             self.editor.setPlainText(str(initial_value or ""))
             self.editor.setMinimumHeight(125)
             self.editor.setMaximumHeight(170)
