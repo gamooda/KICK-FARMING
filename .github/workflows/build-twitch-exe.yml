@@ -9,6 +9,7 @@ on:
       - "Twitch Farming/**"
       - ".github/workflows/build-twitch-exe.yml"
       - ".github/scripts/startup-smoke-test.cjs"
+      - ".github/scripts/drops-watch-selection-test.py"
 
 permissions:
   contents: write
@@ -41,6 +42,7 @@ jobs:
           python -m compileall "Twitch Farming/app.py" "Twitch Farming/webview_app.py" "Twitch Farming/engine"
           node --check "Twitch Farming/ui/app.js"
           node ".github/scripts/startup-smoke-test.cjs"
+          python ".github/scripts/drops-watch-selection-test.py"
           python -c "from pathlib import Path; root=Path('Twitch Farming'); required=[root/'ui/index.html',root/'ui/style.css',root/'ui/app.js']; missing=[str(p) for p in required if not p.is_file()]; assert not missing, 'Missing UI files: '+', '.join(missing)"
 
       - name: Build executable
