@@ -33,24 +33,53 @@ for (const forbidden of ["threading.Thread", ".start(", "_load_config", "_restor
     throw new Error("TwitchFarmingApi constructor contains startup work: " + forbidden);
   }
 }
-if (!backend.includes("webview.start(\n                func=start_backend")) {
-  throw new Error("Backend initialization is not attached to webview.start(func=...).");
+const moduleHeader = backend.slice(0, backend.indexOf("class AppLogHandler:"));
+for (const forbidden of ["TwitchChannelPointsMiner", "requests", "PIL", "pystray"]) {
+  if (moduleHeader.includes(forbidden)) {
+    throw new Error("A heavy optional library is imported before the backend worker: " + forbidden);
+  }
 }
-const startBackendStart = backend.indexOf("        def start_backend():");
-const startBackendEnd = backend.indexOf("\n        api.webview_start_requested_at", startBackendStart);
-const startBackend = startBackendStart >= 0 && startBackendEnd >= 0
-  ? backend.slice(startBackendStart, startBackendEnd)
+if (!backend.includes("webview.start(\n                func=on_loaded")) {
+  throw new Error("The backend callback is not attached to webview.start(func=on_loaded).");
+}
+if (backend.includes("func=start_backend")) {
+  throw new Error("The previous startup callback is still active.");
+}
+const initBackendStart = backend.indexOf("        def init_backend():");
+const initBackendEnd = backend.indexOf("\n\n        def on_loaded", initBackendStart);
+const initBackend = initBackendStart >= 0 && initBackendEnd >= 0
+  ? backend.slice(initBackendStart, initBackendEnd)
   : "";
-if (!startBackend.includes("threading.Thread(") || !startBackend.includes("daemon=True")) {
-  throw new Error("The webview.start callback does not launch daemon background threads.");
+if (!initBackend.includes("api._startup_tasks()") ||
+    !initBackend.includes("target=api.watch_webview_startup") ||
+    !initBackend.includes("daemon=True")) {
+  throw new Error("The background init_backend worker is incomplete.");
 }
-const onLoadedStart = backend.indexOf("    def on_loaded(");
-const onLoadedEnd = backend.indexOf("\n    def on_closing", onLoadedStart);
+const onLoadedStart = backend.indexOf("        def on_loaded():");
+const onLoadedEnd = backend.indexOf("\n\n        api.webview_start_requested_at", onLoadedStart);
 const onLoaded = onLoadedStart >= 0 && onLoadedEnd >= 0
   ? backend.slice(onLoadedStart, onLoadedEnd)
   : "";
-if (!onLoaded || onLoaded.includes("start_startup_worker")) {
-  throw new Error("The WebView2 loaded event still starts backend initialization on the GUI event thread.");
+const onLoadedBody = onLoaded.split("\n").slice(1).map(line => line.trim()).filter(Boolean);
+if (onLoadedBody.length !== 1 || onLoadedBody[0] !== "threading.Thread(target=init_backend, daemon=True).start()") {
+  throw new Error("on_loaded must contain exactly one daemon-thread start statement.");
+}
+const batchMethodStart = backend.indexOf("    def record_startup_debug_batch(self, items):");
+const batchMethodEnd = backend.indexOf("\n    def mark_frontend_ready", batchMethodStart);
+const batchMethod = batchMethodStart >= 0 && batchMethodEnd >= 0
+  ? backend.slice(batchMethodStart, batchMethodEnd)
+  : "";
+if (!batchMethod || batchMethod.includes("_flush_logs") || batchMethod.includes("evaluate_js")) {
+  throw new Error("Startup debug batches must not synchronously flush files or call evaluate_js.");
+}
+if (!html.includes("bridge.record_startup_debug_batch(batch)") ||
+    !html.includes("setTimeout(flush,delay)") ||
+    !html.includes("delay=280") ||
+    html.includes("bridge.record_startup_debug(item.level,item.line)")) {
+  throw new Error("Startup diagnostics are not buffered into 280ms batches.");
+}
+if (!source.includes('"record_startup_debug_batch"') || !source.includes("await sleep(280);")) {
+  throw new Error("Frontend startup polling is not using the batched diagnostic API and reduced cadence.");
 }
 if (!html.includes("startup-window-bar pywebview-drag-region") ||
     !html.includes("startup-window-minimize") ||
@@ -153,7 +182,7 @@ const required = [
   "get_state",
   "get_startup_state",
   "record_frontend_timing",
-  "record_startup_debug",
+  "record_startup_debug_batch",
   "mark_frontend_ready",
   "restart_app",
   "begin_session_restore",
