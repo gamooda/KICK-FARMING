@@ -1008,7 +1008,7 @@ class ChannelCard(QFrame):
 
 
 class ActiveSlotCard(QFrame):
-    def __init__(self, slot_number, login, profile, balance, image_cache, watching=False, parent=None):
+    def __init__(self, slot_number, login, profile, balance, image_cache, watching=False, parent=None, temporary=False, currency_name=""):
         super().__init__(parent)
         profile = profile if isinstance(profile, dict) else {}
         self.setObjectName("activeSlotCard")
@@ -1025,9 +1025,19 @@ class ActiveSlotCard(QFrame):
         texts = QVBoxLayout()
         texts.setContentsMargins(0, 0, 0, 0)
         texts.setSpacing(3)
+        caption_row = QHBoxLayout()
+        caption_row.setContentsMargins(0, 0, 0, 0)
+        caption_row.setSpacing(6)
         title = QLabel("СЛОТ " + str(slot_number))
         title.setObjectName("slotCaption")
-        texts.addWidget(title)
+        caption_row.addWidget(title, 0, Qt.AlignmentFlag.AlignVCenter)
+        if temporary:
+            drops_badge = QLabel("DROPS")
+            drops_badge.setObjectName("temporaryBadge")
+            drops_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            caption_row.addWidget(drops_badge, 0, Qt.AlignmentFlag.AlignVCenter)
+        caption_row.addStretch(1)
+        texts.addLayout(caption_row)
         name = QLabel(str(profile.get("display_name") or ("@" + login if login else "Ожидание канала")))
         name.setObjectName("slotName")
         texts.addWidget(name)
@@ -1035,8 +1045,11 @@ class ActiveSlotCard(QFrame):
         status.setObjectName("slotCurrentBadge" if watching else ("slotReadyBadge" if login else "slotEmptyBadge"))
         texts.addWidget(status)
         row.addLayout(texts, 1)
-        amount = QLabel(f"{_ui_int(balance):,}".replace(",", " ") + " баллов")
+        amount_text = f"{_ui_int(balance):,}".replace(",", " ")
+        amount_text += " " + str(currency_name).strip() if str(currency_name or "").strip() else " баллов"
+        amount = QLabel(amount_text)
         amount.setObjectName("slotBalance")
+        amount.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(amount)
         if image_cache:
             image_cache.request(self.avatar, profile.get("avatar_url", ""), True)
@@ -1308,6 +1321,28 @@ def _campaign_game_art_url(campaign):
     return ""
 
 
+class ElidedLabel(QLabel):
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self.full_text = str(text or "")
+        self.setMinimumWidth(0)
+        self.setWordWrap(False)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self._update_elided_text()
+
+    def _update_elided_text(self):
+        width = max(0, self.contentsRect().width())
+        self.setText(self.fontMetrics().elidedText(
+            self.full_text,
+            Qt.TextElideMode.ElideRight,
+            width
+        ))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_elided_text()
+
+
 class CampaignCard(QFrame):
     def __init__(self, campaign, image_cache, add_callback, parent=None, add_enabled=True):
         super().__init__(parent)
@@ -1492,7 +1527,7 @@ class CampaignCard(QFrame):
                 info.setSpacing(1)
                 title_row = QHBoxLayout()
                 title_row.setSpacing(5)
-                title = QLabel(str(streamer.get("display_name") or streamer.get("login") or "Стример"))
+                title = ElidedLabel(str(streamer.get("display_name") or streamer.get("login") or "Стример"))
                 title.setObjectName("streamerName")
                 title_row.addWidget(title, 1)
                 live_badge = QLabel("LIVE")
@@ -1500,11 +1535,9 @@ class CampaignCard(QFrame):
                 live_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
                 title_row.addWidget(live_badge, 0, Qt.AlignmentFlag.AlignRight)
                 info.addLayout(title_row)
-                uptime = format_duration(streamer.get("uptime_seconds") or 0)
                 description = QLabel(
-                    "@" + str(streamer.get("login") or "") + " · "
-                    + f"{int(streamer.get('viewer_count') or 0):,}".replace(",", " ")
-                    + " зрителей · " + uptime + " · Drops"
+                    f"{max(0, int(streamer.get('viewer_count') or 0)):,}".replace(",", " ")
+                    + " зрителей"
                 )
                 description.setObjectName("smallMuted")
                 info.addWidget(description)
@@ -1519,13 +1552,13 @@ class CampaignCard(QFrame):
                 open_button.clicked.connect(lambda checked=False, value=login: QDesktopServices.openUrl(QUrl("https://www.twitch.tv/" + value)))
                 row.addWidget(open_button)
 
-                add_button = QPushButton("Добавить в фарм")
-                add_button.setObjectName("softButton")
-                add_button.setSvgIcon("play", 12)
-                add_button.setFixedHeight(25)
-                add_button.setMinimumWidth(112)
+                add_button = QPushButton("+ В фарм")
+                add_button.setObjectName("dropAddButton")
+                add_button.setFixedHeight(24)
+                add_button.setMinimumWidth(0)
+                add_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
                 add_button.setEnabled(bool(add_enabled))
-                add_button.setToolTip("Остановите фарм, чтобы добавить канал." if not add_enabled else "Добавить канал в Drops-фарм")
+                add_button.setToolTip("Остановите фарм, чтобы добавить канал" if not add_enabled else "Добавить канал в Drops-фарм")
                 add_button.clicked.connect(lambda checked=False, value=login, cid=str(campaign.get("id") or ""): add_callback(value, cid))
                 row.addWidget(add_button)
                 streamers_layout.addLayout(row)
@@ -1950,6 +1983,9 @@ class MainWindow(QMainWindow):
         QLabel#dropReceivedBadge { color:#82D8B3; background:#1D352D; border-radius:5px; padding:3px 5px; font-size:8px; font-weight:800; }
         QLabel#dropPercent { color:#C7A9FF; font-size:9px; font-weight:900; }
         QLabel#dropStreamerCount { color:#D4BCFF; background:#302345; border:1px solid #49345F; border-radius:6px; font-size:9px; font-weight:900; padding:0; }
+        QPushButton#dropAddButton { background:#211E2C; border:1px solid #383247; color:#D2CBE0; padding:4px 8px; border-radius:6px; font-size:10px; font-weight:700; }
+        QPushButton#dropAddButton:hover { background:#2B263B; border-color:#7656A2; }
+        QPushButton#dropAddButton:disabled { background:#181720; border-color:#282632; color:#696575; }
         QProgressBar#dropProgressBar { background:#282238; border:0; border-radius:3px; }
         QProgressBar#dropProgressBar::chunk { background:#9660F2; border-radius:3px; }
         QPushButton#campaignStreamerToggle { background:#211C2D; border:1px solid #39304C; border-radius:7px; color:#CFC3E4; padding:7px 8px; text-align:left; font-size:9px; font-weight:700; }
@@ -3005,8 +3041,15 @@ class MainWindow(QMainWindow):
         watch_map = self._watch_slot_map()
         profiles = state.get("channel_profiles", {})
         balances = state.get("channel_balances", {})
+        currencies = state.get("channel_currency", {})
+        temporary = {
+            str(item).strip().lower()
+            for item in (state.get("temporary_channels") or [])
+            if str(item).strip()
+        }
         profiles = profiles if isinstance(profiles, dict) else {}
         balances = balances if isinstance(balances, dict) else {}
+        currencies = currencies if isinstance(currencies, dict) else {}
         slot_data = []
         for number in (1, 2):
             if session_running:
@@ -3018,19 +3061,24 @@ class MainWindow(QMainWindow):
             profile = profiles.get(login, {}) if login else {}
             if not isinstance(profile, dict):
                 profile = {}
+            currency_info = currencies.get(login, {}) if login else {}
+            if not isinstance(currency_info, dict):
+                currency_info = {}
             slot_data.append((
                 login,
                 str(profile.get("display_name") or ""),
                 str(profile.get("avatar_url") or ""),
                 _ui_int(balances.get(login, 0)),
-                watching
+                watching,
+                login in temporary,
+                str(currency_info.get("name") or "").strip()
             ))
         signature = tuple(slot_data) + (session_running,)
         if signature == self._last_slot_signature:
             return
         completed = True
         for number, card in enumerate(list(self.slot_cards), 1):
-            login, display_name, avatar_url, balance, watching = slot_data[number - 1]
+            login, display_name, avatar_url, balance, watching, is_temporary, currency_name = slot_data[number - 1]
             profile = profiles.get(login, {}) if login else {}
             if not isinstance(profile, dict):
                 profile = {}
@@ -3041,7 +3089,9 @@ class MainWindow(QMainWindow):
                     profile,
                     balance,
                     self.image_cache,
-                    watching=watching
+                    watching=watching,
+                    temporary=is_temporary,
+                    currency_name=currency_name
                 )
                 index = self.slot_layout.indexOf(card)
                 self.slot_layout.removeWidget(card)
