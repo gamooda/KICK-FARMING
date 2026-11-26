@@ -1,5 +1,6 @@
 import base64
 import json
+import requests
 import sys
 from collections import OrderedDict
 from concurrent.futures import Future
@@ -23,6 +24,30 @@ class FakeResponse:
         self.status_code = status_code
         self.text = text
         self.url = url
+
+
+class FakeHelixResponse:
+    status_code = 200
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"data": [{"id": "12345"}]}
+
+
+helix_client = Twitch.__new__(Twitch)
+helix_client.twitch_login = SimpleNamespace(token="test-token", client_id="test-client")
+with (
+    patch(
+        "TwitchChannelPointsMiner.classes.Twitch.requests.get",
+        side_effect=[requests.exceptions.ReadTimeout("temporary timeout"), FakeHelixResponse()],
+    ) as helix_request,
+    patch("TwitchChannelPointsMiner.classes.Twitch.time.sleep", lambda seconds: None),
+):
+    helix_payload = helix_client.helix_get_payload("users", {"login": "test"})
+assert helix_payload == {"data": [{"id": "12345"}]}
+assert helix_request.call_count == 2, "A transient Helix timeout must be retried once."
 
 
 def make_streamer(username, online=True):
@@ -556,4 +581,26 @@ assert GQLOperations.Inventory["extensions"]["persistedQuery"]["sha256Hash"] == 
 assert GQLOperations.ViewerDropsDashboard["extensions"]["persistedQuery"]["sha256Hash"] == "c16bb890cc8ce7647a96ee69cd313d423a378a3dedadf630a1017cde18975feb"
 assert GQLOperations.DropCampaignDetails["extensions"]["persistedQuery"]["sha256Hash"] == "039277bf98f3130929262cc7c6efd9c141ca3749cb6dca442fc8ead9a53f77c1"
 assert GQLOperations.DropsHighlightService_AvailableDrops["extensions"]["persistedQuery"]["sha256Hash"] == "782dad0f032942260171d2d80a654f88bdd0c5a9dddc392e9bc92218a0f42d20"
-print("Multi-channel watch, available Drops discovery, Twitch profile reward filtering, persisted queries and HLS tests passed.")
+fallback_client = Twitch.__new__(Twitch)
+fallback_client.twitch_login = SimpleNamespace(get_user_id=lambda: 1346146321, username="dv4roka")
+detail_requests = []
+
+def fake_campaign_details_request(self, payload):
+    detail_requests.append(payload)
+    if len(detail_requests) == 1:
+        return [{"data": {"user": {"dropCampaign": None}}}]
+    return [{"data": {"user": {"dropCampaign": {"id": "fallback-campaign", "name": "Fallback Campaign"}}}}]
+
+with patch.object(Twitch, "post_gql_request", fake_campaign_details_request):
+    fallback_details = fallback_client._Twitch__get_campaigns_details([{"id": "fallback-campaign"}])
+assert [item["id"] for item in fallback_details] == ["fallback-campaign"]
+assert detail_requests[0][0]["variables"]["channelLogin"] == "1346146321"
+assert detail_requests[1][0]["variables"]["channelLogin"] == "dv4roka"
+
+engine_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "TwitchChannelPointsMiner.py").read_text(encoding="utf-8")
+assert "except requests.exceptions.RequestException as error:" in engine_source, "A single Twitch API timeout must not terminate the Engine worker."
+twitch_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8")
+assert "for attempt in range(2):" in twitch_source and "requests.exceptions.Timeout" in twitch_source, "Helix requests must retry transient timeouts."
+assert "campaigns_update = 0" in twitch_source and "requests.exceptions.RequestException" in twitch_source, "Drops sync must retry after transient request failures."
+
+print("Multi-channel watch, Drops discovery, Twitch reward filtering, Helix timeout recovery, campaign detail fallback and HLS tests passed.")
