@@ -170,6 +170,15 @@ class GQLOperations:
             }
         },
     }
+    GameDirectory = {
+        "operationName": "DirectoryPage_Game",
+        "extensions": {
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": "86bcceb4e8b1a51256ff8eed8bd8aae4acacf80d737efe904f84f3aeadf8cafd",
+            }
+        },
+    }
     GetIDFromLogin = {
         "operationName": "GetIDFromLogin",
         "variables": {"login": None},
