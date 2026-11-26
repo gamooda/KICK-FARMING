@@ -8,8 +8,7 @@ on:
     paths:
       - "Twitch Farming/**"
       - ".github/workflows/build-twitch-exe.yml"
-      - ".github/scripts/startup-smoke-test.cjs"
-      - ".github/scripts/startup-smoke-test.cjs"
+      - ".github/scripts/qt-smoke-test.py"
       - ".github/scripts/drops-watch-selection-test.py"
 
 permissions:
@@ -33,64 +32,43 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r "Twitch Farming/requirements.txt"
+          python -c "from PySide6.QtWidgets import QApplication; from PySide6.QtSvg import QSvgRenderer; print('PySide6-Essentials ready')"
 
       - name: Generate application version
         shell: pwsh
         run: |
           $version = "1.0.$env:GITHUB_RUN_NUMBER"
           "APP_VERSION = `"$version`"" | Set-Content -Path "Twitch Farming/version_info.py" -Encoding utf8
-          $uiBuildInfo = @{ version = $version; build = [int]$env:GITHUB_RUN_NUMBER }
-          $uiBuildInfo | ConvertTo-Json -Compress | Set-Content -Path "Twitch Farming/ui/build_info.json" -Encoding utf8
-          $indexPath = "Twitch Farming/ui/index.html"
-          $html = Get-Content -Path $indexPath -Raw
-          $html = [regex]::Replace($html, 'href="style\.css(?:\?v=[^"]*)?"', ('href="style.css?v=' + $version + '"'))
-          $html = [regex]::Replace($html, 'src="app\.js(?:\?v=[^"]*)?"', ('src="app.js?v=' + $version + '"'))
-          Set-Content -Path $indexPath -Value $html -Encoding utf8 -NoNewline
           Write-Host "Building Twitch Farming v$version"
 
       - name: Create Twitch application icon
         run: |
           python "Twitch Farming/build_icon.py"
 
-      - name: Validate Python and UI files
+      - name: Validate Python and Qt files
         shell: pwsh
         run: |
-          python -m compileall "Twitch Farming/app.py" "Twitch Farming/webview_app.py" "Twitch Farming/version_info.py" "Twitch Farming/engine"
+          python -m compileall "Twitch Farming/app.py" "Twitch Farming/backend.py" "Twitch Farming/qt_app.py" "Twitch Farming/version_info.py" "Twitch Farming/engine"
           if ($LASTEXITCODE -ne 0) { throw "Python compile validation failed." }
-          node --check "Twitch Farming/ui/app.js"
-          if ($LASTEXITCODE -ne 0) { throw "Frontend JavaScript syntax validation failed." }
-          node --check ".github/scripts/startup-smoke-test.cjs"
-          if ($LASTEXITCODE -ne 0) { throw "Startup smoke-test syntax validation failed." }
-          node ".github/scripts/startup-smoke-test.cjs"
-          if ($LASTEXITCODE -ne 0) { throw "Startup smoke tests failed." }
+          python ".github/scripts/qt-smoke-test.py"
+          if ($LASTEXITCODE -ne 0) { throw "Qt smoke tests failed." }
           python ".github/scripts/drops-watch-selection-test.py"
           if ($LASTEXITCODE -ne 0) { throw "Drops watch-selection tests failed." }
-          python -c "from pathlib import Path; import json; root=Path('Twitch Farming'); required=[root/'ui/index.html',root/'ui/style.css',root/'ui/app.js',root/'ui/build_info.json']; missing=[str(p) for p in required if not p.is_file()]; assert not missing, 'Missing UI files: '+', '.join(missing); info=json.loads((root/'ui/build_info.json').read_text(encoding='utf-8-sig')); namespace={}; exec((root/'version_info.py').read_text(encoding='utf-8-sig'),namespace); assert info.get('version')==namespace['APP_VERSION'], 'UI bundle version does not match application version'"
-          if ($LASTEXITCODE -ne 0) { throw "UI file verification failed." }
+          python -c "from importlib.metadata import packages_distributions; d=packages_distributions(); assert 'PySide6' in d and 'PySide6-Essentials' in d['PySide6'], 'PySide6-Essentials is not installed'; assert 'webview' not in d and 'clr' not in d, 'Legacy WebView/pythonnet packages are installed'"
 
-      - name: Build executable
-        run: |
-          pyinstaller --noconfirm --clean --onedir --windowed --name "Twitch Farming" --icon "Twitch Farming/assets/twitch.ico" --add-data "Twitch Farming/assets/twitch.ico;assets" --add-data "Twitch Farming/ui;ui" --paths "Twitch Farming" --paths "Twitch Farming/engine" --collect-all webview --collect-all clr_loader --collect-all irc --collect-all pystray --collect-submodules TwitchChannelPointsMiner --hidden-import=clr --hidden-import=clr_loader --hidden-import=webview.platforms.winforms --hidden-import=webview.platforms.edgechromium --hidden-import=webview.platforms.webview2core --hidden-import=System.Windows.Forms --hidden-import=System.Drawing --exclude-module PySide6 --exclude-module shiboken6 --exclude-module PyQt5 --exclude-module PyQt6 --exclude-module pandas --exclude-module numpy --exclude-module flask --exclude-module matplotlib --exclude-module scipy "Twitch Farming/webview_app.py"
-
-      - name: Copy versioned frontend beside executable
+      - name: Build native Qt executable
         shell: pwsh
         run: |
-          $source = "Twitch Farming/ui"
-          $destination = "dist/Twitch Farming/ui"
-          if (Test-Path $destination) { Remove-Item $destination -Recurse -Force }
-          Copy-Item -Path $source -Destination $destination -Recurse -Force
-          $required = @("index.html", "style.css", "app.js", "build_info.json")
-          foreach ($file in $required) {
-            if (-not (Test-Path (Join-Path $destination $file))) { throw "Frontend asset missing: $file" }
-          }
+          pyinstaller --noconfirm --clean --onedir --windowed --name "Twitch Farming" --icon "Twitch Farming/assets/twitch.ico" --add-data "Twitch Farming/assets/twitch.ico;assets" --paths "Twitch Farming" --paths "Twitch Farming/engine" --collect-all PySide6 --collect-all irc --collect-submodules TwitchChannelPointsMiner --hidden-import=PySide6.QtCore --hidden-import=PySide6.QtGui --hidden-import=PySide6.QtWidgets --hidden-import=PySide6.QtSvg --exclude-module pywebview --exclude-module webview --exclude-module pythonnet --exclude-module clr --exclude-module clr_loader --exclude-module pystray --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets --exclude-module PySide6.QtWebEngineQuick --exclude-module PySide6.QtQml --exclude-module PySide6.QtQuick --exclude-module PySide6.QtSql --exclude-module PySide6.Qt3DCore --exclude-module PySide6.Qt3DRender --exclude-module PySide6.Qt3DAnimation --exclude-module PySide6.Qt3DInput --exclude-module PySide6.Qt3DExtras --exclude-module PySide6.Qt3DLogic --exclude-module PySide6.QtMultimedia --exclude-module PySide6.QtBluetooth --exclude-module PySide6.QtLocation --exclude-module PySide6.QtPositioning --exclude-module PyQt5 --exclude-module PyQt6 --exclude-module pandas --exclude-module numpy --exclude-module flask --exclude-module matplotlib --exclude-module scipy "Twitch Farming/app.py"
+          if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed." }
 
       - name: Package portable update archive
         run: |
-          python -c "from pathlib import Path; import zipfile; root=Path('dist/Twitch Farming'); target=Path('dist/Twitch.Farming.zip'); exe=root/'Twitch Farming.exe'; internal=root/'_internal'; assert exe.is_file(), 'The onedir executable is missing'; assert internal.is_dir(), 'The onedir dependency folder is missing'; archive=zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED,compresslevel=6); [archive.write(file,file.relative_to(root).as_posix()) for file in root.rglob('*') if file.is_file()]; archive.close(); print(f'Portable update archive: {target.stat().st_size:,} bytes')"
+          python -c "from pathlib import Path; import zipfile; root=Path('dist/Twitch Farming'); target=Path('dist/Twitch.Farming.zip'); exe=root/'Twitch Farming.exe'; internal=root/'_internal'; assert exe.is_file(), 'The native executable is missing'; assert internal.is_dir(), 'The onedir dependency folder is missing'; archive=zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED,compresslevel=6); [archive.write(file,file.relative_to(root).as_posix()) for file in root.rglob('*') if file.is_file()]; archive.close(); print(f'Portable update archive: {target.stat().st_size:,} bytes')"
 
-      - name: Verify executable icon and onedir archive
+      - name: Verify native executable and archive
         run: |
-          python -c "from pathlib import Path; import json,re,pefile,zipfile; root=Path('dist/Twitch Farming'); p=root/'Twitch Farming.exe'; z=Path('dist/Twitch.Farming.zip'); version_source=Path('Twitch Farming/version_info.py').read_text(encoding='utf-8-sig'); version_namespace={}; exec(version_source,version_namespace); version=version_namespace['APP_VERSION']; required=['index.html','style.css','app.js','build_info.json']; ui=root/'ui'; internal_ui=root/'_internal'/'ui'; assert p.is_file() and p.stat().st_size > 1000000, f'Unexpected EXE size: {p.stat().st_size if p.exists() else 0}'; assert (root/'_internal').is_dir(), 'PyInstaller _internal folder is missing'; assert all((ui/name).is_file() for name in required), 'Versioned frontend beside EXE is incomplete'; assert all((internal_ui/name).is_file() for name in required), 'PyInstaller frontend inside _internal is incomplete'; assert json.loads((ui/'build_info.json').read_text(encoding='utf-8-sig'))['version']==version, 'External frontend version does not match EXE'; assert json.loads((internal_ui/'build_info.json').read_text(encoding='utf-8-sig'))['version']==version, 'Internal frontend version does not match EXE'; assert z.is_file() and z.stat().st_size > 8000000, 'Portable update ZIP is missing or too small'; pe=pefile.PE(str(p)); ids={entry.id for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries if entry.id is not None}; assert 14 in ids, 'RT_GROUP_ICON resource is missing'; archive=zipfile.ZipFile(z); names=set(archive.namelist()); assert 'Twitch Farming.exe' in names and all('ui/'+name in names for name in required) and all('_internal/ui/'+name in names for name in required) and any(name.startswith('_internal/') for name in names), 'The update ZIP does not contain both versioned frontend bundles'; print(f'EXE size: {p.stat().st_size:,} bytes; ZIP size: {z.stat().st_size:,} bytes; UI bundle v{version} verified in both locations')"
+          python -c "from pathlib import Path; import json,pefile,zipfile; root=Path('dist/Twitch Farming'); p=root/'Twitch Farming.exe'; z=Path('dist/Twitch.Farming.zip'); version_source=Path('Twitch Farming/version_info.py').read_text(encoding='utf-8-sig'); namespace={}; exec(version_source,namespace); version=namespace['APP_VERSION']; assert p.is_file() and p.stat().st_size > 1000000, 'Unexpected executable size'; assert (root/'_internal').is_dir(), 'PyInstaller _internal folder is missing'; assert not (root/'ui').exists(), 'Legacy UI directory is still packaged'; assert z.is_file() and z.stat().st_size > 10000000, 'Portable update ZIP is missing or too small'; pe=pefile.PE(str(p)); ids={entry.id for entry in pe.DIRECTORY_ENTRY_RESOURCE.entries if entry.id is not None}; assert 14 in ids, 'RT_GROUP_ICON resource is missing'; archive=zipfile.ZipFile(z); names=set(archive.namelist()); lowered=[name.lower() for name in names]; assert 'twitch farming.exe' in names and any('pyside6' in name for name in lowered), 'The archive does not contain the Qt runtime'; assert not any(name.startswith('ui/') for name in lowered), 'The archive contains the legacy HTML/CSS/JS bundle'; assert not any(any(token in name for token in ('pywebview','webview','pythonnet','clr_loader','qtwebengine','qtqml','qtquick','qtsql','qt3d')) for name in lowered), 'A removed WebView/pythonnet or prohibited Qt module remains in the archive'; print(f'Qt executable: {p.stat().st_size:,} bytes; portable ZIP: {z.stat().st_size:,} bytes; version v{version}')"
 
       - name: Upload portable application artifact
         uses: actions/upload-artifact@v4
@@ -120,10 +98,9 @@ jobs:
           prerelease: false
           files: "dist/Twitch.Farming.zip"
           body: |
-            Portable Windows build of Twitch Farming (PyWebView/WebView2).
+            Native Windows build of Twitch Farming using PySide6-Essentials (Qt6).
             Download and extract Twitch.Farming.zip, then launch Twitch Farming.exe.
-            Microsoft Edge WebView2 Runtime is required.
-            This ZIP package is used by the in-app automatic updater.
+            The package does not use PyWebView, WebView2, or pythonnet.
             Source code and GPL-3.0 license are available in the repository.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
