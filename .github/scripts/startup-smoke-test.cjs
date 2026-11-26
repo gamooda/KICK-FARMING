@@ -41,7 +41,7 @@ for (const forbidden of ["TwitchChannelPointsMiner", "requests", "PIL", "pystray
     throw new Error("A heavy optional library is imported before the backend worker: " + forbidden);
   }
 }
-if (!backend.includes("webview.start(\n                func=on_loaded")) {
+if (!/webview\.start\(\s*func\s*=\s*on_loaded\s*,/.test(backend)) {
   throw new Error("The backend callback is not attached to webview.start(func=on_loaded).");
 }
 if (backend.includes("func=start_backend")) {
