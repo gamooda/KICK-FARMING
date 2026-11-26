@@ -12,7 +12,7 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QEasingCurve, QPoint, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QPainter, QPainterPath, QPen, QPixmap, QIcon
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
 
 from backend import APP_DIR, APP_VERSION, DEFAULT_APP_SETTINGS, DEFAULT_BET_SETTINGS, DEFAULT_OPTIONS, FILTER_KEYS, ICON_FILE, OPTION_NAMES, STRATEGIES, TwitchFarmingApi
 
@@ -267,17 +267,18 @@ class TitleBar(QFrame):
 class ChannelCard(QFrame):
     selected = Signal(str)
 
-    def __init__(self, login, profile, balance, currency, slot, temporary, image_cache, remove_callback, parent=None):
+    def __init__(self, login, profile, balance, currency, slot, temporary, image_cache, remove_callback, edit_callback, move_callback, actions_enabled=True, parent=None):
         super().__init__(parent)
         self.login = login
         self.setObjectName("channelCard")
         self.setMinimumWidth(225)
         self.setMaximumWidth(360)
-        self.setMinimumHeight(228)
+        self.setMinimumHeight(270)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         root = QVBoxLayout(self)
         root.setContentsMargins(14, 12, 14, 12)
-        root.setSpacing(8)
+        root.setSpacing(5)
         badges = QHBoxLayout()
         badges.setSpacing(6)
         live = QLabel("● В ЭФИРЕ" if profile.get("is_live") else "● НЕ В ЭФИРЕ")
@@ -288,17 +289,15 @@ class ChannelCard(QFrame):
             badge.setObjectName("temporaryBadge")
             badges.addWidget(badge)
         badges.addStretch()
+        root.addLayout(badges)
         if slot:
+            watch_row = QHBoxLayout()
+            watch_row.addStretch()
             watch = QLabel("СМОТРИМ • СЛОТ " + str(slot))
             watch.setObjectName("watchBadge")
-            badges.addWidget(watch)
-        remove = QPushButton("×")
-        remove.setObjectName("smallDanger")
-        remove.setFixedSize(24, 24)
-        remove.setToolTip("Удалить канал")
-        remove.clicked.connect(lambda: remove_callback(login))
-        badges.addWidget(remove)
-        root.addLayout(badges)
+            watch.setMinimumHeight(24)
+            watch_row.addWidget(watch)
+            root.addLayout(watch_row)
         avatar_row = QHBoxLayout()
         avatar_row.addStretch()
         self.avatar = QLabel()
@@ -313,13 +312,15 @@ class ChannelCard(QFrame):
         self.name.setObjectName("channelName")
         self.name.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.name.setWordWrap(True)
+        self.name.setMinimumHeight(20)
         root.addWidget(self.name)
         self.handle = QLabel("@" + login)
         self.handle.setObjectName("channelLogin")
         self.handle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.handle.setMinimumHeight(16)
         root.addWidget(self.handle)
         bottom = QHBoxLayout()
-        self.currency_icon = QLabel()
+        self.currency_icon = QLabel("✦")
         self.currency_icon.setFixedSize(24, 24)
         self.currency_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         bottom.addWidget(self.currency_icon)
@@ -328,8 +329,33 @@ class ChannelCard(QFrame):
         bottom.addWidget(points)
         currency_name = QLabel(str(currency.get("name") or "Channel Points"))
         currency_name.setObjectName("mutedText")
+        currency_name.setMinimumWidth(0)
         bottom.addWidget(currency_name, 1)
         root.addLayout(bottom)
+        actions = QHBoxLayout()
+        actions.setSpacing(5)
+        edit = QPushButton("Редактировать")
+        edit.setObjectName("cardAction")
+        edit.setFixedHeight(27)
+        edit.setEnabled(bool(actions_enabled))
+        edit.setToolTip("Изменить логин канала")
+        edit.clicked.connect(lambda: edit_callback(login))
+        actions.addWidget(edit, 1)
+        move = QPushButton("Переместить")
+        move.setObjectName("cardAction")
+        move.setFixedHeight(27)
+        move.setEnabled(bool(actions_enabled))
+        move.setToolTip("Выбери вторую карточку, чтобы поменять их местами")
+        move.clicked.connect(lambda: move_callback(login))
+        actions.addWidget(move, 1)
+        remove = QPushButton("×")
+        remove.setObjectName("smallDanger")
+        remove.setFixedSize(25, 27)
+        remove.setEnabled(bool(actions_enabled))
+        remove.setToolTip("Удалить канал")
+        remove.clicked.connect(lambda: remove_callback(login))
+        actions.addWidget(remove)
+        root.addLayout(actions)
         if image_cache:
             image_cache.request(self.avatar, profile.get("avatar_url", ""), True)
             image_cache.request(self.currency_icon, currency.get("icon_url", ""), False)
@@ -367,9 +393,8 @@ class ActiveSlotCard(QFrame):
             image_cache.request(self.avatar, profile.get("avatar_url", ""), True)
 
 
-def eligible_twitch_campaigns(campaigns):
+def eligible_watch_campaigns(campaigns):
     result = []
-    now = time.time()
     for campaign in campaigns if isinstance(campaigns, list) else []:
         if not isinstance(campaign, dict) or str(campaign.get("status") or "ACTIVE").upper() != "ACTIVE":
             continue
@@ -377,9 +402,11 @@ def eligible_twitch_campaigns(campaigns):
             dict(drop)
             for drop in campaign.get("drops", [])
             if isinstance(drop, dict)
-            and bool(drop.get("is_twitch_view"))
-            and str(drop.get("category") or "").lower() == "twitch"
             and not bool(drop.get("claimed"))
+            and str(drop.get("type") or "watch").lower() == "watch"
+            and str(drop.get("category") or "").lower() != "subscription"
+            and not bool(drop.get("is_subscription"))
+            and not bool(drop.get("paid"))
         ]
         if not drops:
             continue
@@ -397,6 +424,37 @@ def eligible_twitch_campaigns(campaigns):
     result.sort(key=lambda item: max([int(drop.get("remaining_minutes") or 0) for drop in item["visible_drops"]] or [0]))
     return result
 
+
+def eligible_twitch_campaigns(campaigns):
+    result = []
+    for campaign in campaigns if isinstance(campaigns, list) else []:
+        if not isinstance(campaign, dict) or str(campaign.get("status") or "ACTIVE").upper() != "ACTIVE":
+            continue
+        drops = [
+            dict(drop)
+            for drop in campaign.get("drops", [])
+            if isinstance(drop, dict)
+            and str(drop.get("category") or "").lower() == "twitch"
+            and str(drop.get("type") or "watch").lower() == "watch"
+            and not bool(drop.get("claimed"))
+            and not bool(drop.get("is_subscription"))
+            and not bool(drop.get("paid"))
+        ]
+        if not drops:
+            continue
+        campaign_copy = dict(campaign)
+        campaign_copy["visible_drops"] = drops
+        campaign_copy["streamers"] = sorted(
+            [dict(item) for item in campaign.get("streamers", []) if isinstance(item, dict)],
+            key=lambda item: (
+                max(0, int(item.get("uptime_seconds") or 0)),
+                max(0, int(item.get("viewer_count") or 0))
+            ),
+            reverse=True
+        )[:3]
+        result.append(campaign_copy)
+    result.sort(key=lambda item: max([int(drop.get("remaining_minutes") or 0) for drop in item["visible_drops"]] or [0]))
+    return result
 
 def format_duration(seconds):
     try:
@@ -517,6 +575,87 @@ class CampaignCard(QFrame):
             layout.addWidget(empty)
 
 
+class ModalOverlay(QWidget):
+    completed = Signal(bool, str)
+
+    def __init__(self, parent, title, message, buttons=None, input_mode="", initial_value="", danger=False):
+        super().__init__(parent)
+        self.setObjectName("modalOverlay")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setGeometry(parent.rect())
+        self.editor = None
+        self.setStyleSheet("background-color: rgba(0, 0, 0, 185);")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 24, 24, 24)
+        outer.addStretch()
+        center = QHBoxLayout()
+        center.addStretch()
+        card = QFrame(self)
+        card.setObjectName("modalCard")
+        card.setMinimumWidth(340)
+        card.setMaximumWidth(500)
+        box = QVBoxLayout(card)
+        box.setContentsMargins(22, 20, 22, 18)
+        box.setSpacing(12)
+        heading = QLabel(str(title))
+        heading.setObjectName("modalTitle")
+        box.addWidget(heading)
+        body = QLabel(str(message))
+        body.setObjectName("modalMessage")
+        body.setWordWrap(True)
+        box.addWidget(body)
+        if input_mode == "single":
+            self.editor = QLineEdit()
+            self.editor.setObjectName("modalInput")
+            self.editor.setText(str(initial_value or ""))
+            self.editor.selectAll()
+            box.addWidget(self.editor)
+        elif input_mode == "multiline":
+            self.editor = QTextEdit()
+            self.editor.setObjectName("modalEditor")
+            self.editor.setPlainText(str(initial_value or ""))
+            self.editor.setMinimumHeight(125)
+            self.editor.setMaximumHeight(170)
+            box.addWidget(self.editor)
+        row = QHBoxLayout()
+        row.addStretch()
+        for label, accepted in buttons or [("Понятно", True)]:
+            button = QPushButton(str(label))
+            button.setObjectName("dangerButton" if accepted and danger else ("primaryButton" if accepted else "softButton"))
+            button.setMinimumWidth(88)
+            button.setFixedHeight(35)
+            button.clicked.connect(lambda checked=False, value=bool(accepted): self._finish(value))
+            row.addWidget(button)
+        box.addLayout(row)
+        center.addWidget(card)
+        center.addStretch()
+        outer.addLayout(center)
+        outer.addStretch()
+        if self.editor is not None:
+            self.editor.setFocus()
+        else:
+            self.setFocus()
+
+    def _finish(self, accepted):
+        if self.editor is None:
+            value = ""
+        elif isinstance(self.editor, QLineEdit):
+            value = self.editor.text()
+        else:
+            value = self.editor.toPlainText()
+        self.hide()
+        self.completed.emit(bool(accepted), value)
+        self.deleteLater()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self._finish(False)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class MainWindow(QMainWindow):
     installRequested = Signal()
 
@@ -550,6 +689,7 @@ class MainWindow(QMainWindow):
         self._last_reward_signature = None
         self._last_preset_signature = None
         self._active_panel_target = 0
+        self._modal_overlay = None
         self.api.update_install_callback = self.installRequested.emit
         self.installRequested.connect(self._install_ready)
         self._build_ui()
@@ -563,8 +703,16 @@ class MainWindow(QMainWindow):
         shell = QFrame()
         shell.setObjectName("shell")
         self.setCentralWidget(shell)
+        self.toast = QLabel(shell)
+        self.toast.setObjectName("toast")
+        self.toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.toast.setWordWrap(True)
+        self.toast.hide()
+        self.toast_timer = QTimer(self)
+        self.toast_timer.setSingleShot(True)
+        self.toast_timer.timeout.connect(self.toast.hide)
         outer = QVBoxLayout(shell)
-        outer.setContentsMargins(1, 1, 1, 1)
+        outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
         self.title_bar = TitleBar()
         self.title_bar.minimizeRequested.connect(self.showMinimized)
@@ -636,16 +784,16 @@ class MainWindow(QMainWindow):
     def _style(self):
         return """
         QWidget { color:#F2F1F7; font-family:"Segoe UI"; font-size:13px; }
-        QMainWindow#mainWindow { background:#0B0B12; }
-        QFrame#shell { background:#0E0E16; border:1px solid #282633; border-radius:16px; }
-        QFrame#titleBar { background:#11111B; border-top-left-radius:15px; border-top-right-radius:15px; border-bottom:1px solid #292737; }
+        QMainWindow#mainWindow { background:#0E0E12; border:0; }
+        QFrame#shell { background:#0E0E12; border:1px solid #262630; border-radius:0; }
+        QFrame#titleBar { background:#11111B; border-radius:0; border-bottom:1px solid #262630; }
         QLabel#titleCaption { font-size:14px; font-weight:700; color:#F4F1FF; }
         QLabel#titleStatus { font-size:11px; font-weight:700; color:#45D6A5; padding:6px 10px; background:#17261F; border-radius:8px; }
         QLabel#sessionTimer { color:#B9B2C9; font-family:Consolas; font-size:12px; padding:5px 7px; }
         QPushButton#windowControl { background:transparent; border:0; color:#A9A4B9; font-size:17px; border-radius:7px; }
         QPushButton#windowControl:hover { background:#282638; color:white; }
         QPushButton#windowControl:last-child:hover { background:#A83D55; }
-        QFrame#sidebar { background:#10101A; border-right:1px solid #292737; border-bottom-left-radius:15px; }
+        QFrame#sidebar { background:#10101A; border-right:1px solid #262630; border-radius:0; }
         QLabel#brandText { font-size:16px; font-weight:900; letter-spacing:2px; color:#FFFFFF; }
         QLabel#brandSub { font-size:10px; font-weight:800; letter-spacing:3px; color:#A98AFF; }
         QPushButton#navButton { border:0; border-radius:9px; text-align:left; padding:11px 12px; color:#AFAABC; background:transparent; font-weight:600; }
@@ -660,9 +808,18 @@ class MainWindow(QMainWindow):
         QLabel#sectionTitle { font-size:16px; font-weight:750; color:#F5F2FC; }
         QLabel#sectionEyebrow { color:#A98AFF; font-size:10px; font-weight:800; letter-spacing:1.2px; }
         QLabel#mutedText, QLabel#smallMuted { color:#918BA2; }
+        QLabel#toast { background:#211F2B; border:1px solid #423B50; border-radius:8px; padding:10px 16px; color:#F3EFFA; font-weight:650; }
+        QLabel#modalTitle { color:#FFFFFF; font-size:17px; font-weight:800; }
+        QLabel#modalMessage { color:#C8C2D2; font-size:13px; }
+        QFrame#modalCard { background:#16161D; border:1px solid #262630; border-radius:10px; }
+        QLineEdit#modalInput, QTextEdit#modalEditor { background:#101016; border:1px solid #343143; border-radius:7px; padding:9px; color:#F4F1F9; }
         QLabel#smallMuted { font-size:11px; }
         QFrame#panel, QFrame#channelCard, QFrame#campaignCard, QFrame#followerCard, QFrame#settingCard, QFrame#feedCard { background:#151520; border:1px solid #292737; border-radius:12px; }
         QFrame#channelCard:hover, QFrame#campaignCard:hover, QFrame#followerCard:hover { border-color:#564177; }
+        QFrame#channelCard[selected="true"] { background:#211A30; border-color:#A36BFF; }
+        QPushButton#cardAction { background:#211E2C; border:1px solid #383247; color:#D2CBE0; padding:4px 5px; border-radius:6px; font-size:10px; font-weight:650; }
+        QPushButton#cardAction:hover { background:#2B263B; border-color:#5B477D; }
+        QPushButton#cardAction:disabled, QPushButton#smallDanger:disabled { color:#696575; background:#181720; border-color:#282632; }
         QLabel#channelAvatar, QLabel#slotAvatar, QLabel#miniAvatar { background:#29243A; border:1px solid #4A3A63; border-radius:32px; color:#C9B8F0; font-weight:800; }
         QLabel#campaignImage { background:#241D36; border-radius:8px; color:#A98AFF; font-weight:800; }
         QLabel#rewardIcon { background:#242034; border-radius:8px; color:#E7D6FF; }
@@ -696,10 +853,19 @@ class MainWindow(QMainWindow):
         QCheckBox::indicator:checked { background:#9147FF; border-color:#A66CFF; }
         QProgressBar { background:#282434; border:0; border-radius:4px; height:8px; text-align:center; color:transparent; }
         QProgressBar::chunk { background:#9147FF; border-radius:4px; }
-        QScrollArea { border:0; background:transparent; }
-        QScrollBar:vertical { background:#10101A; width:9px; margin:2px; }
-        QScrollBar::handle:vertical { background:#393447; border-radius:4px; min-height:30px; }
-        QScrollBar::handle:vertical:hover { background:#64547D; }
+        QAbstractScrollArea, QAbstractScrollArea::viewport, QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget, QScrollArea QWidget#scrollContent { background-color:#0E0E12; border:0; }
+        QStackedWidget#pageStack { background-color:#0E0E12; border:0; }
+        QWidget#pageContent { background-color:#0E0E12; }
+        QScrollBar:vertical { background:#1E1E26; width:8px; margin:0; border:0; }
+        QScrollBar::handle:vertical { background:#3A3A48; border-radius:4px; min-height:28px; }
+        QScrollBar::handle:vertical:hover { background:#514F61; }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height:0; border:0; }
+        QScrollBar:horizontal { background:#1E1E26; height:8px; margin:0; border:0; }
+        QScrollBar::handle:horizontal { background:#3A3A48; border-radius:4px; min-width:28px; }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width:0; border:0; }
+        QPushButton#dropsFilter { background:#171720; border:1px solid #302D3A; color:#AFAABD; padding:8px 10px; border-radius:7px; font-size:11px; font-weight:700; }
+        QPushButton#dropsFilter:hover { background:#211D2D; border-color:#514064; color:#E6D9FF; }
+        QPushButton#dropsFilter:checked { background:#302345; border-color:#7655A5; color:#E1D0FF; }
         QFrame#separator { color:#302C3B; max-height:1px; }
         QLabel#rewardTitle, QLabel#streamerName { font-weight:750; color:#F1EDF8; }
         QLabel#eventRow { color:#C2BCCD; padding:6px 0; border-bottom:1px solid #262331; }
@@ -723,9 +889,13 @@ class MainWindow(QMainWindow):
         header.addWidget(sub)
         page_layout.addLayout(header)
         scroll = QScrollArea()
+        scroll.setObjectName("pageScroll")
+        scroll.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll_content = QWidget()
+        scroll_content.setObjectName("scrollContent")
+        scroll_content.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setContentsMargins(0, 4, 10, 8)
         scroll_layout.setSpacing(13)
@@ -788,6 +958,8 @@ class MainWindow(QMainWindow):
         self.channels_grid.setContentsMargins(0, 0, 0, 0)
         self.channels_grid.setHorizontalSpacing(12)
         self.channels_grid.setVerticalSpacing(12)
+        for column in range(3):
+            self.channels_grid.setColumnStretch(column, 1)
         self.channels_wrap = QWidget()
         self.channels_wrap.setLayout(self.channels_grid)
         layout.addWidget(self.channels_wrap)
@@ -812,12 +984,24 @@ class MainWindow(QMainWindow):
         return frame
 
     def _build_drops_page(self):
-        layout = self._page("Инвентарь Drops", "Только бесплатные награды профиля Twitch: значки и эмоуты. Игровые предметы и уже забранные награды скрыты.")
+        layout = self._page("Инвентарь Drops", "Все бесплатные награды за просмотр Twitch. Платные Drops для подписки не отображаются.")
         row = QHBoxLayout()
-        self.drops_filter = QComboBox()
-        self.drops_filter.addItems(["Все доступные", "Начатые", "Ещё не начатые"])
-        self.drops_filter.currentIndexChanged.connect(self._render_drops)
-        row.addWidget(self.drops_filter)
+        self.drops_filter_index = 0
+        self.drops_filter_group = QButtonGroup(self)
+        self.drops_filter_group.setExclusive(True)
+        filters = (
+            "Все кампании",
+            "Начатые (Инвентарь)",
+            "Награды Twitch (значки и эмоуты за просмотр)"
+        )
+        for index, title in enumerate(filters):
+            button = QPushButton(title)
+            button.setObjectName("dropsFilter")
+            button.setCheckable(True)
+            button.setChecked(index == 0)
+            self.drops_filter_group.addButton(button, index)
+            row.addWidget(button)
+        self.drops_filter_group.idClicked.connect(self._set_drops_filter)
         row.addStretch()
         refresh = QPushButton("↻  Обновить кампании")
         refresh.setObjectName("primaryButton")
@@ -1271,6 +1455,9 @@ class MainWindow(QMainWindow):
             description = str(item.get("description") or "")
             if description and description != title.text():
                 meta_parts.append(description)
+            currency_name = str(item.get("currency_name") or "").strip()
+            if currency_name and currency_name.lower() not in description.lower():
+                meta_parts.append("Валюта: " + currency_name)
             meta = QLabel(" · ".join(meta_parts))
             meta.setObjectName("smallMuted")
             meta.setWordWrap(True)
@@ -1369,6 +1556,7 @@ class MainWindow(QMainWindow):
         currency = state.get("channel_currency", {})
         temporary = set(state.get("temporary_channels", []))
         watch = self._watch_slot_map()
+        actions_enabled = not bool(state.get("session_running"))
         for index, login in enumerate(channels):
             profile = profiles.get(login, {})
             card = ChannelCard(
@@ -1379,11 +1567,13 @@ class MainWindow(QMainWindow):
                 watch.get(login),
                 login in temporary,
                 self.image_cache,
-                self._remove_channel
+                self._remove_channel,
+                self._edit_channel,
+                self._select_channel,
+                actions_enabled
             )
             card.selected.connect(self._select_channel)
-            if login == self.selected_channel:
-                card.setStyleSheet("border:1px solid #A36BFF; background:#211A30;")
+            card.setProperty("selected", login == self.selected_channel)
             self.channels_grid.addWidget(card, index // 3, index % 3)
         if not channels:
             empty = QLabel("Список каналов пуст. Добавь первый Twitch-канал.")
@@ -1391,6 +1581,9 @@ class MainWindow(QMainWindow):
             self.channels_grid.addWidget(empty, 0, 0)
 
     def _select_channel(self, login):
+        if self.latest_state.get("session_running"):
+            self._notify("Останови фарм перед изменением порядка каналов.")
+            return
         if not self.selected_channel:
             self.selected_channel = login
             self.selection_hint.setText("Выбран @" + login + ". Теперь выбери вторую карточку.")
@@ -1412,14 +1605,36 @@ class MainWindow(QMainWindow):
         self.selection_hint.setText("Выбери две карточки по очереди, чтобы поменять их местами.")
 
     def _remove_channel(self, login):
-        answer = QMessageBox.question(self, "Удалить канал", "Удалить @" + login + " из списка?")
-        if answer == QMessageBox.StandardButton.Yes:
-            self._call("remove_channel", login, message="Канал удалён.")
+        self._show_dialog(
+            "Удалить канал",
+            "Удалить @" + login + " из списка?",
+            buttons=[("Отмена", False), ("Удалить", True)],
+            danger=True,
+            callback=lambda accepted, value: self._call("remove_channel", login, message="Канал удалён.") if accepted else None
+        )
+
+    def _edit_channel(self, login):
+        if self.latest_state.get("session_running"):
+            self._notify("Останови фарм перед изменением каналов.")
+            return
+        self._show_dialog(
+            "Редактировать канал",
+            "Укажи новый Twitch-логин или ссылку для @" + login + ":",
+            input_mode="single",
+            initial_value=login,
+            callback=lambda accepted, value: self._call("save_channel_editor", "edit", login, value, [], message="Канал сохранён.") if accepted and value.strip() else None
+        )
 
     def _add_channels(self):
-        value, ok = QInputDialog.getMultiLineText(self, "Добавить каналы", "Вставь Twitch-логины или ссылки, по одному на строку:")
-        if ok and value.strip():
-            self._call("save_channel_editor", "add", "", value, [], message="Каналы добавлены.")
+        if self.latest_state.get("session_running"):
+            self._notify("Останови фарм перед изменением каналов.")
+            return
+        self._show_dialog(
+            "Добавить каналы",
+            "Вставь Twitch-логины или ссылки, по одному на строку:",
+            input_mode="multiline",
+            callback=lambda accepted, value: self._call("save_channel_editor", "add", "", value, [], message="Каналы добавлены.") if accepted and value.strip() else None
+        )
 
     def _toggle_farm(self):
         if self.latest_state.get("session_running"):
@@ -1442,7 +1657,7 @@ class MainWindow(QMainWindow):
     def _login(self):
         username = self.username_input.text().strip()
         if not username:
-            QMessageBox.warning(self, "Twitch", "Укажи логин Twitch.")
+            self._show_dialog("Twitch", "Укажи логин Twitch.")
             return
         self._call("login", username, message="Запрос авторизации Twitch отправлен.")
 
@@ -1485,7 +1700,7 @@ class MainWindow(QMainWindow):
         try:
             values = self._collect_bet_values()
         except ValueError:
-            QMessageBox.warning(self, "Прогнозы", "Проверь числовые параметры.")
+            self._show_dialog("Прогнозы", "Проверь числовые параметры.")
             return
         selected = self.bet_preset.currentText() or "Оптимальный"
         def completed(result, error):
@@ -1499,12 +1714,12 @@ class MainWindow(QMainWindow):
     def _save_bet_preset(self):
         name = self.bet_preset_name.text().strip()
         if not name:
-            QMessageBox.warning(self, "Пресеты", "Введи название пресета.")
+            self._show_dialog("Пресеты", "Введи название пресета.")
             return
         try:
             values = self._collect_bet_values()
         except ValueError:
-            QMessageBox.warning(self, "Пресеты", "Проверь числовые параметры.")
+            self._show_dialog("Пресеты", "Проверь числовые параметры.")
             return
         def completed(result, error):
             if not error and isinstance(result, dict) and result.get("ok"):
@@ -1520,7 +1735,7 @@ class MainWindow(QMainWindow):
     def _delete_bet_preset(self):
         selected = self.bet_preset.currentText()
         if selected == "Оптимальный":
-            QMessageBox.information(self, "Пресеты", "Стандартный пресет нельзя удалить.")
+            self._show_dialog("Пресеты", "Стандартный пресет нельзя удалить.")
             return
         def completed(result, error):
             if not error and isinstance(result, dict) and result.get("ok"):
@@ -1591,29 +1806,36 @@ class MainWindow(QMainWindow):
         self.bet_filter_condition.setEnabled(enabled)
         self.bet_filter_value.setEnabled(enabled)
 
+    def _set_drops_filter(self, index):
+        self.drops_filter_index = int(index)
+        self._last_campaign_signature = None
+        self._render_drops()
+
     def _render_drops(self):
         if not hasattr(self, "drops_list"):
             return
-        self._clear_layout(self.drops_list)
-        campaigns = eligible_twitch_campaigns(self.drops_state.get("campaigns", []))
-        filter_index = self.drops_filter.currentIndex()
+        campaigns_all = eligible_watch_campaigns(self.drops_state.get("campaigns", []))
+        filter_index = int(getattr(self, "drops_filter_index", 0))
         if filter_index == 1:
-            campaigns = [item for item in campaigns if item.get("started") or item.get("in_inventory")]
+            campaigns = [item for item in campaigns_all if item.get("started") or item.get("in_inventory")]
         elif filter_index == 2:
-            campaigns = [item for item in campaigns if not item.get("started") and not item.get("in_inventory")]
+            campaigns = eligible_twitch_campaigns(self.drops_state.get("campaigns", []))
+        else:
+            campaigns = campaigns_all
         session_running = bool(self.latest_state.get("session_running"))
         signature = json.dumps([campaigns, filter_index, self.drops_state.get("loading"), self.drops_state.get("error"), session_running], sort_keys=True, ensure_ascii=False)
         if signature == self._last_campaign_signature:
             return
         self._last_campaign_signature = signature
+        self._clear_layout(self.drops_list)
         if self.drops_state.get("loading"):
             self.drops_status.setText("Загрузка ViewerDropsDashboard и Inventory…")
         elif self.drops_state.get("error"):
             self.drops_status.setText("Ошибка загрузки: " + str(self.drops_state.get("error")))
         else:
-            self.drops_status.setText(f"Найдено кампаний с незабранными значками и эмоутами Twitch: {len(campaigns)}")
+            self.drops_status.setText(f"Найдено кампаний с бесплатными наградами за просмотр: {len(campaigns)}")
         if not campaigns:
-            empty = QLabel("Подходящих незабранных Twitch-наград сейчас нет. Обнови кампании после входа в Twitch.")
+            empty = QLabel("Подходящих бесплатных Drops за просмотр сейчас нет. Обнови кампании после входа в Twitch.")
             empty.setObjectName("mutedText")
             empty.setWordWrap(True)
             self.drops_list.addWidget(empty)
@@ -1710,7 +1932,7 @@ class MainWindow(QMainWindow):
 
     def _download_update(self):
         if self.latest_state.get("session_running"):
-            QMessageBox.warning(self, "Обновление", "Останови фарм перед установкой обновления.")
+            self._show_dialog("Обновление", "Останови фарм перед установкой обновления.")
             return
         self._call("download_update", message="Скачивание обновления запущено.")
 
@@ -1778,10 +2000,42 @@ class MainWindow(QMainWindow):
         else:
             self.showMaximized()
 
+    def _show_dialog(self, title, message, buttons=None, input_mode="", initial_value="", danger=False, callback=None):
+        if self._modal_overlay is not None:
+            self._modal_overlay.hide()
+            self._modal_overlay.deleteLater()
+        parent = self.centralWidget()
+        overlay = ModalOverlay(parent, title, message, buttons, input_mode, initial_value, danger)
+        self._modal_overlay = overlay
+        def finished(accepted, value):
+            if self._modal_overlay is overlay:
+                self._modal_overlay = None
+            if callback:
+                callback(accepted, value)
+        overlay.completed.connect(finished)
+        overlay.setGeometry(parent.rect())
+        overlay.raise_()
+        overlay.show()
+        overlay.setFocus()
+
+    def _position_toast(self):
+        if not hasattr(self, "toast") or self.toast is None or not self.toast.isVisible():
+            return
+        parent = self.centralWidget()
+        width = min(max(self.toast.sizeHint().width() + 30, 240), max(240, parent.width() - 40), 560)
+        self.toast.setFixedWidth(width)
+        self.toast.adjustSize()
+        self.toast.move((parent.width() - self.toast.width()) // 2, max(12, parent.height() - self.toast.height() - 20))
+        self.toast.raise_()
+
     def _notify(self, message):
-        if self.tray and self.tray.isVisible():
-            self.tray.showMessage(APP_TITLE, str(message), QSystemTrayIcon.MessageIcon.Information, 2500)
-        self.statusBar().showMessage(str(message), 4500)
+        if not hasattr(self, "toast"):
+            return
+        self.toast.setText(str(message))
+        self._position_toast()
+        self.toast.show()
+        self.toast.raise_()
+        self.toast_timer.start(3500)
 
     def _install_ready(self):
         self._notify("Обновление подготовлено. Приложение перезапустится после закрытия.")
@@ -1806,10 +2060,17 @@ class MainWindow(QMainWindow):
         self._run_task("shutdown", self.api.shutdown, (), lambda result, error: QApplication.quit())
         QTimer.singleShot(2500, QApplication.quit)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        parent = self.centralWidget()
+        if self._modal_overlay is not None:
+            self._modal_overlay.setGeometry(parent.rect())
+            self._modal_overlay.raise_()
+        self._position_toast()
+
     def closeEvent(self, event):
         if self.latest_state.get("app_settings", {}).get("minimize_to_tray") and self.tray and self.tray.isVisible():
             self.hide()
-            self.tray.showMessage(APP_TITLE, "Приложение продолжает работать в фоне.", QSystemTrayIcon.MessageIcon.Information, 1800)
             event.ignore()
             return
         event.accept()

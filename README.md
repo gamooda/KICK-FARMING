@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11"></a>
-  <a href="https://doc.qt.io/qtforpython-6/"><img src="https://img.shields.io/badge/PySide6-Essentials-Qt6-41CD52?style=flat-square" alt="PyWebView 6.2.1"></a>
+  <a href="https://doc.qt.io/qtforpython-6/"><img src="https://img.shields.io/badge/PySide6-Essentials-Qt6-41CD52?style=flat-square" alt="PySide6 Essentials with Qt6"></a>
   <img src="https://img.shields.io/badge/Windows-10%20%2F%2011-555555?style=flat-square&logo=windows&logoColor=white" alt="Windows 10 and 11">
   <a href="https://github.com/gamooda/KICK-FARMING/releases/latest"><img src="https://img.shields.io/badge/Release-latest-8B5CF6?style=flat-square" alt="Latest release"></a>
 </p>
@@ -31,7 +31,7 @@
 - Автоматические ставки на прогнозы с настраиваемыми стратегиями.
 - Обработка рейдов, бонусов, моментов и серий просмотров.
 - Ручная сортировка каналов с сохранением приоритета.
-- Нативный интерфейс на PySide6-Essentials (Qt6), без Qt6.
+- Нативный интерфейс на PySide6-Essentials (Qt6), без браузерного движка.
 - Локальное хранение настроек и защищённой Twitch-сессии.
 
 ## Скриншоты
@@ -69,11 +69,11 @@
 4. Не отделяйте EXE от папки `_internal`: она содержит зависимости приложения и нужна для запуска и автообновления.
 5. При первом подключении введите логин Twitch и подтвердите авторизацию на официальной странице.
 
-Для работы приложения требуется [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+Интерфейс работает на Qt6. Отдельная установка WebView2 или браузерного движка не требуется.
 
 ### Запуск из исходников
 
-Требуются Git, Python 3.11 и WebView2 Runtime.
+Требуются Git и Python 3.11.
 
 ```powershell
 git clone https://github.com/gamooda/KICK-FARMING.git
@@ -88,9 +88,12 @@ py -3.11 -m venv .venv
 
 ## Структура
 
-- `Twitch Farming/` — Python-приложение, интерфейс и движок Twitch.
-- `Twitch Farming/ui/` — HTML, CSS и JavaScript интерфейса.
-- `assets/` — логотип и скриншоты README.
+- `Twitch Farming/qt_app.py` — нативный интерфейс на PySide6-Essentials (Qt6).
+- `Twitch Farming/backend.py` — авторизация, Twitch API, Drops, кэш и автообновление.
+- `Twitch Farming/engine/` — движок сбора Channel Points и обработки событий.
+- `Twitch Farming/requirements.txt` — Python-зависимости.
+- `assets/` — логотип и изображения для README.
+- `.github/` — CI, сборка Windows EXE и тесты.
 
 ## Сборка
 

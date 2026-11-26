@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "Twitch Farming"
 sys.path.insert(0, str(APP))
 
-from qt_app import eligible_twitch_campaigns, format_duration
+from qt_app import eligible_twitch_campaigns, eligible_watch_campaigns, format_duration
 
 
 def check(condition, message):
@@ -51,7 +51,10 @@ sample = [
 
 result = eligible_twitch_campaigns(sample)
 check(len(result) == 1, "Only active campaigns with unclaimed Twitch profile rewards must be listed.")
-check([item["id"] for item in result[0]["visible_drops"]] == ["badge", "emote"], "Game drops and claimed Twitch rewards must be hidden.")
+check([item["id"] for item in result[0]["visible_drops"]] == ["badge", "emote"], "Twitch profile filter must contain only unclaimed Twitch rewards.")
+all_campaigns = eligible_watch_campaigns(sample)
+check(len(all_campaigns) == 1, "All-campaign view must include active campaigns with free watch drops.")
+check([item["id"] for item in all_campaigns[0]["visible_drops"]] == ["badge", "emote", "skin"], "All-campaign view must include free game rewards and Twitch profile rewards.")
 check([item["login"] for item in result[0]["streamers"]] == ["longstream", "medium", "highview"], "Long-running streams must be recommended first.")
 check(format_duration(3660) == "1 ч 1 мин", "Stream uptime must be formatted.")
 check(format_duration(0) == "0 мин", "Zero uptime must be formatted.")
@@ -73,10 +76,21 @@ for required in (
     check(required in backend or required in (APP / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8"), "Backend feature missing: " + required)
 check("webview" not in backend.lower() and "pystray" not in backend.lower() and "clr_loader" not in backend.lower(), "The native backend still contains a legacy WebView or PyStray reference.")
 check("pyside6-essentials" in requirements, "PySide6-Essentials dependency is missing.")
+check("QMessageBox" not in qt and "QInputDialog" not in qt, "Native system dialogs must be replaced with in-window overlays.")
 check("pywebview" not in requirements and "pystray" not in requirements, "Legacy GUI dependencies are still installed.")
 check("from qt_app import main" in entry, "The executable entry point must launch the native Qt interface.")
 for marker in (
     "FramelessWindowHint",
+    "class ModalOverlay",
+    "eligible_watch_campaigns",
+    "QScrollArea > QWidget > QWidget",
+    "border-radius:0",
+    "rgba(0, 0, 0, 185)",
+    "Все кампании",
+    "Начатые (Инвентарь)",
+    "Награды Twitch (значки и эмоуты за просмотр)",
+    "Редактировать",
+    "Переместить",
     "class TitleBar",
     "class TwitchLogo",
     "class ChannelCard",
@@ -98,5 +112,10 @@ check("pyside6-essentials" in requirements and "pywebview" not in requirements a
 check("--exclude-module pywebview" in workflow and "--exclude-module pythonnet" in workflow and "--exclude-module clr_loader" in workflow, "PyInstaller does not explicitly exclude legacy WebView/pythonnet modules.")
 check("qt-smoke-test.py" in workflow, "Qt smoke tests are not included in CI.")
 check(not (APP / "ui").exists(), "The legacy HTML/CSS/JS folder must be removed.")
+readme = (ROOT / "README.md").read_text(encoding="utf-8")
+app_readme = (APP / "README.md").read_text(encoding="utf-8")
+check("Microsoft Edge WebView2 Runtime" not in readme, "The root README still documents WebView2 as a requirement.")
+check("Twitch Farming/ui/" not in readme, "The root README still lists the removed ui folder.")
+check("webview_app.py" not in app_readme and "WebView2 Runtime" not in app_readme, "The application README contains legacy WebView documentation.")
 
 print("Native Qt smoke tests passed.")
