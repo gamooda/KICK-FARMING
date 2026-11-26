@@ -80,14 +80,26 @@ class RecordingExecutor:
 
 dispatch_watcher._send_minute_watched_for_streamer = lambda streamer: None
 setattr(dispatch_watcher, "_Twitch__chuncked_sleep", lambda *args, **kwargs: None)
-with patch(
-    "TwitchChannelPointsMiner.classes.Twitch.ThreadPoolExecutor",
-    RecordingExecutor,
+dispatch_logs = []
+with (
+    patch(
+        "TwitchChannelPointsMiner.classes.Twitch.ThreadPoolExecutor",
+        RecordingExecutor,
+    ),
+    patch(
+        "TwitchChannelPointsMiner.classes.Twitch.logger.info",
+        side_effect=lambda message, *args, **kwargs: dispatch_logs.append(str(message)),
+    ),
 ):
     dispatch_watcher.send_minute_watched_events(dispatch_streamers, None)
 
 assert dispatched == [streamer.username for streamer in dispatch_streamers]
 assert worker_counts == [len(dispatch_streamers)]
+assert any(
+    f"Отправка minute-watched для {len(dispatch_streamers)} онлайн-каналов:" in message
+    and all(streamer.username in message for streamer in dispatch_streamers)
+    for message in dispatch_logs
+), "The dispatch log must list every online streamer before sending."
 
 streamer = make_streamer("example_channel")
 event = Twitch._build_minute_watched_event(streamer, "12345")
