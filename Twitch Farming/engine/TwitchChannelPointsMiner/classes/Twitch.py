@@ -146,26 +146,31 @@ class Twitch(object):
         token = self.twitch_login.token
         if not token:
             raise RuntimeError("Сначала подключи аккаунт Twitch.")
-        response = requests.get(
-            f"https://api.twitch.tv/helix/{endpoint}",
-            headers={
-                "Client-ID": self.twitch_login.client_id,
-                "Authorization": f"Bearer {token}",
-            },
-            params=params or {},
-            timeout=7,
-        )
+
+        def request_with_retry(access_token):
+            for attempt in range(2):
+                try:
+                    return requests.get(
+                        f"https://api.twitch.tv/helix/{endpoint}",
+                        headers={
+                            "Client-ID": self.twitch_login.client_id,
+                            "Authorization": f"Bearer {access_token}",
+                        },
+                        params=params or {},
+                        timeout=7,
+                    )
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
+                    if attempt:
+                        raise
+                    logger.warning(
+                        f"Twitch Helix {endpoint}: временная ошибка сети ({error}). Повтор через 1 секунду."
+                    )
+                    time.sleep(1)
+
+        response = request_with_retry(token)
         if response.status_code == 401 and self._reauthenticate_after_expiry(token):
             token = self.twitch_login.token
-            response = requests.get(
-                f"https://api.twitch.tv/helix/{endpoint}",
-                headers={
-                    "Client-ID": self.twitch_login.client_id,
-                    "Authorization": f"Bearer {token}",
-                },
-                params=params or {},
-                timeout=7,
-            )
+            response = request_with_retry(token)
         response.raise_for_status()
         return response.json()
 
@@ -1201,26 +1206,28 @@ class Twitch(object):
         return campaigns
 
     def __get_campaigns_details(self, campaigns):
-        result = []
+        result_by_id = {}
         chunks = create_chunks(campaigns, 20)
-        last_response = None
-        for chunk in chunks:
-            json_data = []
-            for campaign in chunk:
-                json_data.append(copy.deepcopy(GQLOperations.DropCampaignDetails))
-                json_data[-1]["variables"] = {
-                    "dropID": campaign["id"],
-                    "channelLogin": f"{self.twitch_login.get_user_id()}",
+        user_id = str(self.twitch_login.get_user_id() or "")
+        user_login = str(self.twitch_login.username or "").strip().lower()
+
+        def build_request(items, channel_login):
+            requests_data = []
+            for campaign in items:
+                campaign_id = str(campaign.get("id") or "")
+                if not campaign_id:
+                    continue
+                request_data = copy.deepcopy(GQLOperations.DropCampaignDetails)
+                request_data["variables"] = {
+                    "dropID": campaign_id,
+                    "channelLogin": str(channel_login or ""),
                 }
-            response = self.post_gql_request(json_data)
-            last_response = response
+                requests_data.append(request_data)
+            return requests_data
+
+        def collect_details(response):
             if not isinstance(response, list):
-                self._warn_drops_response(
-                    "DropCampaignDetails",
-                    "Twitch вернул неожиданный формат списка деталей кампаний",
-                    response,
-                )
-                continue
+                return
             for item in response:
                 if not isinstance(item, dict):
                     continue
@@ -1231,18 +1238,47 @@ class Twitch(object):
                         item,
                     )
                     continue
-                drop_campaign = (
-                    item.get("data", {}).get("user", {}).get("dropCampaign")
+                user_data = (item.get("data") or {}).get("user") or {}
+                drop_campaign = user_data.get("dropCampaign")
+                if isinstance(drop_campaign, dict) and drop_campaign.get("id"):
+                    result_by_id[str(drop_campaign["id"])] = drop_campaign
+
+        for chunk in chunks:
+            last_response = None
+            valid_chunk = [
+                campaign for campaign in chunk
+                if isinstance(campaign, dict) and campaign.get("id")
+            ]
+            if not valid_chunk:
+                continue
+            response = self.post_gql_request(build_request(valid_chunk, user_id))
+            last_response = response
+            collect_details(response)
+            missing = [
+                campaign for campaign in valid_chunk
+                if str(campaign["id"]) not in result_by_id
+            ]
+            if missing and user_login and user_login != user_id:
+                fallback_response = self.post_gql_request(
+                    build_request(missing, user_login)
                 )
-                if drop_campaign is not None:
-                    result.append(drop_campaign)
-        if campaigns and len(result) < len(campaigns):
-            self._warn_drops_response(
-                "DropCampaignDetails",
-                f"получены детали только для {len(result)} из {len(campaigns)} кампаний",
-                last_response,
-            )
-        return result
+                last_response = fallback_response
+                collect_details(fallback_response)
+                missing = [
+                    campaign for campaign in missing
+                    if str(campaign["id"]) not in result_by_id
+                ]
+            if missing:
+                self._warn_drops_response(
+                    "DropCampaignDetails",
+                    f"детали не вернулись для {len(missing)} из {len(valid_chunk)} кампаний; пропущены ID: {[str(item['id']) for item in missing[:10]]}",
+                    last_response,
+                )
+        return [
+            result_by_id[str(campaign["id"])]
+            for campaign in campaigns
+            if isinstance(campaign, dict) and str(campaign.get("id") or "") in result_by_id
+        ]
 
     def __sync_campaigns(self, campaigns):
         # We need the inventory only for get the real updated value/progress
@@ -1820,9 +1856,10 @@ class Twitch(object):
                             )
                         )
 
-            except (ValueError, KeyError, requests.exceptions.ConnectionError) as e:
+            except (ValueError, KeyError, requests.exceptions.RequestException) as e:
                 logger.error(f"Error while syncing inventory: {e}")
                 campaigns = []
+                campaigns_update = 0
                 self.__check_connection_handler(chunk_size)
 
             self.__chuncked_sleep(60, chunk_size=chunk_size)
