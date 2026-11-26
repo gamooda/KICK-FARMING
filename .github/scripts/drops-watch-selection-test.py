@@ -423,7 +423,8 @@ assert campaigns_by_id["campaign-one"]["started"] is True
 assert campaigns_by_id["campaign-one"]["in_inventory"] is True
 assert campaigns_by_id["campaign-two"]["started"] is False
 assert campaigns_by_id["campaign-in-progress"]["started"] is True
-assert campaigns_by_id["campaign-in-progress"]["source"] == "available"
+assert campaigns_by_id["campaign-in-progress"]["name"] == "GTAVI Launch Celebration"
+assert campaigns_by_id["campaign-in-progress"]["status"] == "IN_PROGRESS"
 assert "campaign-upcoming" not in campaigns_by_id
 snapshot_drops = {
     drop["id"]: drop
