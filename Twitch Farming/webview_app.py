@@ -582,6 +582,7 @@ class TwitchFarmingApi:
         self.log_history_worker = None
         self.log_writer = None
         self.logging_initialized = False
+        self.pending_startup_debug = []
 
     def _initialize_logging(self):
         if self.logging_initialized:
@@ -597,6 +598,12 @@ class TwitchFarmingApi:
         )
         self.log_writer.start()
         self.logging_initialized = True
+        with self.lock:
+            pending = list(self.pending_startup_debug)
+            self.pending_startup_debug.clear()
+        startup_logger = logging.getLogger("twitch_farming.startup.js")
+        for severity, message in pending:
+            startup_logger.log(getattr(logging, severity, logging.INFO), "[JS STARTUP] %s", message)
 
     def startup_note(self, level, message):
         severity = str(level or "INFO").upper()
@@ -685,14 +692,8 @@ class TwitchFarmingApi:
             }
 
     def _mark_webview_checkpoint(self, attribute, label):
-        now = time.monotonic()
-        with self.lock:
-            if getattr(self, attribute):
-                return
-            setattr(self, attribute, now)
-            webview_started = self.webview_start_requested_at or self.startup_started_at
-            api_started = self.startup_started_at
-        self.startup_note("INFO", "%s: %.2f сек. от запуска WebView2, %.2f сек. от создания API." % (label, now - webview_started, now - api_started))
+        if not getattr(self, attribute):
+            setattr(self, attribute, time.monotonic())
 
     def on_webview_before_show(self, *args):
         self._mark_webview_checkpoint("webview_before_show_at", "WebView2: окно готово к показу")
@@ -718,14 +719,33 @@ class TwitchFarmingApi:
         self.startup_note("INFO", "JS timing: DOMContentLoaded %.0f мс, window.load %.0f мс, Python API ready %.0f мс" % (number("dom_ready_ms"), number("load_ms"), number("bridge_ready_ms")))
         return {"ok": True}
 
+    def record_startup_debug_batch(self, items):
+        if not isinstance(items, list):
+            return {"ok": False, "count": 0}
+        entries = []
+        for item in items[-60:]:
+            if not isinstance(item, dict):
+                continue
+            severity = str(item.get("level") or "INFO").upper()
+            if severity not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+                severity = "INFO"
+            message = str(item.get("line") or item.get("message") or "")[:12000]
+            if message:
+                entries.append((severity, message))
+        if not entries:
+            return {"ok": True, "count": 0}
+        with self.lock:
+            if not self.logging_initialized:
+                self.pending_startup_debug.extend(entries)
+                self.pending_startup_debug = self.pending_startup_debug[-240:]
+                return {"ok": True, "count": len(entries), "queued": True}
+        startup_logger = logging.getLogger("twitch_farming.startup.js")
+        for severity, message in entries:
+            startup_logger.log(getattr(logging, severity, logging.INFO), "[JS STARTUP] %s", message)
+        return {"ok": True, "count": len(entries)}
+
     def record_startup_debug(self, level, message):
-        severity = str(level or "INFO").upper()
-        numeric_level = getattr(logging, severity, logging.INFO)
-        text = str(message or "")[:12000]
-        logging.getLogger("twitch_farming.startup.js").log(numeric_level, "[JS STARTUP] %s", text)
-        if numeric_level >= logging.ERROR:
-            self._flush_logs()
-        return {"ok": True}
+        return self.record_startup_debug_batch([{"level": level, "line": message}])
 
     def mark_frontend_ready(self):
         self.startup_note("INFO", "JavaScript и Python API завершили стартовую инициализацию")
@@ -2180,8 +2200,9 @@ class TwitchFarmingApi:
         except BaseException as error:
             self.startup_note("ERROR", "Ошибка загрузки истории журнала: " + str(error) + "\n" + traceback.format_exc())
 
-    def on_loaded(self, *args):
-        self._mark_webview_checkpoint("webview_loaded_at", "WebView2: DOM загружен")
+    def record_webview_loaded(self, *args):
+        if not self.webview_loaded_at:
+            self.webview_loaded_at = time.monotonic()
 
     def on_closing(self):
         self.stop_farm()
@@ -2256,49 +2277,29 @@ def main():
         window.events.before_show += lambda *args: api.on_webview_before_show()
         window.events.before_load += lambda *args: api.on_webview_before_load()
         window.events.shown += lambda *args: api.on_webview_shown()
-        window.events.loaded += lambda *args: api.on_loaded()
+        window.events.loaded += api.record_webview_loaded
         window.events.closing += api.on_closing
         window.events.maximized += lambda: api.sync_window_maximized(True)
         window.events.restored += lambda: api.sync_window_maximized(False)
 
-        def start_backend():
-            api.startup_note(
-                "INFO",
-                "GUI-поток WebView2 запущен; старт фоновой инициализации Python",
-            )
-            with api.lock:
-                api.restore_started = True
-                worker = threading.Thread(
-                    target=api._startup_tasks,
-                    name="StartupTasks",
-                    daemon=True,
-                )
-                api.startup_worker = worker
-            try:
-                worker.start()
-            except BaseException as error:
-                with api.lock:
-                    api.startup_error = str(error) or error.__class__.__name__
-                    api.startup_phase = "Не удалось запустить подготовку"
-                    api.startup_complete = True
-                api.startup_note(
-                    "ERROR",
-                    "Не удалось запустить фоновую инициализацию: "
-                    + str(error)
-                    + "\n"
-                    + traceback.format_exc(),
-                )
+        def init_backend():
+            api.restore_started = True
+            api.startup_worker = threading.current_thread()
             threading.Thread(
                 target=api.watch_webview_startup,
                 name="WebViewStartupWatchdog",
                 daemon=True,
             ).start()
+            api._startup_tasks()
+
+        def on_loaded():
+            threading.Thread(target=init_backend, daemon=True).start()
 
         api.webview_start_requested_at = time.monotonic()
         api.startup_note("INFO", "Передача управления главному циклу WebView2")
         try:
             webview.start(
-                func=start_backend,
+                func=on_loaded,
                 gui="edgechromium",
                 private_mode=False,
                 icon=str(ICON_FILE) if ICON_FILE.is_file() else None,
