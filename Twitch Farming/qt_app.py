@@ -156,9 +156,9 @@ class ImageCache(QObject):
             pixmap.loadFromData(data)
         if pixmap.isNull():
             return
-        width = max(24, label.width() or label.minimumWidth() or label.sizeHint().width())
-        height = max(24, label.height() or label.minimumHeight() or label.sizeHint().height())
-        edge = max(24, min(width, height))
+        width = max(1, label.width() or label.minimumWidth() or label.sizeHint().width())
+        height = max(1, label.height() or label.minimumHeight() or label.sizeHint().height())
+        edge = max(1, min(width, height))
         if circular:
             scaled = pixmap.scaled(edge, edge, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)
             result = QPixmap(edge, edge)
@@ -392,20 +392,20 @@ class ChannelCard(QFrame):
 
         details = QVBoxLayout()
         details.setContentsMargins(0, 0, 0, 0)
-        details.setSpacing(4)
+        details.setSpacing(6)
 
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
-        title_row.setSpacing(6)
+        title_row.setSpacing(8)
 
         self.name = QLabel(str(profile.get("display_name") or login))
         self.name.setObjectName("channelName")
         self.name.setMinimumWidth(0)
-        self.name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.name.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.name.setWordWrap(False)
-        title_row.addWidget(self.name, 1)
+        title_row.addWidget(self.name)
 
-        live = QLabel("● В ЭФИРЕ" if profile.get("is_live") else "● НЕ В ЭФИРЕ")
+        live = QLabel("• В ЭФИРЕ" if profile.get("is_live") else "• НЕ В ЭФИРЕ")
         live.setObjectName("liveBadge" if profile.get("is_live") else "offlineBadge")
         title_row.addWidget(live, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -414,20 +414,15 @@ class ChannelCard(QFrame):
             badge.setObjectName("temporaryBadge")
             title_row.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        title_row.addStretch(1)
         details.addLayout(title_row)
-
-        self.handle = QLabel("@" + login)
-        self.handle.setObjectName("channelLogin")
-        self.handle.setMinimumWidth(0)
-        self.handle.setWordWrap(False)
-        details.addWidget(self.handle)
 
         balance_row = QHBoxLayout()
         balance_row.setContentsMargins(0, 0, 0, 0)
         balance_row.setSpacing(5)
 
         self.currency_icon = QLabel("✦")
-        self.currency_icon.setFixedSize(18, 18)
+        self.currency_icon.setFixedSize(16, 16)
         self.currency_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.currency_icon.setObjectName("channelCurrencyIcon")
         balance_row.addWidget(self.currency_icon)
@@ -1157,10 +1152,9 @@ class MainWindow(QMainWindow):
         QLabel#slotAvatar, QLabel#miniAvatar { background:transparent; border:0; border-radius:0; color:#C9B8F0; font-weight:800; }
         QLabel#campaignImage { background:#241D36; border-radius:8px; color:#A98AFF; font-weight:800; }
         QLabel#rewardIcon { background:#242034; border-radius:8px; color:#E7D6FF; }
-        QLabel#channelName { color:#FFFFFF; font-size:13px; font-weight:800; }
-        QLabel#channelLogin { color:#9892A7; font-size:9px; }
+        QLabel#channelName { color:#FFFFFF; font-size:15px; font-weight:700; }
         QLabel#channelBalance { color:#F2EDFF; font-size:11px; font-weight:800; }
-        QLabel#channelCurrencyIcon { background:transparent; border:0; color:#D8C7F6; font-size:13px; }
+        QLabel#channelCurrencyIcon { background:#6D4CB4; border:1px solid #A78BE7; border-radius:8px; color:#FFFFFF; font-size:9px; font-weight:900; padding:0; }
         QLabel#liveBadge, QLabel#offlineBadge, QLabel#watchBadge, QLabel#temporaryBadge, QLabel#purpleBadge { font-size:8px; font-weight:900; padding:3px 5px; border-radius:5px; }
         QLabel#liveBadge { color:#FF8593; background:#36202A; }
         QLabel#offlineBadge { color:#8C8799; background:#252530; }
