@@ -271,7 +271,7 @@ class ChannelCard(QFrame):
         super().__init__(parent)
         self.login = login
         self.setObjectName("channelCard")
-        self.setMinimumWidth(225)
+        self.setMinimumWidth(240)
         self.setMaximumWidth(360)
         self.setMinimumHeight(270)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -1413,6 +1413,7 @@ class MainWindow(QMainWindow):
             tuple(state.get("channels", [])),
             json.dumps(state.get("channel_profiles", {}), sort_keys=True, ensure_ascii=False),
             json.dumps(state.get("channel_balances", {}), sort_keys=True),
+            json.dumps(state.get("channel_currency", {}), sort_keys=True, ensure_ascii=False),
             json.dumps(state.get("watch_status", {}), sort_keys=True),
             tuple(state.get("watch_slots", [])),
             tuple(state.get("temporary_channels", []))
@@ -1574,6 +1575,8 @@ class MainWindow(QMainWindow):
             )
             card.selected.connect(self._select_channel)
             card.setProperty("selected", login == self.selected_channel)
+            card.style().unpolish(card)
+            card.style().polish(card)
             self.channels_grid.addWidget(card, index // 3, index % 3)
         if not channels:
             empty = QLabel("Список каналов пуст. Добавь первый Twitch-канал.")

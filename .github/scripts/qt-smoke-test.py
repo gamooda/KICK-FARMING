@@ -91,6 +91,8 @@ for marker in (
     "Награды Twitch (значки и эмоуты за просмотр)",
     "Редактировать",
     "Переместить",
+    "channel_currency",
+    "card.style().polish(card)",
     "class TitleBar",
     "class TwitchLogo",
     "class ChannelCard",
