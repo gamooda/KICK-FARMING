@@ -165,7 +165,7 @@ for marker in (
     "Qt.FocusPolicy.NoFocus",
     "QPushButton:focus { outline:none; border:none; }",
     "def hitButton(self, position)",
-    "self.channels_scroll = QScrollArea()",
+    "self.channels_scroll = scroll",
     "frame.feed_scroll = scroll",
     "self.account_avatar_sidebar",
     "self.account_avatar = QLabel",
