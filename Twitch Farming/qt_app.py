@@ -1175,7 +1175,7 @@ def eligible_watch_campaigns(campaigns):
 def started_watch_campaigns(campaigns):
     return [
         campaign
-        for campaign in campaigns if isinstance(campaigns, list)
+        for campaign in (campaigns if isinstance(campaigns, list) else [])
         if isinstance(campaign, dict)
         and (_flag_enabled(campaign.get("started")) or _flag_enabled(campaign.get("in_inventory")))
     ]
