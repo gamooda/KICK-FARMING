@@ -230,9 +230,6 @@ if (!inlineBootstrap) throw new Error("Inline startup diagnostic bootstrap was n
 new vm.Script(inlineBootstrap, { filename: "index.html:inline-startup" });
 const elements = new Map();
 let intervalCount = 0;
-let authCalls = 0;
-let stateCalls = 0;
-let restoreStarted = false;
 
 function getElement(id) {
   if (!elements.has(id)) {
@@ -344,8 +341,8 @@ for (const name of required) {
 
 bridge.get_startup_status = () => Promise.resolve({ ready: true, phase: "Готово", elapsed: 0, error: "", diagnostics: [] });
 bridge.get_auth_state = () => {
-  authCalls++;
-  if (authCalls === 1) {
+  window.authCalls++;
+  if (window.authCalls === 1) {
     return Promise.resolve({
       authenticated: false,
       username: "example",
@@ -358,7 +355,7 @@ bridge.get_auth_state = () => {
       elapsed: 0
     });
   }
-  if (restoreStarted && authCalls === 2) {
+  if (window.restoreStarted && window.authCalls === 2) {
     return Promise.resolve({
       authenticated: false,
       username: "example",
@@ -384,16 +381,19 @@ bridge.get_auth_state = () => {
   });
 };
 bridge.begin_session_restore = () => {
-  restoreStarted = true;
+  window.restoreStarted = true;
   return Promise.resolve({ ok: true });
 };
 bridge.get_state = () => {
-  stateCalls++;
+  window.stateCalls++;
   return Promise.resolve(state);
 };
 
 const window = {
   intervalCount: 0,
+  authCalls: 0,
+  stateCalls: 0,
+  restoreStarted: false,
   setTimeout(callback) { return setImmediate(callback); },
   clearTimeout(handle) { clearImmediate(handle); },
   setInterval(callback, delay) {
@@ -447,7 +447,7 @@ appInitialized = true;
   if (window.intervalCount !== 4) {
     throw new Error("Startup status timer and application polling were not initialized after readiness.");
   }
-  if (!restoreStarted || authCalls < 3 || stateCalls !== 2) {
+  if (!window.restoreStarted || window.authCalls < 3 || window.stateCalls !== 2) {
     throw new Error("Startup did not wait for the saved-session check to finish.");
   }
   const button = document.getElementById("farm-toggle");
