@@ -71,7 +71,7 @@ for required in (
     "def get_active_watch_channels",
 ):
     check(required in backend or required in (APP / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8"), "Backend feature missing: " + required)
-check("import webview" not in backend and "import pystray" not in backend, "The native backend must not depend on PyWebView or PyStray.")
+check("webview" not in backend.lower() and "pystray" not in backend.lower() and "clr_loader" not in backend.lower(), "The native backend still contains a legacy WebView or PyStray reference.")
 check("pyside6-essentials" in requirements, "PySide6-Essentials dependency is missing.")
 check("pywebview" not in requirements and "pystray" not in requirements, "Legacy GUI dependencies are still installed.")
 check("from qt_app import main" in entry, "The executable entry point must launch the native Qt interface.")
