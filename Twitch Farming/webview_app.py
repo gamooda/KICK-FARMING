@@ -11,8 +11,6 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-import webview
-
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parent / "engine"))
 
@@ -23,7 +21,10 @@ CONFIG_FILE = APP_DIR / "config.json"
 LOG_DIR = APP_DIR / "logs"
 LOG_FILE = LOG_DIR / "TwitchFarming.log"
 ACTIVATION_URL = "https://www.twitch.tv/activate"
-APP_VERSION = "1.0.0"
+try:
+    from version_info import APP_VERSION
+except ImportError:
+    APP_VERSION = "1.0.0-dev"
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 UI_DIR = RESOURCE_DIR / "ui"
 ICON_FILE = RESOURCE_DIR / "assets" / "twitch.ico"
@@ -615,6 +616,7 @@ class TwitchFarmingApi:
         self.lock = threading.RLock()
         self.username = ""
         self.channels = []
+        self.temporary_channels = {}
         self.options = dict(DEFAULT_OPTIONS)
         self.bet_settings = dict(DEFAULT_BET_SETTINGS)
         self.custom_presets = {}
@@ -703,6 +705,23 @@ class TwitchFarmingApi:
         self.log_writer = None
         self.logging_initialized = False
         self.pending_startup_debug = []
+        self.update_lock = threading.RLock()
+        self.update_worker = None
+        self.update_state = {
+            "phase": "idle",
+            "current_version": APP_VERSION,
+            "latest_version": "",
+            "latest_tag": "",
+            "release_url": "",
+            "asset_url": "",
+            "update_available": False,
+            "percent": 0.0,
+            "downloaded_bytes": 0,
+            "total_bytes": 0,
+            "speed_bps": 0.0,
+            "status": "Нажмите кнопку, чтобы проверить наличие новой версии на GitHub",
+            "error": "",
+        }
 
     def _initialize_logging(self):
         if self.logging_initialized:
@@ -949,10 +968,11 @@ class TwitchFarmingApi:
         self.selected_preset = str(data.get("selected_preset", "Оптимальный"))
 
     def _config_data(self):
+        permanent_channels = [login for login in self.channels if login not in self.temporary_channels]
         return {
             "username": self.username,
-            "channels": list(self.channels),
-            "channel_points_branding": {key: dict(value) for key, value in self.channel_points_branding_cache.items() if key in self.channels},
+            "channels": permanent_channels,
+            "channel_points_branding": {key: dict(value) for key, value in self.channel_points_branding_cache.items() if key in permanent_channels},
             "settings": dict(self.options),
             "app_settings": dict(self.app_settings),
             "bet_settings": dict(self.bet_settings),
@@ -983,14 +1003,18 @@ class TwitchFarmingApi:
         payload = payload if isinstance(payload, dict) else {}
         with self.lock:
             username = str(payload.get("username", self.username)).strip().lower()
-            channels = payload.get("channels", self.channels)
-            if isinstance(channels, str):
-                channels = re.split(r"[\n,;]+", channels)
-            normalized = []
-            for item in channels if isinstance(channels, list) else []:
-                channel = self.normalize_channel(item)
-                if channel and channel not in normalized:
-                    normalized.append(channel)
+            if self.session_running:
+                normalized = [login for login in self.channels if login not in self.temporary_channels]
+            else:
+                channels = payload.get("channels", self.channels)
+                if isinstance(channels, str):
+                    channels = re.split(r"[\n,;]+", channels)
+                normalized = []
+                for item in channels if isinstance(channels, list) else []:
+                    channel = self.normalize_channel(item)
+                    if channel and channel not in normalized and channel not in self.temporary_channels:
+                        normalized.append(channel)
+            normalized.extend(login for login in self.temporary_channels if login not in normalized)
             settings = payload.get("settings", self.options)
             if not isinstance(settings, dict):
                 settings = self.options
@@ -1399,27 +1423,27 @@ class TwitchFarmingApi:
                 self.drops_updated_at = time.time()
             self.drops_event.set()
 
-    def add_drop_channel_to_farm(self, raw_login):
+    def add_drop_channel_to_farm(self, raw_login, campaign_id=""):
         login = self.normalize_channel(raw_login)
         if not login:
             return {"ok": False, "message": "Некорректный логин Twitch."}
         with self.lock:
+            if self.session_running or (self.engine_worker is not None and self.engine_worker.is_alive()):
+                return {"ok": False, "message": "Остановите фарм, чтобы изменить список каналов."}
             follow = next((dict(item) for item in self.followed_channels if item.get("login") == login), None)
             catalog_profile = dict(self.drops_catalog_streamers.get(login) or {})
-            profile_source = follow or catalog_profile
+            profile_source = dict(follow or catalog_profile)
             if not profile_source:
                 return {"ok": False, "message": "Стример больше не найден в актуальном каталоге Drops. Обнови инвентарь."}
-            already_configured = login in self.channels
-            running = self.session_running
-            worker = self.engine_worker
-        if running:
-            if worker is None or not worker.is_alive():
-                return {"ok": False, "message": "Фарм ещё запускается. Повтори добавление через несколько секунд."}
-            result = worker.add_streamer(login, profile_source.get("channel_id"))
-            if not result.get("ok"):
-                return result
+            already_configured = login in self.channels and login not in self.temporary_channels
             if not already_configured:
-                profile = {
+                if login not in self.channels:
+                    self.channels.append(login)
+                self.temporary_channels[login] = {
+                    "campaign_id": str(campaign_id or ""),
+                    "created_at": time.time(),
+                }
+                self.channel_profiles[login] = {
                     "loaded": True,
                     "display_name": str(profile_source.get("display_name") or login),
                     "avatar_url": str(profile_source.get("avatar_url") or ""),
@@ -1427,30 +1451,15 @@ class TwitchFarmingApi:
                     "viewer_count": max(0, int(profile_source.get("viewer_count") or 0)),
                     "error": "",
                 }
-                with self.lock:
-                    if login not in self.channels:
-                        self.channels.append(login)
-                    self.channel_profiles[login] = profile
-                    if profile["is_live"]:
-                        self.online_channels.add(login)
-                self._save_config()
-            return {"ok": True, "message": "Канал добавлен в работающий фарм."}
-        if not already_configured:
-            profile = {
-                "login": login,
-                "loaded": True,
-                "display_name": str(profile_source.get("display_name") or login),
-                "avatar_url": str(profile_source.get("avatar_url") or ""),
-                "is_live": bool(profile_source.get("is_live")),
-                "viewer_count": max(0, int(profile_source.get("viewer_count") or 0)),
-                "error": "",
-            }
-            result = self.save_channel_editor("add", "", login, [profile])
-            if not result.get("ok"):
-                return result
+                if profile_source.get("is_live"):
+                    self.online_channels.add(login)
         result = self.start_farm({})
         if result.get("ok"):
-            return {"ok": True, "message": "Канал добавлен. Автоматический сбор запущен."}
+            return {
+                "ok": True,
+                "temporary": not already_configured,
+                "message": "Канал добавлен во временный Drops-фарм." if not already_configured else "Канал уже находится в постоянном списке. Автоматический сбор запущен.",
+            }
         return result
 
     def clear_avatar_cache(self):
@@ -1757,6 +1766,18 @@ class TwitchFarmingApi:
                 self.session_running = False
                 self.session_started_at = 0.0
                 self.engine_worker = None
+                temporary = list(self.temporary_channels)
+                for login in temporary:
+                    if login in self.channels:
+                        self.channels.remove(login)
+                    self.online_channels.discard(login)
+                    self.channel_profiles.pop(login, None)
+                    self.channel_balances.pop(login, None)
+                    self.channel_points_branding_cache.pop(login, None)
+                    self.watch_status.pop(login, None)
+                self.temporary_channels.clear()
+                if temporary:
+                    self._append_event_locked("Временные Drops-каналы удалены после завершения фарма: " + str(len(temporary)))
                 self._set_status_locked("●  НЕ ЗАПУЩЕН", "#A9B2C3")
 
     def _set_status_locked(self, text, color="#A9B2C3"):
@@ -2163,6 +2184,8 @@ class TwitchFarmingApi:
             return {
                 "username": self.username,
                 "channels": list(self.channels),
+                "temporary_channels": list(self.temporary_channels),
+                "temporary_channel_info": {key: dict(value) for key, value in self.temporary_channels.items()},
                 "online_channels": sorted(self.online_channels),
                 "watch_status": {key: dict(value) for key, value in self.watch_status.items()},
                 "watch_slots": watch_slots,
@@ -2190,6 +2213,7 @@ class TwitchFarmingApi:
                 "session_running": self.session_running,
                 "session_started_at": float(self.session_started_at or 0),
                 "window_maximized": bool(self.window_maximized),
+                "app_version": APP_VERSION,
                 "status_text": self.status_text,
                 "status_color": self.status_color,
                 "gained_total": self.gained_total,
