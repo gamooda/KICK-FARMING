@@ -411,7 +411,7 @@ def format_duration(seconds):
 
 
 class CampaignCard(QFrame):
-    def __init__(self, campaign, image_cache, add_callback, parent=None):
+    def __init__(self, campaign, image_cache, add_callback, parent=None, add_enabled=True):
         super().__init__(parent)
         self.setObjectName("campaignCard")
         layout = QVBoxLayout(self)
@@ -504,6 +504,8 @@ class CampaignCard(QFrame):
                 row.addWidget(open_button)
                 add_button = QPushButton("Фармить")
                 add_button.setObjectName("primaryButton")
+                add_button.setEnabled(bool(add_enabled))
+                add_button.setToolTip("Остановите фарм, чтобы изменить список каналов." if not add_enabled else "")
                 add_button.clicked.connect(lambda checked=False, value=login, cid=str(campaign.get("id") or ""): add_callback(value, cid))
                 row.addWidget(add_button)
                 layout.addLayout(row)
@@ -545,6 +547,9 @@ class MainWindow(QMainWindow):
         self._last_followed_signature = None
         self._last_log_signature = None
         self._last_events_signature = None
+        self._last_reward_signature = None
+        self._last_preset_signature = None
+        self._active_panel_target = 0
         self.api.update_install_callback = self.installRequested.emit
         self.installRequested.connect(self._install_ready)
         self._build_ui()
@@ -739,10 +744,10 @@ class MainWindow(QMainWindow):
         self.session_label.setObjectName("statusHint")
         top.addWidget(self.session_label)
         top.addStretch()
-        add_button = QPushButton("＋ Добавить канал")
-        add_button.setObjectName("secondaryButton")
-        add_button.clicked.connect(self._add_channels)
-        top.addWidget(add_button)
+        self.add_channel_button = QPushButton("＋ Добавить канал")
+        self.add_channel_button.setObjectName("secondaryButton")
+        self.add_channel_button.clicked.connect(self._add_channels)
+        top.addWidget(self.add_channel_button)
         self.farm_button = QPushButton("▶  Запустить фарм")
         self.farm_button.setObjectName("primaryButton")
         self.farm_button.clicked.connect(self._toggle_farm)
@@ -800,11 +805,9 @@ class MainWindow(QMainWindow):
         heading = QLabel(title)
         heading.setObjectName("sectionTitle")
         box.addWidget(heading)
-        label = QLabel("Пока нет записей.")
-        label.setObjectName("mutedText")
-        label.setWordWrap(True)
-        box.addWidget(label)
-        frame.feed_label = label
+        frame.feed_layout = QVBoxLayout()
+        frame.feed_layout.setSpacing(7)
+        box.addLayout(frame.feed_layout)
         return frame
 
     def _build_drops_page(self):
@@ -958,6 +961,25 @@ class MainWindow(QMainWindow):
 
     def _build_bets_page(self):
         layout = self._page("Настройки прогнозов", "Параметры автоматического выбора исходов и размещения Channel Points.")
+        presets = self._setting_panel("ПРЕСЕТЫ", "Загружай, сохраняй и удаляй наборы настроек прогнозов.")
+        preset_row = QHBoxLayout()
+        self.bet_preset = QComboBox()
+        self.bet_preset.addItem("Оптимальный")
+        self.bet_preset.currentTextChanged.connect(self._select_bet_preset)
+        preset_row.addWidget(self.bet_preset, 1)
+        self.bet_preset_name = QLineEdit()
+        self.bet_preset_name.setPlaceholderText("Название нового пресета")
+        preset_row.addWidget(self.bet_preset_name, 1)
+        save_preset = QPushButton("Сохранить пресет")
+        save_preset.setObjectName("secondaryButton")
+        save_preset.clicked.connect(self._save_bet_preset)
+        preset_row.addWidget(save_preset)
+        delete_preset = QPushButton("Удалить")
+        delete_preset.setObjectName("dangerButton")
+        delete_preset.clicked.connect(self._delete_bet_preset)
+        preset_row.addWidget(delete_preset)
+        presets.layout().addLayout(preset_row)
+        layout.addWidget(presets)
         panel = self._setting_panel("СТРАТЕГИЯ И ЛИМИТЫ", "Сохраняются в config.json и передаются текущему движку фарма.")
         self.bet_strategy = QComboBox()
         self.bet_strategy.addItems(STRATEGIES)
@@ -977,12 +999,31 @@ class MainWindow(QMainWindow):
         ):
             panel.layout().addWidget(QLabel(title))
             panel.layout().addWidget(widget)
+        self.bet_delay_mode = QComboBox()
+        self.bet_delay_mode.addItems(["FROM_START", "FROM_END", "PERCENTAGE"])
+        panel.layout().addWidget(QLabel("Отсчёт задержки"))
+        panel.layout().addWidget(self.bet_delay_mode)
         self.bet_stealth = QCheckBox("Скрытый режим")
         panel.layout().addWidget(self.bet_stealth)
+        layout.addWidget(panel)
+        filters = self._setting_panel("ФИЛЬТР УЧАСТНИКОВ", "Размещай прогноз только когда показатель удовлетворяет заданному условию.")
+        self.bet_filter_enabled = QCheckBox("Включить фильтр участников")
+        filters.layout().addWidget(self.bet_filter_enabled)
+        self.bet_filter_by = QComboBox()
+        self.bet_filter_by.addItems(FILTER_KEYS)
+        self.bet_filter_condition = QComboBox()
+        self.bet_filter_condition.addItems(["GT", "LT", "GTE", "LTE"])
+        self.bet_filter_value = QLineEdit()
+        self.bet_filter_value.setPlaceholderText("Значение фильтра")
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(self.bet_filter_by, 2)
+        filter_row.addWidget(self.bet_filter_condition, 1)
+        filter_row.addWidget(self.bet_filter_value, 1)
+        filters.layout().addLayout(filter_row)
+        layout.addWidget(filters)
         save = QPushButton("Сохранить параметры прогнозов")
         save.setObjectName("primaryButton")
         save.clicked.connect(self._save_bets)
-        layout.addWidget(panel)
         layout.addWidget(save)
         layout.addStretch()
 
@@ -1159,6 +1200,8 @@ class MainWindow(QMainWindow):
         self.farm_status.setStyleSheet("color:" + color + "; background:#1B1925; padding:7px 10px; border-radius:7px; font-weight:800;")
         running = bool(state.get("session_running"))
         self.farm_button.setText("■  Остановить фарм" if running else "▶  Запустить фарм")
+        self.add_channel_button.setEnabled(not running)
+        self.add_channel_button.setToolTip("Остановите фарм, чтобы изменить список каналов." if running else "")
         self._update_session_clock()
         self._render_active_slots()
         signature = (
@@ -1172,17 +1215,70 @@ class MainWindow(QMainWindow):
         if signature != self._last_channel_signature:
             self._last_channel_signature = signature
             self._render_channels()
-        rewards = state.get("rewards", [])
-        events = state.get("events", [])
-        self.rewards_feed.feed_label.setText("\n".join(
-            str(item.get("title") or item.get("description") or "Награда")
-            for item in rewards[-5:]
-        ) or "Пока нет наград.")
-        self.events_feed.feed_label.setText("\n".join(str(item) for item in events[-5:]) or "Пока нет событий.")
+        self._render_reward_feed(state.get("rewards", []))
+        self._render_event_feed(state.get("events", []))
         self._render_logs()
 
+    def _render_reward_feed(self, rewards):
+        items = [dict(item) for item in (rewards or [])[-5:] if isinstance(item, dict)]
+        session_running = bool(self.latest_state.get("session_running"))
+        signature = json.dumps([items, session_running], sort_keys=True, ensure_ascii=False)
+        if signature == self._last_reward_signature:
+            return
+        self._last_reward_signature = signature
+        self._clear_layout(self.rewards_feed.feed_layout)
+        if not items:
+            label = QLabel("Пока нет наград.")
+            label.setObjectName("mutedText")
+            self.rewards_feed.feed_layout.addWidget(label)
+            return
+        for item in reversed(items):
+            row = QHBoxLayout()
+            icon = QLabel("✦")
+            icon.setFixedSize(30, 30)
+            icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            icon.setObjectName("rewardIcon")
+            row.addWidget(icon)
+            details = QVBoxLayout()
+            title = QLabel(str(item.get("title") or item.get("description") or "Награда"))
+            title.setObjectName("rewardTitle")
+            title.setWordWrap(True)
+            details.addWidget(title)
+            meta_parts = []
+            channel = str(item.get("channel_login") or "").strip()
+            if channel:
+                meta_parts.append("@" + channel)
+            description = str(item.get("description") or "")
+            if description and description != title.text():
+                meta_parts.append(description)
+            meta = QLabel(" · ".join(meta_parts))
+            meta.setObjectName("smallMuted")
+            meta.setWordWrap(True)
+            details.addWidget(meta)
+            row.addLayout(details, 1)
+            self.rewards_feed.feed_layout.addLayout(row)
+            self.image_cache.request(icon, item.get("currency_icon") or item.get("icon_url") or "", False)
+
+    def _render_event_feed(self, events):
+        items = [str(item) for item in (events or [])[-5:]]
+        signature = tuple(items)
+        if signature == self._last_events_signature:
+            return
+        self._last_events_signature = signature
+        self._clear_layout(self.events_feed.feed_layout)
+        if not items:
+            label = QLabel("Пока нет событий.")
+            label.setObjectName("mutedText")
+            self.events_feed.feed_layout.addWidget(label)
+            return
+        for item in reversed(items):
+            label = QLabel(item)
+            label.setObjectName("eventRow")
+            label.setWordWrap(True)
+            self.events_feed.feed_layout.addWidget(label)
+
     def _watch_slot_map(self):
-        result = {}
+        result = {
         slots = self.latest_state.get("watch_slots") or []
         for index, item in enumerate(slots[:2], 1):
             if isinstance(item, dict):
@@ -1198,16 +1294,18 @@ class MainWindow(QMainWindow):
         running = bool(state.get("session_running"))
         slots = state.get("watch_slots") or []
         has_active = running or bool(slots)
-        self.active_animation.stop()
         target = 148 if has_active else 0
-        if has_active:
-            self.active_panel.setVisible(True)
-        current = self.active_panel.maximumHeight()
-        self.active_animation.setStartValue(current)
-        self.active_animation.setEndValue(target)
-        self.active_animation.start()
-        if not has_active:
-            QTimer.singleShot(280, lambda: self.active_panel.setVisible(False))
+        if target != self._active_panel_target:
+            self._active_panel_target = target
+            self.active_animation.stop()
+            if has_active:
+                self.active_panel.setVisible(True)
+            current = self.active_panel.maximumHeight()
+            self.active_animation.setStartValue(current)
+            self.active_animation.setEndValue(target)
+            self.active_animation.start()
+            if not has_active:
+                QTimer.singleShot(280, lambda: self.active_panel.setVisible(False))
         watch_map = self._watch_slot_map()
         profiles = state.get("channel_profiles", {})
         balances = state.get("channel_balances", {})
@@ -1382,7 +1480,8 @@ class MainWindow(QMainWindow):
             campaigns = [item for item in campaigns if item.get("started") or item.get("in_inventory")]
         elif filter_index == 2:
             campaigns = [item for item in campaigns if not item.get("started") and not item.get("in_inventory")]
-        signature = json.dumps([campaigns, filter_index, self.drops_state.get("loading"), self.drops_state.get("error")], sort_keys=True, ensure_ascii=False)
+        session_running = bool(self.latest_state.get("session_running"))
+        signature = json.dumps([campaigns, filter_index, self.drops_state.get("loading"), self.drops_state.get("error"), session_running], sort_keys=True, ensure_ascii=False)
         if signature == self._last_campaign_signature:
             return
         self._last_campaign_signature = signature
@@ -1398,7 +1497,7 @@ class MainWindow(QMainWindow):
             empty.setWordWrap(True)
             self.drops_list.addWidget(empty)
         for campaign in campaigns:
-            self.drops_list.addWidget(CampaignCard(campaign, self.image_cache, self._add_drop_streamer))
+            self.drops_list.addWidget(CampaignCard(campaign, self.image_cache, self._add_drop_streamer, add_enabled=not session_running))
         self.drops_list.addStretch()
 
     def _add_drop_streamer(self, login, campaign_id):
@@ -1441,6 +1540,8 @@ class MainWindow(QMainWindow):
             row.addLayout(details, 1)
             add = QPushButton("Добавить в каналы")
             add.setObjectName("secondaryButton")
+            add.setEnabled(not session_running)
+            add.setToolTip("Остановите фарм, чтобы изменить список каналов." if session_running else "")
             login = str(item.get("login") or "")
             add.clicked.connect(lambda checked=False, value=login: self._call("add_followed_channel", value, message="Канал добавлен."))
             row.addWidget(add)
