@@ -1875,6 +1875,8 @@ class MainWindow(QMainWindow):
         scroll_layout.setSpacing(10)
         scroll.setWidget(scroll_content)
         page_layout.addWidget(scroll, 1)
+        if title == "Инвентарь Drops":
+            self.drops_scroll = scroll
         self.stack.addWidget(page)
         return scroll_layout
 
@@ -1894,6 +1896,7 @@ class MainWindow(QMainWindow):
         subtitle.setWordWrap(True)
         header.addWidget(subtitle)
         layout.addLayout(header)
+
         top = QHBoxLayout()
         self.farm_status = QLabel()
         self.farm_status.hide()
@@ -1911,6 +1914,7 @@ class MainWindow(QMainWindow):
         self.farm_button.clicked.connect(self._toggle_farm)
         top.addWidget(self.farm_button)
         layout.addLayout(top)
+
         self.active_panel = QFrame()
         self.active_panel.setObjectName("panel")
         panel_layout = QVBoxLayout(self.active_panel)
@@ -1935,6 +1939,7 @@ class MainWindow(QMainWindow):
         self.active_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.active_animation.finished.connect(self._active_panel_animation_finished)
         layout.addWidget(self.active_panel)
+
         row = QHBoxLayout()
         channel_heading = QLabel("Список каналов")
         channel_heading.setObjectName("sectionTitle")
@@ -1944,12 +1949,13 @@ class MainWindow(QMainWindow):
         self.selection_hint.setObjectName("smallMuted")
         row.addWidget(self.selection_hint)
         layout.addLayout(row)
+
         self.channels_grid = QGridLayout()
         self.channels_grid.setContentsMargins(0, 0, 0, 0)
-        self.channels_grid.setHorizontalSpacing(10)
-        self.channels_grid.setVerticalSpacing(10)
-        for column in range(2):
-            self.channels_grid.setColumnStretch(column, 1)
+        self.channels_grid.setHorizontalSpacing(12)
+        self.channels_grid.setVerticalSpacing(12)
+        self.channels_grid.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self._channel_columns = 0
         self.channels_wrap = QWidget()
         self.channels_wrap.setObjectName("scrollContent")
         self.channels_wrap.setLayout(self.channels_grid)
@@ -1959,6 +1965,7 @@ class MainWindow(QMainWindow):
         self.channels_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.channels_scroll.setWidget(self.channels_wrap)
         layout.addWidget(self.channels_scroll, 1)
+
         feeds = QHBoxLayout()
         feeds.setContentsMargins(0, 0, 0, 0)
         feeds.setSpacing(10)
@@ -1971,6 +1978,7 @@ class MainWindow(QMainWindow):
         feeds_row.setFixedHeight(178)
         layout.addWidget(feeds_row)
         self.stack.addWidget(page)
+
 
     def _feed_panel(self, title):
         frame = QFrame()
@@ -1998,6 +2006,45 @@ class MainWindow(QMainWindow):
 
     def _build_drops_page(self):
         layout = self._page("Инвентарь Drops", "Все бесплатные награды за просмотр Twitch. Платные Drops для подписки не отображаются.")
+
+        self.drops_summary = QFrame()
+        self.drops_summary.setObjectName("dropsSummary")
+        summary_row = QHBoxLayout(self.drops_summary)
+        summary_row.setContentsMargins(16, 11, 16, 11)
+        summary_row.setSpacing(20)
+
+        active_box = QVBoxLayout()
+        active_box.setSpacing(1)
+        self.drops_active_value = QLabel("0")
+        self.drops_active_value.setObjectName("dropSummaryValue")
+        active_box.addWidget(self.drops_active_value)
+        active_caption = QLabel("АКТИВНЫЕ КАМПАНИИ")
+        active_caption.setObjectName("dropSummaryCaption")
+        active_box.addWidget(active_caption)
+        summary_row.addLayout(active_box)
+
+        rewards_box = QVBoxLayout()
+        rewards_box.setSpacing(1)
+        self.drops_progress_value = QLabel("0")
+        self.drops_progress_value.setObjectName("dropSummaryValue")
+        rewards_box.addWidget(self.drops_progress_value)
+        rewards_caption = QLabel("НАГРАД В ПРОГРЕССЕ")
+        rewards_caption.setObjectName("dropSummaryCaption")
+        rewards_box.addWidget(rewards_caption)
+        summary_row.addLayout(rewards_box)
+        summary_row.addStretch(1)
+
+        updated_box = QVBoxLayout()
+        updated_box.setSpacing(2)
+        updated_caption = QLabel("ПОСЛЕДНЕЕ ОБНОВЛЕНИЕ")
+        updated_caption.setObjectName("dropSummaryCaption")
+        updated_box.addWidget(updated_caption, 0, Qt.AlignmentFlag.AlignRight)
+        self.drops_updated_label = QLabel("Ещё не обновлялось")
+        self.drops_updated_label.setObjectName("dropSummaryUpdated")
+        updated_box.addWidget(self.drops_updated_label, 0, Qt.AlignmentFlag.AlignRight)
+        summary_row.addLayout(updated_box)
+        layout.addWidget(self.drops_summary)
+
         row = QHBoxLayout()
         self.drops_filter_index = 0
         self.drops_filter_group = QButtonGroup(self)
@@ -2023,13 +2070,19 @@ class MainWindow(QMainWindow):
         refresh.clicked.connect(lambda: self._call("refresh_drops_inventory", True, message="Обновление каталога Twitch Drops запущено."))
         row.addWidget(refresh)
         layout.addLayout(row)
+
         self.drops_status = QLabel("Подключи Twitch и нажми «Обновить кампании».")
         self.drops_status.setObjectName("statusHint")
         layout.addWidget(self.drops_status)
-        self.drops_list = QVBoxLayout()
-        self.drops_list.setSpacing(12)
-        layout.addLayout(self.drops_list)
+        self.drops_grid = QGridLayout()
+        self.drops_grid.setContentsMargins(0, 0, 0, 0)
+        self.drops_grid.setHorizontalSpacing(12)
+        self.drops_grid.setVerticalSpacing(12)
+        self.drops_grid.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.drops_list = self.drops_grid
+        layout.addLayout(self.drops_grid)
         layout.addStretch()
+
 
     def _build_followers_page(self):
         layout = self._page("Фолловеры", "Подписки Twitch. Добавляй нужные каналы в список для фарма.")
@@ -2534,6 +2587,8 @@ class MainWindow(QMainWindow):
         if incoming_logs:
             self.last_log_id = max(self.last_log_id, max(int(item.get("id") or 0) for item in incoming_logs))
         self.latest_state = state
+        self.latest_auth_state = auth if isinstance(auth, dict) else {}
+        self._startup_snapshot_received = True
         self.drops_state = drops or {}
         self.followed_state = followed or {}
         self.update_state = update or {}
@@ -2758,10 +2813,15 @@ class MainWindow(QMainWindow):
 
     def _render_active_slots(self):
         state = self.latest_state
-        running = bool(state.get("session_running"))
-        slots = state.get("watch_slots") or []
-        has_active = running or bool(slots)
-        target = 118 if has_active else 0
+        auth = self.latest_auth_state if isinstance(self.latest_auth_state, dict) else {}
+        auth_state = str(auth.get("worker_state") or "").lower()
+        auth_waiting = bool(auth.get("worker_alive") or auth.get("restore_pending") or auth_state in ("restoring", "running"))
+        stored_account = str(auth.get("username") or "").strip()
+        account_ready = bool(auth.get("authenticated")) or (not stored_account and not auth_waiting)
+        data_ready = bool(self._startup_snapshot_received)
+        overlay_ready = not hasattr(self, "initialization_overlay") or not self.initialization_overlay.isVisible()
+        slots_ready = data_ready and account_ready and not auth_waiting and overlay_ready
+        target = 118 if slots_ready else 0
         if target != self._active_panel_target:
             self._active_panel_target = target
             self.active_animation.stop()
@@ -2815,6 +2875,20 @@ class MainWindow(QMainWindow):
             if child is not None:
                 self._clear_layout(child)
 
+    def _channel_grid_column_count(self):
+        width = self.channels_scroll.viewport().width() if hasattr(self, "channels_scroll") else self.width() - 280
+        return max(2, min(6, int((max(1, width) + 12) // 202)))
+
+    def _update_channel_grid_columns(self):
+        if not hasattr(self, "channels_grid"):
+            return
+        columns = self._channel_grid_column_count()
+        if columns == self._channel_columns:
+            return
+        self._channel_columns = columns
+        self._last_channel_signature = None
+        self._render_channels()
+
     def _render_channels(self):
         try:
             self._clear_layout(self.channels_grid)
@@ -2842,6 +2916,8 @@ class MainWindow(QMainWindow):
                     profile = {}
                 if not search or search in login or search in str(profile.get("display_name") or "").lower():
                     visible.append(login)
+            columns = self._channel_grid_column_count()
+            self._channel_columns = columns
             for index, login in enumerate(visible):
                 try:
                     profile = profiles.get(login)
@@ -2872,7 +2948,7 @@ class MainWindow(QMainWindow):
                     card = QLabel("@" + login + " · Ошибка отображения")
                     card.setObjectName("mutedText")
                     card.setMinimumHeight(72)
-                self.channels_grid.addWidget(card, index // 2, index % 2)
+                self.channels_grid.addWidget(card, index // columns, index % columns)
             if not channels:
                 empty_text = "Список каналов пуст. Добавь первый Twitch-канал."
             elif not visible:
@@ -2887,6 +2963,7 @@ class MainWindow(QMainWindow):
         except Exception as error:
             _log_ui_exception("отрисовка списка каналов", error)
             return False
+
 
     def _search_channels(self, value):
         self.channel_search_text = str(value or "").strip().lower()
@@ -3135,8 +3212,18 @@ class MainWindow(QMainWindow):
         self._last_campaign_signature = None
         self._render_drops()
 
+    def _update_drops_card_widths(self):
+        if not hasattr(self, "drops_grid") or not hasattr(self, "drops_scroll"):
+            return
+        width = self.drops_scroll.viewport().width()
+        card_width = max(220, min(440, int((max(1, width) - 24) // 3)))
+        for index in range(self.drops_grid.count()):
+            widget = self.drops_grid.itemAt(index).widget()
+            if isinstance(widget, CampaignCard):
+                widget.setFixedWidth(card_width)
+
     def _render_drops(self):
-        if not hasattr(self, "drops_list"):
+        if not hasattr(self, "drops_grid"):
             return
         campaigns_all = eligible_watch_campaigns(self.drops_state.get("campaigns", []))
         filter_index = int(getattr(self, "drops_filter_index", 0))
@@ -3146,26 +3233,63 @@ class MainWindow(QMainWindow):
             campaigns = eligible_twitch_campaigns(self.drops_state.get("campaigns", []))
         else:
             campaigns = campaigns_all
+
+        progress_count = 0
+        for campaign in campaigns_all:
+            for drop in campaign.get("visible_drops", []):
+                percentage = drop.get("percentage")
+                if percentage is None:
+                    watched = _ui_int(drop.get("watched_minutes", drop.get("current_minutes", 0)))
+                    required = _ui_int(drop.get("required_minutes", drop.get("requiredMinutes", 0)))
+                    percentage = (watched * 100.0 / required) if required > 0 else 0
+                if int(float(percentage or 0)) < 100 and not _flag_enabled(drop.get("claimed")):
+                    progress_count += 1
+        self.drops_active_value.setText(str(len(campaigns_all)))
+        self.drops_progress_value.setText(str(progress_count))
+        updated_at = self.drops_state.get("updated_at")
+        updated_text = "Ещё не обновлялось"
+        try:
+            if updated_at:
+                timestamp = float(updated_at)
+                updated_text = datetime.fromtimestamp(timestamp).strftime("%H:%M · %d.%m.%Y")
+        except (TypeError, ValueError, OverflowError, OSError):
+            updated_text = "Ещё не обновлялось"
+        self.drops_updated_label.setText(updated_text)
+
         session_running = bool(self.latest_state.get("session_running"))
-        signature = json.dumps([campaigns, filter_index, self.drops_state.get("loading"), self.drops_state.get("error"), session_running], sort_keys=True, ensure_ascii=False)
+        signature = json.dumps([
+            campaigns,
+            filter_index,
+            self.drops_state.get("loading"),
+            self.drops_state.get("error"),
+            self.drops_state.get("updated_at"),
+            session_running
+        ], sort_keys=True, ensure_ascii=False)
         if signature == self._last_campaign_signature:
             return
         self._last_campaign_signature = signature
-        self._clear_layout(self.drops_list)
+        self._clear_layout(self.drops_grid)
+
         if self.drops_state.get("loading"):
             self.drops_status.setText("Загрузка ViewerDropsDashboard и Inventory…")
         elif self.drops_state.get("error"):
             self.drops_status.setText("Ошибка загрузки: " + str(self.drops_state.get("error")))
         else:
             self.drops_status.setText(f"Найдено кампаний с бесплатными наградами за просмотр: {len(campaigns)}")
+
         if not campaigns:
             empty = QLabel("Подходящих бесплатных Drops за просмотр сейчас нет. Обнови кампании после входа в Twitch.")
             empty.setObjectName("mutedText")
             empty.setWordWrap(True)
-            self.drops_list.addWidget(empty)
-        for campaign in campaigns:
-            self.drops_list.addWidget(CampaignCard(campaign, self.image_cache, self._add_drop_streamer, add_enabled=not session_running))
-        self.drops_list.addStretch()
+            self.drops_grid.addWidget(empty, 0, 0, 1, 3)
+        else:
+            width = self.drops_scroll.viewport().width() if hasattr(self, "drops_scroll") else self.width() - 280
+            card_width = max(220, min(440, int((max(1, width) - 24) // 3)))
+            for index, campaign in enumerate(campaigns):
+                card = CampaignCard(campaign, self.image_cache, self._add_drop_streamer, add_enabled=not session_running)
+                card.setFixedWidth(card_width)
+                self.drops_grid.addWidget(card, index // 3, index % 3)
+
 
     def _add_drop_streamer(self, login, campaign_id):
         if self.latest_state.get("session_running"):
@@ -3462,6 +3586,10 @@ class MainWindow(QMainWindow):
             self._modal_overlay.setGeometry(parent.rect())
             self._modal_overlay.raise_()
         self._position_toast()
+        if hasattr(self, "channels_grid"):
+            QTimer.singleShot(0, self._update_channel_grid_columns)
+        if hasattr(self, "drops_grid"):
+            QTimer.singleShot(0, self._update_drops_card_widths)
 
     def closeEvent(self, event):
         if self.latest_state.get("app_settings", {}).get("minimize_to_tray") and self.tray and self.tray.isVisible():
