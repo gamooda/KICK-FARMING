@@ -1606,7 +1606,7 @@ class TwitchFarmingApi:
 
     def _resolve_channel_login_locked(self, value):
         raw = str(value or "").strip().lower().lstrip("@")
-        raw = re.sub(r"\\s*\\([^)]*\\)$", "", raw).strip()
+        raw = re.sub(r"\s*\([^)]*\)$", "", raw).strip()
         if raw in self.channels or raw in self.channel_points_branding_cache:
             return raw
         for login, profile in self.channel_profiles.items():
