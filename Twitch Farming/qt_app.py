@@ -3,6 +3,7 @@ import hashlib
 import html
 import json
 import logging
+import math
 import random
 import re
 import sys
@@ -12,8 +13,8 @@ import weakref
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QEasingCurve, QPoint, QPointF, QRect, QRectF, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
-from PySide6.QtGui import QAction, QColor, QCursor, QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QPixmap, QIcon
+from PySide6.QtCore import QByteArray, QEvent, QEasingCurve, QPoint, QPointF, QRect, QRectF, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
+from PySide6.QtGui import QAction, QColor, QCursor, QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QPixmap, QIcon, QIconEngine
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
 
@@ -60,7 +61,7 @@ SVG_ICON_PATHS = {
     "close": '<path d="m6 6 12 12M18 6 6 18"/>',
     "plus": "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"4\"/><line x1=\"12\" y1=\"8\" x2=\"12\" y2=\"16\"/><line x1=\"8\" y1=\"12\" x2=\"16\" y2=\"12\"/>",
     "play": '<path d="m8 5 11 7-11 7V5Z"/>',
-    "stop": "<polygon points=\"7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2\"/><rect x=\"9\" y=\"9\" width=\"6\" height=\"6\" rx=\"1\"/>",
+    "stop": '<rect x="6" y="4" width="4" height="16" rx="1.5"/><rect x="14" y="4" width="4" height="16" rx="1.5"/>',
     "refresh": "<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>",
     "folder": '<path d="M3.5 7.5h6l2 2h9v9a1.5 1.5 0 0 1-1.5 1.5h-14A1.5 1.5 0 0 1 3.5 18.5v-11Z"/><path d="M3.5 9.5V6.8A1.8 1.8 0 0 1 5.3 5h4.2l2 2H18"/>',
     "save": '<path d="M5 4h12l3 3v13H4V4h1Z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/>',
@@ -85,6 +86,117 @@ SVG_ICON_PATHS = {
 }
 _SVG_ICON_STROKE_WIDTHS = {"refresh": 2.0, "settings": 1.9, "plus": 2.0, "stop": 2.0}
 _SVG_ICON_CACHE = {}
+_SVG_ICON_RENDERERS = {}
+_BUTTON_ANIMATION_MANAGER = None
+
+
+def _svg_icon_renderer(name, color):
+    key = (str(name), str(color))
+    renderer = _SVG_ICON_RENDERERS.get(key)
+    if renderer is not None:
+        return renderer
+    path = SVG_ICON_PATHS.get(str(name))
+    if not path:
+        return None
+    stroke_width = _SVG_ICON_STROKE_WIDTHS.get(str(name), 1.8)
+    document = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" color="' +
+        str(color) + '" stroke="currentColor" stroke-width="' + str(stroke_width) +
+        '" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>'
+    )
+    renderer = QSvgRenderer(QByteArray(document.encode("utf-8")))
+    if not renderer.isValid():
+        return None
+    _SVG_ICON_RENDERERS[key] = renderer
+    return renderer
+
+
+class AnimatedSvgIconEngine(QIconEngine):
+    def __init__(self, button):
+        super().__init__()
+        self.button_ref = weakref.ref(button) if button is not None else lambda: None
+
+    def key(self):
+        return "TwitchFarmingAnimatedSvgIcon"
+
+    def clone(self):
+        return AnimatedSvgIconEngine(self.button_ref())
+
+    def actualSize(self, size, mode, state):
+        return size
+
+    def pixmap(self, size, mode, state):
+        pixmap = QPixmap(size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        self.paint(painter, QRectF(0, 0, size.width(), size.height()), mode, state)
+        painter.end()
+        return pixmap
+
+    def paint(self, painter, rect, mode, state):
+        button = self.button_ref()
+        if button is None or not button._svg_icon_name:
+            return
+        renderer = _svg_icon_renderer(button._svg_icon_name, button._svg_icon_color)
+        if renderer is None:
+            return
+        angle, scale_x, scale_y, shift_x, shift_y = button._icon_transform()
+        center = rect.center()
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.translate(center.x() + shift_x, center.y() + shift_y)
+        painter.rotate(angle)
+        painter.scale(scale_x, scale_y)
+        painter.translate(-center.x(), -center.y())
+        renderer.render(painter, QRectF(rect))
+        painter.restore()
+
+
+class ButtonAnimationManager(QObject):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._buttons = weakref.WeakSet()
+        self._timer = QTimer(self)
+        self._timer.setInterval(16)
+        self._timer.timeout.connect(self._tick)
+
+    def activate(self, button):
+        self._buttons.add(button)
+        if not self._timer.isActive():
+            self._timer.start()
+
+    def _tick(self):
+        now = time.monotonic()
+        active = False
+        for button in tuple(self._buttons):
+            try:
+                button._ripple_waves = [
+                    wave for wave in button._ripple_waves
+                    if now - wave[2] < 0.38
+                ]
+                icon_active = bool(
+                    button._icon_animation_started
+                    and now - button._icon_animation_started < button._icon_animation_duration
+                )
+                if not icon_active:
+                    button._icon_animation_started = 0.0
+                if button._ripple_waves or icon_active:
+                    button.update()
+                    active = True
+                else:
+                    self._buttons.discard(button)
+            except RuntimeError:
+                self._buttons.discard(button)
+        if not active:
+            self._timer.stop()
+
+
+def _button_animation_manager():
+    global _BUTTON_ANIMATION_MANAGER
+    if _BUTTON_ANIMATION_MANAGER is None:
+        _BUTTON_ANIMATION_MANAGER = ButtonAnimationManager(QApplication.instance())
+    return _BUTTON_ANIMATION_MANAGER
+
 
 
 def _svg_icon_pixmap(name, color, size, device_pixel_ratio=1.0):
@@ -125,6 +237,15 @@ class QPushButton(QtPushButton):
         self._svg_icon_danger = False
         self._svg_icon_hovered = False
         self._svg_icon_dpr = 0.0
+        self._svg_icon_color = "#A1A1AA"
+        self._icon_animation_started = 0.0
+        self._icon_animation_duration = 0.28
+        self._ripple_waves = []
+
+    def setObjectName(self, name):
+        super().setObjectName(name)
+        if getattr(self, "_svg_icon_name", ""):
+            self._refreshSvgIcon()
 
     def setSvgIcon(self, name, size=16, danger=False):
         self._svg_icon_name = str(name or "")
@@ -136,15 +257,114 @@ class QPushButton(QtPushButton):
         if not self._svg_icon_name:
             return
         dpr = float(self.devicePixelRatioF())
-        color = "#EF4444" if self._svg_icon_danger and self._svg_icon_hovered else ("#FFFFFF" if self._svg_icon_hovered else "#A1A1AA")
+        accent = self.objectName() == "primaryButton"
+        color = "#EF4444" if self._svg_icon_danger and self._svg_icon_hovered else (
+            "#FFFFFF" if accent or self._svg_icon_hovered else "#A1A1AA"
+        )
         if not self.isEnabled():
-            color = "#666671"
-        pixmap = _svg_icon_pixmap(self._svg_icon_name, color, self._svg_icon_size, dpr)
-        if pixmap.isNull():
-            return
+            color = "#777181" if accent else "#666671"
         self._svg_icon_dpr = dpr
-        self.setIcon(QIcon(pixmap))
+        if color == self._svg_icon_color and not self.icon().isNull():
+            return
+        self._svg_icon_color = color
+        self.setIcon(QIcon(AnimatedSvgIconEngine(self)))
         self.setIconSize(QSize(self._svg_icon_size, self._svg_icon_size))
+
+    def _icon_transform(self):
+        if not self._icon_animation_started:
+            return 0.0, 1.0, 1.0, 0.0, 0.0
+        progress = (time.monotonic() - self._icon_animation_started) / self._icon_animation_duration
+        progress = max(0.0, min(1.0, progress))
+        peak = math.sin(math.pi * progress)
+        name = self._svg_icon_name
+        angle = 0.0
+        scale_x = 1.0
+        scale_y = 1.0
+        shift_x = 0.0
+        shift_y = 0.0
+        if name == "refresh":
+            angle = 360.0 * progress
+        elif name == "settings":
+            angle = 60.0 * peak
+        elif name in ("plus", "close"):
+            angle = 90.0 * peak
+            scale_x = scale_y = 1.0 + 0.12 * peak
+        elif name in ("stop", "play", "power", "check"):
+            if progress < 0.4:
+                scale = 0.82 + 0.26 * (progress / 0.4)
+            else:
+                scale = 1.08 - 0.08 * ((progress - 0.4) / 0.6)
+            scale_x = scale_y = scale
+        elif name in ("external", "login"):
+            shift_x = 3.0 * peak
+            shift_y = -3.0 * peak if name == "external" else 0.0
+        elif name == "logout":
+            shift_x = -3.0 * peak
+        elif name == "swap":
+            shift_x = 2.5 * math.sin(progress * math.pi * 2.0)
+        elif name in ("trash", "folder", "palette"):
+            angle = (
+                -12.0 + 18.0 * min(1.0, progress / 0.45)
+                if progress < 0.45 else 6.0 * (1.0 - (progress - 0.45) / 0.55)
+            )
+        elif name in ("drops", "gift", "coin", "download", "bets"):
+            shift_y = -3.0 * peak
+        else:
+            if progress < 0.45:
+                scale = 0.86 + 0.20 * (progress / 0.45)
+            else:
+                scale = 1.06 - 0.06 * ((progress - 0.45) / 0.55)
+            scale_x = scale_y = scale
+        return angle, scale_x, scale_y, shift_x, shift_y
+
+    def _ripple_corner_radius(self):
+        radii = {
+            "windowControl": 6.0,
+            "navButton": 9.0,
+            "cardAction": 6.0,
+            "followerAddButton": 7.0,
+            "followerAddedButton": 7.0,
+            "dropsFilter": 7.0,
+            "smallDanger": 6.0
+        }
+        return radii.get(self.objectName(), 7.0)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
+            position = event.position()
+            now = time.monotonic()
+            self._ripple_waves.append((float(position.x()), float(position.y()), now))
+            self._ripple_waves = self._ripple_waves[-4:]
+            if self._svg_icon_name:
+                self._icon_animation_started = now
+            _button_animation_manager().activate(self)
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self._ripple_waves:
+            return
+        now = time.monotonic()
+        accent = self.objectName() == "primaryButton" or (
+            self.objectName() == "navButton" and self.isChecked()
+        )
+        color = QColor(255, 255, 255, 0) if accent else QColor(167, 139, 250, 0)
+        max_radius = math.hypot(float(self.width()), float(self.height()))
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        clip = QPainterPath()
+        radius = self._ripple_corner_radius()
+        clip.addRoundedRect(QRectF(self.rect()), radius, radius)
+        painter.setClipPath(clip)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for x, y, started in self._ripple_waves:
+            progress = max(0.0, min(1.0, (now - started) / 0.38))
+            eased = 1.0 - (1.0 - progress) ** 3
+            alpha = max(0, min(255, int(round(255.0 * 0.24 * (1.0 - progress)))))
+            color.setAlpha(alpha)
+            painter.setBrush(color)
+            painter.drawEllipse(QPointF(x, y), max_radius * eased, max_radius * eased)
+        painter.end()
 
     def enterEvent(self, event):
         self._svg_icon_hovered = True
@@ -155,6 +375,11 @@ class QPushButton(QtPushButton):
         self._svg_icon_hovered = False
         super().leaveEvent(event)
         self._refreshSvgIcon()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.EnabledChange:
+            self._refreshSvgIcon()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

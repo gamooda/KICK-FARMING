@@ -2627,7 +2627,6 @@ class TwitchFarmingApi:
                 raise RuntimeError("В архиве не найден " + executable.name + ".")
             if not (staging_dir / "_internal").is_dir():
                 raise RuntimeError("В архиве отсутствует папка зависимостей _internal.")
-            batch_path = install_parent / (".TwitchFarming-update-" + str(process_id) + ".bat")
             quote_path = lambda value: str(value).replace('"', "")
             target_value = quote_path(install_dir)
             stage_value = quote_path(staging_dir)
@@ -2640,6 +2639,7 @@ class TwitchFarmingApi:
                 "set \"TARGET=" + target_value + "\"\r\n"
                 "set \"STAGE=" + stage_value + "\"\r\n"
                 "set \"BACKUP=" + backup_value + "\"\r\n"
+                "set \"UPDATE_BATCH=%~f0\"\r\n"
                 ":wait_for_app\r\n"
                 "tasklist /FI \"PID eq %PID%\" 2>NUL | find \"%PID%\" >NUL\r\n"
                 "if not errorlevel 1 (timeout /t 1 /nobreak >nul & goto wait_for_app)\r\n"
@@ -2651,13 +2651,20 @@ class TwitchFarmingApi:
                 "start \"\" \"%TARGET%\\" + exe_name + "\"\r\n"
                 "timeout /t 3 /nobreak >nul\r\n"
                 "rmdir /s /q \"%BACKUP%\"\r\n"
-                "del \"%~f0\"\r\n"
+                "start \"\" /b powershell.exe -NoProfile -WindowStyle Hidden -Command \"Start-Sleep -Seconds 5; Remove-Item -LiteralPath $env:UPDATE_BATCH -Force -ErrorAction SilentlyContinue\"\r\n"
                 "exit /b 0\r\n"
                 ":update_failed\r\n"
-                "del \"%~f0\"\r\n"
+                "start \"\" /b powershell.exe -NoProfile -WindowStyle Hidden -Command \"Start-Sleep -Seconds 2; Remove-Item -LiteralPath $env:UPDATE_BATCH -Force -ErrorAction SilentlyContinue\"\r\n"
                 "exit /b 1\r\n"
             )
-            batch_path.write_text(script, encoding="utf-8")
+            batch_fd, batch_name = tempfile.mkstemp(
+                prefix="TwitchFarming-update-" + str(process_id) + "-",
+                suffix=".bat",
+                dir=tempfile.gettempdir(),
+            )
+            batch_path = Path(batch_name)
+            with os.fdopen(batch_fd, "w", encoding="utf-8", newline="") as batch_file:
+                batch_file.write(script)
             creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008) | getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
             subprocess.Popen(
                 ["cmd.exe", "/c", "start", "", "/min", str(batch_path)],
