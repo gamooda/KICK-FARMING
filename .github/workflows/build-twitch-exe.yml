@@ -46,12 +46,18 @@ jobs:
           python "Twitch Farming/build_icon.py"
 
       - name: Validate Python and UI files
+        shell: pwsh
         run: |
           python -m compileall "Twitch Farming/app.py" "Twitch Farming/webview_app.py" "Twitch Farming/version_info.py" "Twitch Farming/engine"
+          if ($LASTEXITCODE -ne 0) { throw "Python compile validation failed." }
           node --check "Twitch Farming/ui/app.js"
+          if ($LASTEXITCODE -ne 0) { throw "Frontend JavaScript syntax validation failed." }
           node ".github/scripts/startup-smoke-test.cjs"
+          if ($LASTEXITCODE -ne 0) { throw "Startup smoke tests failed." }
           python ".github/scripts/drops-watch-selection-test.py"
+          if ($LASTEXITCODE -ne 0) { throw "Drops watch-selection tests failed." }
           python -c "from pathlib import Path; root=Path('Twitch Farming'); required=[root/'ui/index.html',root/'ui/style.css',root/'ui/app.js']; missing=[str(p) for p in required if not p.is_file()]; assert not missing, 'Missing UI files: '+', '.join(missing)"
+          if ($LASTEXITCODE -ne 0) { throw "UI file verification failed." }
 
       - name: Build executable
         run: |
