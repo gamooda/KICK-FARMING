@@ -1984,33 +1984,16 @@ class MainWindow(QMainWindow):
             self.initialization_overlay.hide()
 
     def _render_state(self):
-        state = self.latest_state
+        state = self.latest_state if isinstance(self.latest_state, dict) else {}
         status = str(state.get("status_text") or "● НЕ ЗАПУЩЕН")
         color = str(state.get("status_color") or "#9BA3B4")
         notice = self._header_status_notice
-        if notice and time.monotonic() < notice[2]:
-            self.title_bar.set_status(notice[0], notice[1])
-        else:
-            self._header_status_notice = None
-            self.title_bar.set_status(status, color)
-        self.farm_status.setText(status)
-        self.farm_status.setStyleSheet("color:" + color + ";")
-        running = bool(state.get("session_running"))
-        self.farm_button.setText("■  Остановить фарм" if running else "▶  Запустить фарм")
-        self.add_channel_button.setEnabled(not running)
-        self.add_channel_button.setToolTip("Остановите фарм, чтобы изменить список каналов." if running else "")
-        self.username_input.setEnabled(not running)
-        self.login_button.setEnabled(not running)
-        self.logout_button.setEnabled(not running)
-        account_tip = "Остановите фарм, чтобы сменить аккаунт" if running else ""
-        self.login_button.setToolTip(account_tip)
-        self.logout_button.setToolTip(account_tip)
-        self._update_session_clock()
-        self.title_bar.set_gained_total(state.get("gained_total", 0))
         try:
-            self.title_bar.set_status(notice[0], notice[1]) if notice and time.monotonic() < notice[2] else self.title_bar.set_status(status, color)
-            if not (notice and time.monotonic() < notice[2]):
+            if notice and time.monotonic() < notice[2]:
+                self.title_bar.set_status(notice[0], notice[1])
+            else:
                 self._header_status_notice = None
+                self.title_bar.set_status(status, color)
             self.farm_status.setText(status)
             self.farm_status.setStyleSheet("color:" + color + ";")
             running = bool(state.get("session_running"))
@@ -2030,13 +2013,13 @@ class MainWindow(QMainWindow):
         self._safe_ui_call("отрисовка активных слотов", self._render_active_slots)
         try:
             signature = (
-                tuple(state.get("channels", [])),
-                json.dumps(state.get("channel_profiles", {}), sort_keys=True, ensure_ascii=False),
-                json.dumps(state.get("channel_balances", {}), sort_keys=True),
-                json.dumps(state.get("channel_currency", {}), sort_keys=True, ensure_ascii=False),
-                json.dumps(state.get("watch_status", {}), sort_keys=True),
-                tuple(state.get("watch_slots", [])),
-                tuple(state.get("temporary_channels", []))
+                tuple(state.get("channels") or []),
+                json.dumps(state.get("channel_profiles") or {}, sort_keys=True, ensure_ascii=False),
+                json.dumps(state.get("channel_balances") or {}, sort_keys=True),
+                json.dumps(state.get("channel_currency") or {}, sort_keys=True, ensure_ascii=False),
+                json.dumps(state.get("watch_status") or {}, sort_keys=True),
+                tuple(state.get("watch_slots") or []),
+                tuple(state.get("temporary_channels") or [])
             )
         except Exception as error:
             _log_ui_exception("подготовка данных карточек каналов", error)
