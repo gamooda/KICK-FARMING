@@ -33,7 +33,9 @@ for (const forbidden of ["threading.Thread", ".start(", "_load_config", "_restor
     throw new Error("TwitchFarmingApi constructor contains startup work: " + forbidden);
   }
 }
-const moduleHeader = backend.slice(0, backend.indexOf("class AppLogHandler:"));
+const appLogHandlerIndex = backend.indexOf("class AppLogHandler(");
+if (appLogHandlerIndex < 0) throw new Error("AppLogHandler class declaration was not found.");
+const moduleHeader = backend.slice(0, appLogHandlerIndex);
 for (const forbidden of ["TwitchChannelPointsMiner", "requests", "PIL", "pystray"]) {
   if (moduleHeader.includes(forbidden)) {
     throw new Error("A heavy optional library is imported before the backend worker: " + forbidden);
