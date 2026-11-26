@@ -137,7 +137,7 @@ for marker in (
     "CreateMutexW",
     "initializationOverlay",
     "APP_ICON_FILE.is_file()",
-    "QApplication.setWindowIcon",
+    "app.setWindowIcon",
     "Все кампании",
     "Начатые (Инвентарь)",
     "Награды Twitch (значки и эмоуты за просмотр)",
