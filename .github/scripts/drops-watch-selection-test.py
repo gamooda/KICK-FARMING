@@ -598,7 +598,6 @@ available_campaign = {
             "benefit": {
                 "id": "available-benefit",
                 "name": "Exclusive Twitch Emote",
-                "distributionType": "EMOTE",
                 "imageAssetURL": "https://example.test/emote.png",
                 "game": None,
             }
