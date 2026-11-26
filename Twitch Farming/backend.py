@@ -570,7 +570,7 @@ class DropsInventoryWorker(threading.Thread):
                 item["streamers"] = candidates
                 item["streamer_source"] = "followers" if candidates else ""
                 campaigns_by_id[campaign_id] = item
-                if not candidates and game_id:
+                if len(candidates) < 3 and game_id:
                     catalog_targets.append(item)
             streams_by_game = {}
             candidate_rows = {}
@@ -662,6 +662,8 @@ class DropsInventoryWorker(threading.Thread):
                         "display_name": str(user.get("display_name") or login),
                         "avatar_url": avatar if avatar.startswith("https://") else "",
                         "viewer_count": max(0, int(row.get("viewer_count") or 0)),
+                        "started_at": str(row.get("started_at") or ""),
+                        "uptime_seconds": max(0, int(row.get("uptime_seconds") or 0)),
                         "game_name": str(row.get("game_name") or ""),
                         "game_id": str(row.get("game_id") or ""),
                         "is_live": True,
@@ -669,8 +671,23 @@ class DropsInventoryWorker(threading.Thread):
                     }
                     catalog_streamers[login] = profile
                     suggestions.append(profile)
-                campaign["streamers"] = suggestions[:3]
-                campaign["streamer_source"] = "catalog" if suggestions else ""
+                combined = {
+                    str(item.get("login") or "").lower(): dict(item)
+                    for item in campaign.get("streamers", [])
+                    if isinstance(item, dict) and item.get("login")
+                }
+                for profile in suggestions:
+                    combined[str(profile.get("login") or "").lower()] = profile
+                ordered = sorted(
+                    combined.values(),
+                    key=lambda item: (
+                        max(0, int(item.get("uptime_seconds") or 0)),
+                        max(0, int(item.get("viewer_count") or 0)),
+                    ),
+                    reverse=True,
+                )
+                campaign["streamers"] = ordered[:3]
+                campaign["streamer_source"] = "followers+catalog" if campaign.get("streamers") and suggestions else ("followers" if campaign.get("streamers") else "")
             campaigns = list(campaigns_by_id.values())
         except Exception as exception:
             error = str(exception)[:500] or exception.__class__.__name__
