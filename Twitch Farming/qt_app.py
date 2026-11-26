@@ -1067,6 +1067,38 @@ def _flag_enabled(value):
     return bool(value)
 
 
+def _drop_is_claimed(drop):
+    if not isinstance(drop, dict):
+        return False
+    truthy = ("1", "true", "yes", "on", "claimed", "success", "completed", "already_claimed", "drop_instance_already_claimed")
+    falsey = ("", "0", "false", "no", "off", "none", "null")
+    sources = (
+        drop,
+        drop.get("self"),
+        drop.get("progress"),
+        drop.get("drop"),
+    )
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key in ("claimed", "isClaimed", "is_claimed", "isRewardClaimed", "rewardClaimed"):
+            value = source.get(key)
+            if isinstance(value, str):
+                if value.strip().lower() in truthy:
+                    return True
+            elif bool(value):
+                return True
+        for key in ("claimedAt", "claimed_at", "claimedDate", "claimed_date", "claimDate", "claim_date"):
+            value = str(source.get(key) or "").strip().lower()
+            if value not in falsey:
+                return True
+        for key in ("claimStatus", "claim_status", "dropStatus", "drop_status", "status"):
+            value = str(source.get(key) or "").strip().lower()
+            if value in truthy:
+                return True
+    return False
+
+
 def _campaign_available(campaign):
     status = str(campaign.get("status") or "").strip().upper()
     if status in ("EXPIRED", "ENDED", "COMPLETED", "CANCELLED", "CANCELED", "INACTIVE", "SCHEDULED"):
@@ -1088,7 +1120,7 @@ def _eligible_free_drops(campaign):
     for item in raw_drops if isinstance(raw_drops, list) else []:
         if not isinstance(item, dict):
             continue
-        if _flag_enabled(item.get("claimed")):
+        if _drop_is_claimed(item):
             continue
         drop_type = str(item.get("source_type") or item.get("drop_type") or item.get("dropType") or item.get("type") or "watch").strip().upper()
         category = str(item.get("category") or "").strip().upper()
@@ -3432,7 +3464,7 @@ class MainWindow(QMainWindow):
                     watched = _ui_int(drop.get("watched_minutes", drop.get("current_minutes", 0)))
                     required = _ui_int(drop.get("required_minutes", drop.get("requiredMinutes", 0)))
                     percentage = (watched * 100.0 / required) if required > 0 else 0
-                if int(float(percentage or 0)) < 100 and not _flag_enabled(drop.get("claimed")):
+                if int(float(percentage or 0)) < 100 and not _drop_is_claimed(drop):
                     progress_count += 1
         self.drops_active_value.setText(str(len(watch_campaigns_all)))
         self.drops_progress_value.setText(str(progress_count))
