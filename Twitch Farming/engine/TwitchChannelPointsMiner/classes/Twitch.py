@@ -1828,15 +1828,49 @@ class Twitch(object):
         return result
 
     def get_drop_campaign_ids_for_channels(self, channels):
-        campaigns_by_login = self.get_drop_campaigns_for_channels(channels)
-        return {
-            login: [
-                str(campaign["id"])
-                for campaign in campaigns
-                if isinstance(campaign, dict) and campaign.get("id")
-            ]
-            for login, campaigns in campaigns_by_login.items()
+        rows = [
+            item for item in (channels or [])
+            if isinstance(item, dict) and item.get("channel_id")
+        ]
+        result = {
+            str(item.get("login") or "").lower(): []
+            for item in rows
         }
+        for offset in range(0, len(rows), 20):
+            batch = rows[offset:offset + 20]
+            requests_data = []
+            for item in batch:
+                request_data = copy.deepcopy(GQLOperations.DropsHighlightService_AvailableDrops)
+                request_data["variables"] = {"channelID": str(item["channel_id"])}
+                requests_data.append(request_data)
+            response = self.post_gql_request(requests_data)
+            if isinstance(response, dict):
+                response = [response]
+            if not isinstance(response, list):
+                continue
+            for channel, payload in zip(batch, response):
+                login = str(channel.get("login") or "").lower()
+                try:
+                    channel_data = (payload.get("data") or {}).get("channel") or {}
+                    available = channel_data.get("viewerDropCampaigns") or []
+                    if isinstance(available, dict):
+                        available = (
+                            available.get("nodes")
+                            or available.get("items")
+                            or available.get("edges")
+                            or []
+                        )
+                    ids = []
+                    for item in available if isinstance(available, list) else []:
+                        if not isinstance(item, dict):
+                            continue
+                        campaign = item.get("node") if isinstance(item.get("node"), dict) else item
+                        if campaign.get("id"):
+                            ids.append(str(campaign["id"]))
+                    result[login] = ids
+                except (AttributeError, KeyError, TypeError):
+                    result[login] = []
+        return result
 
     def claim_drop(self, drop):
         logger.info(
