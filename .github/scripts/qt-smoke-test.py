@@ -224,7 +224,7 @@ check("webview" not in app_readme.lower() and "pywebview" not in app_readme.lowe
 
 twitch_source = (APP / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8")
 check("if campaigns is None:" in twitch_source and 'logger.debug("ViewerDropsDashboard:' in twitch_source and 'self._warn_drops_response("ViewerDropsDashboard", "отсутствует массив dropCampaigns", response)' in twitch_source, "A normal None dropCampaigns response must be debug-level while malformed dashboard data remains a warning.")
-check('"is_followed" not in item or _flag_enabled(item.get("is_followed"))' in qt, "Campaign streamer spoiler must only include followed channels.")
+check('"is_followed" not in item or _flag_enabled(item.get("is_followed"))' not in qt, "Drops cards must not filter out general-catalog streamers.")
 check('QFrame[frameShape="4"], QFrame[frameShape="5"]' in qt, "Horizontal and vertical frame separators must use the neutral one-pixel style.")
 check("self.setMinimumWidth(190)" in qt and "self.setMinimumHeight(185)" in qt and "QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed" in qt, "Channel cards must preserve their minimum height and expand horizontally.")
 check("self.channels_grid.setColumnStretch(c, 1 if c < columns else 0)" in qt and "for c in range(10):" in qt and "setRowMinimumHeight(row, card_height)" in qt and "required_height = rows_count * card_height" in qt and "self.channels_wrap.setMinimumHeight(max(required_height, self.channels_grid.sizeHint().height() + 8))" in qt, "The channel grid must reset stretch and explicitly reserve full fixed-height rows inside its scroll area.")
