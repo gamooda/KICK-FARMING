@@ -1008,8 +1008,9 @@ class ChannelCard(QFrame):
 
 
 class ActiveSlotCard(QFrame):
-    def __init__(self, slot_number, login, profile, balance, image_cache, select_callback=None, remove_callback=None, controls_enabled=True, watching=False, parent=None):
+    def __init__(self, slot_number, login, profile, balance, image_cache, watching=False, parent=None):
         super().__init__(parent)
+        profile = profile if isinstance(profile, dict) else {}
         self.setObjectName("activeSlotCard")
         self.setMinimumHeight(62)
         row = QHBoxLayout(self)
@@ -1037,26 +1038,6 @@ class ActiveSlotCard(QFrame):
         amount = QLabel(f"{_ui_int(balance):,}".replace(",", " ") + " баллов")
         amount.setObjectName("slotBalance")
         row.addWidget(amount)
-        controls = QVBoxLayout()
-        controls.setContentsMargins(0, 0, 0, 0)
-        controls.setSpacing(4)
-        self.select_button = QPushButton("Выбрать")
-        self.select_button.setObjectName("slotSelectButton")
-        self.select_button.setFixedHeight(24)
-        self.select_button.setEnabled(bool(controls_enabled))
-        self.select_button.setToolTip("Выбрать канал и поднять его до приоритета этого слота.")
-        if callable(select_callback):
-            self.select_button.clicked.connect(lambda checked=False, value=int(slot_number): select_callback(value))
-        controls.addWidget(self.select_button)
-        self.remove_button = QPushButton("Снять")
-        self.remove_button.setObjectName("slotClearButton")
-        self.remove_button.setFixedHeight(24)
-        self.remove_button.setEnabled(bool(login and controls_enabled))
-        self.remove_button.setToolTip("Убрать канал из приоритета слота. Канал останется в общем списке.")
-        if callable(remove_callback):
-            self.remove_button.clicked.connect(lambda checked=False, number=int(slot_number), value=str(login or ""): remove_callback(number, value))
-        controls.addWidget(self.remove_button)
-        row.addLayout(controls)
         if image_cache:
             image_cache.request(self.avatar, profile.get("avatar_url", ""), True)
 
@@ -1233,6 +1214,59 @@ def _format_campaign_date(campaign):
     return f"Кампания до {date_value.day} {months[date_value.month - 1]} {date_value.year} г."
 
 
+def _campaign_game_art_url(campaign):
+    if not isinstance(campaign, dict):
+        return ""
+    game_value = campaign.get("game")
+    game_data = game_value if isinstance(game_value, dict) else {}
+    candidates = (
+        campaign.get("box_art_url"),
+        campaign.get("boxArtURL"),
+        campaign.get("boxArtUrl"),
+        campaign.get("game_box_art_url"),
+        campaign.get("gameBoxArtURL"),
+        campaign.get("game_image_url"),
+        campaign.get("gameImageURL"),
+        campaign.get("gameImageUrl"),
+        campaign.get("image_url"),
+        campaign.get("imageURL"),
+        campaign.get("game.boxArtURL"),
+        game_data.get("box_art_url"),
+        game_data.get("boxArtURL"),
+        game_data.get("boxArtUrl"),
+        game_data.get("box_art"),
+        game_data.get("game_box_art_url"),
+        game_data.get("image_url"),
+        game_data.get("imageURL"),
+    )
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            candidate = candidate.get("url") or candidate.get("url2x") or candidate.get("src") or candidate.get("boxArtURL") or candidate.get("box_art_url") or ""
+        candidate = html.unescape(str(candidate or "").strip())
+        candidate = candidate.replace("{width}x{height}", "144x192")
+        candidate = candidate.replace("{width}", "144").replace("{height}", "192")
+        candidate = candidate.replace("%7Bwidth%7D", "144").replace("%7Bheight%7D", "192")
+        candidate = candidate.replace("%7bwidth%7d", "144").replace("%7bheight%7d", "192")
+        if candidate.startswith("//"):
+            candidate = "https:" + candidate
+        elif candidate.startswith("http://"):
+            candidate = "https://" + candidate[7:]
+        if candidate.startswith("https://"):
+            return candidate
+    game_id = str(
+        campaign.get("game_id")
+        or campaign.get("gameId")
+        or campaign.get("gameID")
+        or campaign.get("game.id")
+        or game_data.get("id")
+        or game_data.get("game_id")
+        or ""
+    ).strip()
+    if re.fullmatch(r"\\d+", game_id):
+        return "https://static-cdn.jtvnw.net/ttv-boxart/" + game_id + "-144x192.jpg"
+    return ""
+
+
 class CampaignCard(QFrame):
     def __init__(self, campaign, image_cache, add_callback, parent=None, add_enabled=True):
         super().__init__(parent)
@@ -1253,41 +1287,7 @@ class CampaignCard(QFrame):
             or game_data.get("display_name")
             or (game_value if not isinstance(game_value, dict) else "TWITCH")
         ).upper()
-        game_image_url = ""
-        nested_box_art = (
-            game_data.get("boxArtURL")
-            or game_data.get("boxArtUrl")
-            or game_data.get("box_art_url")
-            or game_data.get("game_box_art_url")
-            or game_data.get("box_art")
-        )
-        image_candidates = (
-            campaign.get("box_art_url"),
-            campaign.get("boxArtURL"),
-            campaign.get("game_box_art_url"),
-            campaign.get("image_url"),
-            campaign.get("game.boxArtURL"),
-            campaign.get("boxArtUrl"),
-            campaign.get("game_image_url"),
-            campaign.get("gameImageURL"),
-            campaign.get("gameImageUrl"),
-            nested_box_art,
-            game_data.get("boxArtURL"),
-            game_data.get("box_art_url"),
-            game_data.get("game_box_art_url"),
-            game_data.get("image_url"),
-            game_data.get("imageURL")
-        )
-        for candidate in image_candidates:
-            if isinstance(candidate, dict):
-                candidate = candidate.get("url") or candidate.get("url2x") or candidate.get("src") or ""
-            candidate = str(candidate or "").strip()
-            candidate = candidate.replace("{width}", "144").replace("{height}", "192").replace("%7Bwidth%7D", "144").replace("%7Bheight%7D", "192").replace("%7bwidth%7d", "144").replace("%7bheight%7d", "192")
-            if candidate.startswith("//"):
-                candidate = "https:" + candidate
-            if candidate.startswith("https://"):
-                game_image_url = candidate
-                break
+        game_image_url = _campaign_game_art_url(campaign)
 
         header = QHBoxLayout()
         header.setSpacing(9)
@@ -1871,9 +1871,6 @@ class MainWindow(QMainWindow):
         QLabel#slotCurrentBadge { color:#82D8B3; background:#1D352D; border-radius:5px; padding:2px 5px; font-size:8px; font-weight:900; }
         QLabel#slotReadyBadge { color:#D7BFFF; background:#302344; border-radius:5px; padding:2px 5px; font-size:8px; font-weight:900; }
         QLabel#slotEmptyBadge { color:#8C8799; background:#252530; border-radius:5px; padding:2px 5px; font-size:8px; font-weight:900; }
-        QPushButton#slotSelectButton { background:#302345; border:1px solid #7655A5; color:#E2D3FF; padding:3px 7px; border-radius:6px; font-size:9px; font-weight:800; }
-        QPushButton#slotClearButton { background:#211E2C; border:1px solid #383247; color:#BDB6C9; padding:3px 7px; border-radius:6px; font-size:9px; font-weight:700; }
-        QPushButton#slotSelectButton:hover, QPushButton#slotClearButton:hover { border-color:#A184D0; background:#382A4E; }
         QFrame#dropsSummary { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #211B31,stop:1 #171522); border:1px solid #45365E; border-radius:12px; }
         QLabel#dropSummaryValue { color:#FFFFFF; font-size:22px; font-weight:900; }
         QLabel#dropSummaryCaption { color:#A49BB5; font-size:10px; font-weight:700; }
@@ -2018,7 +2015,7 @@ class MainWindow(QMainWindow):
         self.slot_layout = slots
         self.slot_cards = []
         for number in (1, 2):
-            card = ActiveSlotCard(number, "", {}, 0, self.image_cache, self._choose_slot_channel, self._clear_slot_priority)
+            card = ActiveSlotCard(number, "", {}, 0, self.image_cache)
             self.slot_cards.append(card)
             slots.addWidget(card, 1)
         panel_layout.addLayout(slots)
@@ -2048,6 +2045,7 @@ class MainWindow(QMainWindow):
         for column in range(10):
             self.channels_grid.setColumnStretch(column, 1 if column < 6 else 0)
         self._channel_columns = 0
+        self._channel_row_count = 0
         self.channels_wrap = QWidget()
         self.channels_wrap.setObjectName("scrollContent")
         self.channels_wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
@@ -2970,9 +2968,6 @@ class MainWindow(QMainWindow):
                     profile,
                     balance,
                     self.image_cache,
-                    self._choose_slot_channel,
-                    self._clear_slot_priority,
-                    controls_enabled=not session_running,
                     watching=watching
                 )
                 index = self.slot_layout.indexOf(card)
@@ -3061,6 +3056,8 @@ class MainWindow(QMainWindow):
     def _render_channels(self):
         try:
             self.channels_wrap.setMinimumHeight(0)
+            for row in range(getattr(self, "_channel_row_count", 0)):
+                self.channels_grid.setRowMinimumHeight(row, 0)
             self._clear_layout(self.channels_grid)
             state = self.latest_state if isinstance(self.latest_state, dict) else {}
             channels = state.get("channels") or []
@@ -3131,9 +3128,19 @@ class MainWindow(QMainWindow):
                 empty = QLabel(empty_text)
                 empty.setObjectName("mutedText")
                 self.channels_grid.addWidget(empty, 0, 0)
+            rows_count = (len(visible) + columns - 1) // columns if visible else 0
+            card_height = 232
+            row_spacing = max(0, self.channels_grid.verticalSpacing())
+            for row in range(rows_count):
+                self.channels_grid.setRowMinimumHeight(row, card_height)
+            self._channel_row_count = rows_count
             self.channels_grid.activate()
-            self.channels_wrap.adjustSize()
-            self.channels_wrap.setMinimumHeight(self.channels_grid.sizeHint().height() + 8)
+            required_height = rows_count * card_height + max(0, rows_count - 1) * row_spacing + 8
+            if not rows_count:
+                required_height = max(56, self.channels_grid.sizeHint().height() + 8)
+            self.channels_wrap.setMinimumHeight(max(required_height, self.channels_grid.sizeHint().height() + 8))
+            self.channels_wrap.updateGeometry()
+            self.channels_scroll.updateGeometry()
             return True
         except Exception as error:
             _log_ui_exception("отрисовка списка каналов", error)

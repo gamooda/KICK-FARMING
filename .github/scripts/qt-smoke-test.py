@@ -6,12 +6,18 @@ ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "Twitch Farming"
 sys.path.insert(0, str(APP))
 
-from qt_app import eligible_twitch_campaigns, eligible_watch_campaigns, format_duration, log_entry_matches_level
+from qt_app import _campaign_game_art_url, eligible_twitch_campaigns, eligible_watch_campaigns, format_duration, log_entry_matches_level
 
 
 def check(condition, message):
     if not condition:
         raise AssertionError(message)
+
+
+check(_campaign_game_art_url({"game": "Fortnite", "game_id": "33214"}) == "https://static-cdn.jtvnw.net/ttv-boxart/33214-144x192.jpg", "Flattened campaign data must derive game cover from game_id when backend replaces the nested game object.")
+check(_campaign_game_art_url({"game": {"boxArtURL": "https://static-cdn.jtvnw.net/ttv-boxart/123-{width}x{height}.jpg", "id": "123"}}) == "https://static-cdn.jtvnw.net/ttv-boxart/123-144x192.jpg", "Nested Twitch game boxArtURL templates must render at 144x192.")
+check(_campaign_game_art_url({"game_box_art_url": {"url": "//static-cdn.jtvnw.net/ttv-boxart/456-{width}x{height}.jpg"}}) == "https://static-cdn.jtvnw.net/ttv-boxart/456-144x192.jpg", "Protocol-relative nested game art URLs must be normalized.")
+check(_campaign_game_art_url({"game": "Unknown", "game_id": ""}) == "", "The GAME placeholder must remain only when no game art URL or game ID is available.")
 
 
 sample = [
@@ -215,11 +221,13 @@ check("if campaigns is None:" in twitch_source and 'logger.debug("ViewerDropsDas
 check('"is_followed" not in item or _flag_enabled(item.get("is_followed"))' in qt, "Campaign streamer spoiler must only include followed channels.")
 check('QFrame[frameShape="4"], QFrame[frameShape="5"]' in qt, "Horizontal and vertical frame separators must use the neutral one-pixel style.")
 check("self.setMinimumWidth(190)" in qt and "self.setMinimumHeight(185)" in qt and "QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed" in qt, "Channel cards must preserve their minimum height and expand horizontally.")
-check("self.channels_grid.setColumnStretch(c, 1 if c < columns else 0)" in qt and "for c in range(10):" in qt and "self.channels_wrap.setMinimumHeight(self.channels_grid.sizeHint().height() + 8)" in qt, "The channel grid must reset stretch on all ten columns and preserve every row.")
+check("self.channels_grid.setColumnStretch(c, 1 if c < columns else 0)" in qt and "for c in range(10):" in qt and "setRowMinimumHeight(row, card_height)" in qt and "required_height = rows_count * card_height" in qt and "self.channels_wrap.setMinimumHeight(max(required_height, self.channels_grid.sizeHint().height() + 8))" in qt, "The channel grid must reset stretch and explicitly reserve full fixed-height rows inside its scroll area.")
 check("self.channels_scroll.viewport().width()" in qt and "for c in range(10):" in qt, "The channel grid must recalculate columns from its actual viewport and clear obsolete columns.")
 check('campaign.get("game.boxArtURL")' in qt and '.replace("%7Bwidth%7D", "144")' in qt, "Encoded and dotted campaign game box-art URLs must be supported.")
-check("def _choose_slot_channel" in qt and "def _clear_slot_priority" in qt and "if has_active" not in qt, "The active farm slots must render without an undefined state and expose priority controls.")
-check('game_data.get("boxArtURL")' in qt and 'campaign.get("game_box_art_url")' in qt and 'campaign.get("image_url")' in qt and '"game_art"' in qt and 'candidate.replace("{width}", "144").replace("{height}", "192")' in qt, "Campaign game box art must support all Twitch URL keys, requested dimensions and async caching.")
+slot_card_source = qt[qt.index("class ActiveSlotCard(QFrame):"):qt.index("def _log_ui_exception", qt.index("class ActiveSlotCard(QFrame):"))]
+check("class ActiveSlotCard(QFrame):" in qt and "self.select_button" not in slot_card_source and "self.remove_button" not in slot_card_source and 'QPushButton("Выбрать")' not in slot_card_source and 'QPushButton("Снять")' not in slot_card_source, "Active farm slot cards must not contain select or clear buttons.")
+check("def _choose_slot_channel" in qt and "def _clear_slot_priority" in qt and "if has_active" not in qt, "Existing slot priority handlers must remain syntactically valid.")
+check("def _campaign_game_art_url(campaign)" in qt and "_campaign_game_art_url(campaign)" in qt and "game_id" in qt and "ttv-boxart/" in qt and '"game_art"' in qt, "Campaign game cover URLs must be resolved from raw art fields or the flattened game_id, then loaded through the async image cache.")
 check("reward_layout.setContentsMargins(10, 10, 10, 10)" in qt and "reward_layout.setSpacing(6)" in qt and "reward_row.setMinimumHeight(88)" in qt and "reward_name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)" in qt and "status.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)" in qt and "Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop" in qt and "footer.setContentsMargins(0, 6, 0, 0)" in qt, "Reward titles must wrap, status badges must stay at the right, and reward rows must grow with content.")
 check("filters.layout().setAlignment(Qt.AlignmentFlag.AlignTop)" in qt, "Prediction participant filter contents must align to the top.")
 check('QComboBox::down-arrow { image: url("@COMBO_ARROW@");' in qt and (APP / "assets" / "combo_chevron.svg").is_file(), "Combo boxes must use the bundled SVG chevron.")
