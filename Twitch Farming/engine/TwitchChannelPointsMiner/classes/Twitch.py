@@ -1405,9 +1405,9 @@ class Twitch(object):
             status = str(campaign.get("status") or campaign.get("campaignStatus") or "").upper()
             if status and status != "ACTIVE":
                 continue
-            if not status and source != "inventory" and source != "available":
-                continue
-            if status == "ACTIVE" or source in ("inventory", "available"):
+            if not status:
+                status = "ACTIVE"
+            if status == "ACTIVE":
                 merged = campaigns_by_id.setdefault(campaign_id, {})
                 merge_nonempty(merged, campaign)
                 merged["id"] = campaign_id
