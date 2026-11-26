@@ -1492,7 +1492,6 @@ class Twitch(object):
                                 campaigns,
                             )
                         )
-                        streamers[i].stream.drops_campaigns_synced = True
 
             except (ValueError, KeyError, requests.exceptions.ConnectionError) as e:
                 logger.error(f"Error while syncing inventory: {e}")
