@@ -26,6 +26,7 @@ class Stream(object):
         "hls_url",
         "watched_segments",
         "last_minute_watched_sent",
+        "last_spade_url_attempt",
         "watch_streak_missing",
         "minute_watched",
         "__last_update",
@@ -52,6 +53,7 @@ class Stream(object):
         self.hls_url = None
         self.watched_segments = OrderedDict()
         self.last_minute_watched_sent = 0.0
+        self.last_spade_url_attempt = 0.0
 
         self.init_watch_streak()
 
