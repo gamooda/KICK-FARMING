@@ -235,6 +235,9 @@ check("class ActiveSlotCard(QFrame):" in qt and "self.select_button" not in slot
 check("def _choose_slot_channel" in qt and "def _clear_slot_priority" in qt and "if has_active" not in qt, "Existing slot priority handlers must remain syntactically valid.")
 check("def _campaign_game_art_url(campaign)" in qt and "_campaign_game_art_url(campaign)" in qt and "game_id" in qt and "ttv-boxart/" in qt and '"game_art"' in qt, "Campaign game cover URLs must be resolved from raw art fields or the flattened game_id, then loaded through the async image cache.")
 check('self.drops_filter_index = 1' in qt and 'QPushButton("Начатые (Инвентарь)")' in qt and '"Все Drops"' not in qt and "campaigns = started_watch_campaigns(watch_campaigns)" in qt, "The Drops page must show only started campaigns and must not expose the all-Drops list.")
+drops_render_start = qt.index("    def _render_drops(self):")
+drops_render_end = qt.index("    def _add_drop_streamer(", drops_render_start)
+check("filter_index" not in qt[drops_render_start:drops_render_end], "Drops rendering must not reference the removed filter_index variable.")
 check("self.update_progress.setTextVisible(False)" in qt, "The application update progress bar must not display percentage text inside the bar.")
 campaign_card_source = qt[qt.index("class CampaignCard(QFrame):"):qt.index("class ModalOverlay", qt.index("class CampaignCard(QFrame):"))]
 check("self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)" in campaign_card_source and "layout.setSpacing(10)" in campaign_card_source, "Drops campaign cards must preserve their natural content height and keep spacing between rewards.")

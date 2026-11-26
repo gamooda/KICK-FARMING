@@ -3481,7 +3481,6 @@ class MainWindow(QMainWindow):
         session_running = bool(self.latest_state.get("session_running"))
         signature = json.dumps([
             campaigns,
-            filter_index,
             self.drops_state.get("loading"),
             self.drops_state.get("error"),
             self.drops_state.get("updated_at"),
