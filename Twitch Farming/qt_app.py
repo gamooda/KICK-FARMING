@@ -120,6 +120,7 @@ class QPushButton(QtPushButton):
         self._svg_icon_name = ""
         self._svg_icon_size = 16
         self._svg_icon_danger = False
+        self._svg_icon_hovered = False
         self._svg_icon_dpr = 0.0
 
     def setSvgIcon(self, name, size=16, danger=False):
@@ -132,7 +133,7 @@ class QPushButton(QtPushButton):
         if not self._svg_icon_name:
             return
         dpr = float(self.devicePixelRatioF())
-        color = "#EF4444" if self._svg_icon_danger and self.underMouse() else ("#FFFFFF" if self.underMouse() else "#A1A1AA")
+        color = "#EF4444" if self._svg_icon_danger and self._svg_icon_hovered else ("#FFFFFF" if self._svg_icon_hovered else "#A1A1AA")
         if not self.isEnabled():
             color = "#666671"
         pixmap = _svg_icon_pixmap(self._svg_icon_name, color, self._svg_icon_size, dpr)
@@ -143,10 +144,12 @@ class QPushButton(QtPushButton):
         self.setIconSize(QSize(self._svg_icon_size, self._svg_icon_size))
 
     def enterEvent(self, event):
+        self._svg_icon_hovered = True
         super().enterEvent(event)
         self._refreshSvgIcon()
 
     def leaveEvent(self, event):
+        self._svg_icon_hovered = False
         super().leaveEvent(event)
         self._refreshSvgIcon()
 
@@ -1160,11 +1163,11 @@ class MainWindow(QMainWindow):
         nav_items = [
             ("Каналы", 0, "channels"),
             ("Инвентарь Drops", 1, "drops"),
-            ("Фолловеры", 2, "irc"),
+            ("Фолловеры", 2, "followers"),
             ("Настройки", 3, "settings"),
-            ("Настройки прогнозов", 4, "predictions"),
+            ("Настройки прогнозов", 4, "bets"),
             ("События и журнал", 5, "events"),
-            ("О проекте", 6, "bonuses")
+            ("О проекте", 6, "about")
         ]
         for title, index, icon_name in nav_items:
             button = QPushButton(title)
