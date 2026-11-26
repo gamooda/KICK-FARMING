@@ -1757,7 +1757,7 @@ class Twitch(object):
         if not result:
             self._warn_drops_response(
                 "Inventory",
-                "не найдено активных кампаний в Inventory, ViewerDropsDashboard или rewardCampaignsAvailableToUser",
+                "не найдено активных кампаний в Inventory, ViewerDropsDashboard, rewardCampaignsAvailableToUser или AvailableDrops живых каналов",
                 {
                     "inventory": inventory,
                     "dashboard": dashboard_response,
