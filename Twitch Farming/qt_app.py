@@ -773,6 +773,7 @@ class MainWindow(QMainWindow):
         self.active_animation = QPropertyAnimation(self.active_panel, b"maximumHeight", self)
         self.active_animation.setDuration(260)
         self.active_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.active_animation.finished.connect(self._active_panel_animation_finished)
         layout.addWidget(self.active_panel)
         row = QHBoxLayout()
         title = QLabel("Список каналов")
@@ -1054,7 +1055,7 @@ class MainWindow(QMainWindow):
         row.addWidget(self.log_level)
         clear = QPushButton("Очистить журнал")
         clear.setObjectName("secondaryButton")
-        clear.clicked.connect(lambda: self._call("clear_logs", message="Журнал очищен."))
+        clear.clicked.connect(self._clear_logs)
         row.addWidget(clear)
         layout.addLayout(row)
         self.log_output = QTextEdit()
@@ -1308,6 +1309,10 @@ class MainWindow(QMainWindow):
                 result[login] = index
         return result
 
+    def _active_panel_animation_finished(self):
+        if self._active_panel_target == 0:
+            self.active_panel.setVisible(False)
+
     def _render_active_slots(self):
         state = self.latest_state
         running = bool(state.get("session_running"))
@@ -1323,8 +1328,6 @@ class MainWindow(QMainWindow):
             self.active_animation.setStartValue(current)
             self.active_animation.setEndValue(target)
             self.active_animation.start()
-            if not has_active:
-                QTimer.singleShot(280, lambda: self.active_panel.setVisible(False))
         watch_map = self._watch_slot_map()
         profiles = state.get("channel_profiles", {})
         balances = state.get("channel_balances", {})
@@ -1710,6 +1713,20 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Обновление", "Останови фарм перед установкой обновления.")
             return
         self._call("download_update", message="Скачивание обновления запущено.")
+
+    def _clear_logs(self):
+        def completed(result, error):
+            if error or not isinstance(result, dict) or not result.get("ok"):
+                if not error:
+                    self._notify(str((result or {}).get("message") or "Не удалось очистить журнал."))
+                return
+            self.last_log_id = max(self.last_log_id, int(result.get("last_log_id") or 0))
+            self._log_cache.clear()
+            self.latest_state["logs"] = []
+            self.log_output.clear()
+            self.events_output.clear()
+            self._notify(str(result.get("message") or "Журнал очищен."))
+        self._run_task("clear-logs", self.api.clear_logs, (), completed)
 
     def _render_logs(self):
         if not hasattr(self, "log_output"):
