@@ -1136,6 +1136,8 @@ class TwitchFarmingApi:
                 self.channel_profiles.pop(channel, None)
                 self.channel_balances.pop(channel, None)
                 self.channel_points_branding_cache.pop(channel, None)
+                self.watch_status.pop(channel, None)
+                self.temporary_channels.pop(channel, None)
         self._save_config()
         return {"ok": True}
 
@@ -1460,6 +1462,17 @@ class TwitchFarmingApi:
                 "temporary": not already_configured,
                 "message": "Канал добавлен во временный Drops-фарм." if not already_configured else "Канал уже находится в постоянном списке. Автоматический сбор запущен.",
             }
+        if not already_configured:
+            with self.lock:
+                if not self.session_running and login in self.temporary_channels:
+                    self.temporary_channels.pop(login, None)
+                    if login in self.channels:
+                        self.channels.remove(login)
+                    self.online_channels.discard(login)
+                    self.channel_profiles.pop(login, None)
+                    self.channel_balances.pop(login, None)
+                    self.channel_points_branding_cache.pop(login, None)
+                    self.watch_status.pop(login, None)
         return result
 
     def clear_avatar_cache(self):
