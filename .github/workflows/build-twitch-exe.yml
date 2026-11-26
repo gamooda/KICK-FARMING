@@ -52,6 +52,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Python compile validation failed." }
           node --check "Twitch Farming/ui/app.js"
           if ($LASTEXITCODE -ne 0) { throw "Frontend JavaScript syntax validation failed." }
+          node --check ".github/scripts/startup-smoke-test.cjs"
+          if ($LASTEXITCODE -ne 0) { throw "Startup smoke-test syntax validation failed." }
           node ".github/scripts/startup-smoke-test.cjs"
           if ($LASTEXITCODE -ne 0) { throw "Startup smoke tests failed." }
           python ".github/scripts/drops-watch-selection-test.py"
