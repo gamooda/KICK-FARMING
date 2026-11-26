@@ -125,6 +125,17 @@ if (backend.includes("WEBVIEW_DIR.mkdir") || backend.includes("storage_path=str(
 
 const workflow = fs.readFileSync(path.resolve(__dirname, "../workflows/build-twitch-exe.yml"), "utf8");
 const versionInfo = fs.readFileSync(path.resolve(__dirname, "../../Twitch Farming/version_info.py"), "utf8");
+const buildStepStart = workflow.indexOf("- name: Build executable");
+const buildStepEnd = workflow.indexOf("\n      - name:", buildStepStart + 10);
+const buildStep = buildStepStart >= 0 && buildStepEnd >= 0
+  ? workflow.slice(buildStepStart, buildStepEnd)
+  : "";
+if (!buildStep.includes('--paths "Twitch Farming"') ||
+    !buildStep.includes('"Twitch Farming/webview_app.py"') ||
+    buildStep.includes('"Twitch Farming/app.py"') ||
+    !backend.includes('if __name__ == "__main__":\n    main()')) {
+  throw new Error("PyInstaller must package webview_app.py directly and include the application root in its module search path.");
+}
 if (!workflow.includes("--onedir") || workflow.includes("--onefile") || !workflow.includes("Twitch.Farming.zip")) {
   throw new Error("The Windows build must use onedir and publish the updater ZIP package.");
 }
