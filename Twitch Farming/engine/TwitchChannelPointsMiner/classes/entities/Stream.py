@@ -18,6 +18,7 @@ class Stream(object):
         "drops_tags",
         "campaigns",
         "campaigns_ids",
+        "drops_campaigns_synced",
         "viewers_count",
         "spade_url",
         "payload",
@@ -37,6 +38,7 @@ class Stream(object):
         self.drops_tags = False
         self.campaigns = []
         self.campaigns_ids = []
+        self.drops_campaigns_synced = False
 
         self.viewers_count = 0
         self.__last_update = 0
@@ -58,6 +60,7 @@ class Stream(object):
         self.tags = tags or []
         # ------------------------
         self.viewers_count = viewers_count
+        self.drops_campaigns_synced = False
 
         self.drops_tags = (
             DROP_ID in [tag["id"] for tag in self.tags] and self.game != {}
