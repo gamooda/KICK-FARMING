@@ -21,9 +21,9 @@ sample = [
         "started": True,
         "name": "Twitch profile rewards",
         "drops": [
-            {"id": "badge", "name": "Badge", "category": "twitch", "is_twitch_view": True, "claimed": False},
-            {"id": "emote", "name": "Emote", "category": "twitch", "is_twitch_view": True, "claimed": False},
-            {"id": "skin", "name": "Game skin", "category": "game", "is_twitch_view": False, "claimed": False},
+            {"id": "badge", "name": "Badge", "category": "twitch", "is_twitch_view": True, "image_url": "https://example.test/badge.png", "claimed": False},
+            {"id": "emote", "name": "Emote", "category": "twitch", "is_twitch_view": True, "image_url": "https://example.test/emote.png", "claimed": False},
+            {"id": "skin", "name": "Game skin", "category": "game", "is_twitch_view": False, "image_url": "https://example.test/skin.png", "claimed": False},
             {"id": "claimed", "name": "Claimed badge", "category": "twitch", "is_twitch_view": True, "claimed": True}
         ],
         "streamers": [
@@ -60,7 +60,7 @@ edge_case_campaigns = eligible_watch_campaigns([
         "id": "in-progress",
         "status": "IN_PROGRESS",
         "drops": [
-            {"id": "free-string-flags", "type": "WATCH", "claimed": "false", "paid": "false", "is_subscription": "false"},
+            {"id": "free-string-flags", "type": "WATCH", "claimed": "false", "paid": "false", "is_subscription": "false", "image_url": "https://example.test/free.png"},
             {"id": "subscription", "type": "SUBSCRIPTION", "claimed": False},
             {"id": "paid", "type": "WATCH", "claimed": False, "paid": "true"}
         ]
@@ -68,6 +68,7 @@ edge_case_campaigns = eligible_watch_campaigns([
 ])
 check(len(edge_case_campaigns) == 1, "Available campaigns outside ACTIVE must still be listed.")
 check([drop["id"] for drop in edge_case_campaigns[0]["visible_drops"]] == ["free-string-flags"], "String false flags must not hide free drops; subscription rewards must stay hidden.")
+check(not eligible_watch_campaigns([{"id": "iconless", "status": "ACTIVE", "drops": [{"id": "placeholder", "category": "game", "image_url": ""}]}]), "Rewards without a real image must not produce campaign cards.")
 check([item["login"] for item in result[0]["streamers"]] == ["longstream", "medium", "highview"], "Long-running streams must be recommended first.")
 check(format_duration(3660) == "1 ч 1 мин", "Stream uptime must be formatted.")
 check(format_duration(0) == "0 мин", "Zero uptime must be formatted.")
@@ -97,6 +98,11 @@ check("setFocusPolicy(Qt.FocusPolicy.NoFocus)" in qt, "Application buttons must 
 check("CreateMutexW" in qt and "Local\\\\TwitchFarmingQt6SingleInstance" in qt, "The Windows single-instance mutex is missing.")
 check("self.channels_scroll = QScrollArea()" in qt and "frame.feed_scroll = scroll" in qt, "Independent main-screen scroll areas are missing.")
 check("setWindowIcon(QIcon(str(APP_ICON_FILE)))" in qt, "The main window app icon is missing.")
+check("set_gained_total(state.get(\"gained_total\", 0))" in qt and "def set_gained_total(self, value)" in qt, "The session points counter must use the backend session total.")
+check("QLabel#sessionPoints" in qt, "The session points style is missing.")
+check("QLabel#rewardCurrencyIcon { background:transparent; border:0;" in qt and "QLabel#rewardAmount" in qt, "Reward icons and amounts must use the compact style.")
+check("details.setSpacing(2)" in qt and "details.setAlignment(Qt.AlignmentFlag.AlignVCenter)" in qt, "Reward text must be vertically compact and centered.")
+check("QLabel#sidebarAccount { color:#E8E2F2; font-size:14px; font-weight:700;" in qt, "The sidebar username must be larger.")
 check("def _animate_actions(self, visible)" in qt and "self.actions_opacity_animation" in qt, "Channel card actions must fade in and out on hover.")
 check("QDesktopServices.openUrl(QUrl(\"https://www.twitch.tv/\" + value))" in qt and "Открыть на Twitch" in qt, "Channel cards must open their Twitch page in the system browser.")
 check('QLabel("МЕНЮ")' not in qt, "The redundant sidebar menu heading must be removed.")

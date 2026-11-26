@@ -271,6 +271,12 @@ class TitleBar(QFrame):
         self.status.setMaximumWidth(150)
         self.status.setFixedHeight(23)
         row.addWidget(self.status)
+        self.points = QLabel("◈ +0 очков")
+        self.points.setObjectName("sessionPoints")
+        self.points.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.points.setMinimumWidth(104)
+        self.points.setFixedHeight(24)
+        row.addWidget(self.points)
         self.timer = QLabel("00:00:00")
         self.timer.setObjectName("sessionTimer")
         self.timer.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -302,6 +308,13 @@ class TitleBar(QFrame):
 
     def set_timer(self, value):
         self.timer.setText(value)
+
+    def set_gained_total(self, value):
+        try:
+            amount = max(0, int(value or 0))
+        except (TypeError, ValueError):
+            amount = 0
+        self.points.setText("◈ +" + f"{amount:,}".replace(",", " ") + " очков")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -563,6 +576,8 @@ def _eligible_free_drops(campaign):
         if not isinstance(item, dict):
             continue
         if _flag_enabled(item.get("claimed")):
+            continue
+        if not str(item.get("image_url") or "").startswith("https://"):
             continue
         drop_type = str(item.get("type") or item.get("drop_type") or "watch").strip().lower()
         category = str(item.get("category") or "").strip().lower()
@@ -1043,6 +1058,7 @@ class MainWindow(QMainWindow):
         QLineEdit#titleSearch:focus { border-color:#7950BD; background:#211B31; }
         QLabel#titleStatus { background:#1A1825; border:1px solid #343047; border-radius:10px; padding:2px 7px; font-size:9px; font-weight:800; }
         QLabel#sessionTimer { color:#B8B1C8; font-family:Consolas; font-size:10px; padding:2px 5px; }
+        QLabel#sessionPoints { color:#D9C4FF; font-size:10px; font-weight:800; padding:2px 4px; }
         QPushButton#windowControl { background:transparent; border:0; color:#A8A2B9; font-size:15px; border-radius:6px; }
         QPushButton#windowControl:hover { background:#282438; color:white; }
         QPushButton#windowControl:last-child:hover { background:#A83D55; }
@@ -1062,7 +1078,7 @@ class MainWindow(QMainWindow):
         QPushButton#navButton:hover { background:#211D31; color:#FFFFFF; border-color:#302944; }
         QPushButton#navButton:checked { background:#352253; border-color:#65448F; color:#E7D8FF; }
         QPushButton#navButton:checked:hover { background:#3B275F; }
-        QLabel#sidebarAccount { color:#D8D1E5; font-size:9px; font-weight:800; padding:1px 0; }
+        QLabel#sidebarAccount { color:#E8E2F2; font-size:14px; font-weight:700; padding:1px 0; }
         QLabel#sidebarVersion { color:#6E687D; font-size:9px; padding:3px; }
         QStackedWidget#pageStack { background:#0C0C15; border:0; }
         QWidget#pageContent { background:#0C0C15; }
@@ -1144,6 +1160,8 @@ class MainWindow(QMainWindow):
         QLabel#eventError { color:#FF8294; padding:5px 0; border-bottom:1px solid #262331; font-size:10px; }
         QLabel#eventReward { color:#C6A6FF; padding:5px 0; border-bottom:1px solid #262331; font-size:10px; }
         QLabel#rewardTitle, QLabel#streamerName { font-size:11px; font-weight:750; color:#F1EDF8; }
+        QLabel#rewardCurrencyIcon { background:transparent; border:0; color:#D8C7F6; }
+        QLabel#rewardAmount { color:#F6F2FF; font-size:12px; font-weight:800; }
         QLabel#followerMeta { color:#9E96B0; font-size:9px; }
         QLabel#statusHint { color:#AAA4B8; font-size:10px; }
         QTextEdit#logOutput { background:#0A0A10; border:1px solid #292737; border-radius:9px; color:#C7C1D1; font-family:Consolas; font-size:10px; padding:7px; }
@@ -1892,6 +1910,7 @@ class MainWindow(QMainWindow):
         self.login_button.setToolTip(account_tip)
         self.logout_button.setToolTip(account_tip)
         self._update_session_clock()
+        self.title_bar.set_gained_total(state.get("gained_total", 0))
         self._render_active_slots()
         signature = (
             tuple(state.get("channels", [])),
@@ -1923,33 +1942,40 @@ class MainWindow(QMainWindow):
             return
         for item in reversed(items):
             row = QHBoxLayout()
-            icon = QLabel("✦")
+            row.setContentsMargins(0, 1, 0, 1)
+            row.setSpacing(9)
+            icon = QLabel()
             icon.setFixedSize(30, 30)
             icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            icon.setObjectName("rewardIcon")
-            row.addWidget(icon)
+            icon.setObjectName("rewardCurrencyIcon")
+            icon.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+            row.addWidget(icon, 0, Qt.AlignmentFlag.AlignVCenter)
             details = QVBoxLayout()
-            title = QLabel(str(item.get("title") or item.get("description") or "Награда"))
+            details.setContentsMargins(0, 0, 0, 0)
+            details.setSpacing(2)
+            details.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+            title = QLabel(str(item.get("title") or item.get("channel_login") or "Награда"))
             title.setObjectName("rewardTitle")
             title.setWordWrap(True)
+            title.setMinimumWidth(0)
+            title.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
             details.addWidget(title)
-            meta_parts = []
-            channel = str(item.get("channel_login") or "").strip()
-            if channel:
-                meta_parts.append("@" + channel)
-            description = str(item.get("description") or "")
-            if description and description != title.text():
-                meta_parts.append(description)
+            description = str(item.get("description") or "").strip()
             currency_name = str(item.get("currency_name") or "").strip()
-            if currency_name and currency_name.lower() not in description.lower():
-                meta_parts.append("Валюта: " + currency_name)
-            meta = QLabel(" · ".join(meta_parts))
-            meta.setObjectName("smallMuted")
-            meta.setWordWrap(True)
-            details.addWidget(meta)
+            amount_text = description or currency_name or str(item.get("channel_login") or "")
+            if currency_name and description and currency_name.lower() not in description.lower() and description.startswith("+"):
+                amount_text = description + " " + currency_name
+            amount = QLabel(amount_text)
+            amount.setObjectName("rewardAmount")
+            amount.setWordWrap(True)
+            amount.setMinimumWidth(0)
+            amount.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+            details.addWidget(amount)
             row.addLayout(details, 1)
             self.rewards_feed.feed_layout.addLayout(row)
             self.image_cache.request(icon, item.get("currency_icon") or item.get("icon_url") or "", False)
+
+
 
     def _render_event_feed(self, events):
         items = [str(item) for item in (events or [])[-5:]]

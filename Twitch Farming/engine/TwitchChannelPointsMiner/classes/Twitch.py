@@ -1414,10 +1414,7 @@ class Twitch(object):
             if not campaign_id:
                 continue
             status = str(campaign.get("status") or campaign.get("campaignStatus") or "").strip().upper()
-            if status in {
-                "EXPIRED", "ENDED", "COMPLETED", "CANCELLED", "CANCELED",
-                "INACTIVE", "UPCOMING", "SCHEDULED", "NOT_STARTED", "LOCKED",
-            }:
+            if status not in ("", "ACTIVE", "IN_PROGRESS", "STARTED"):
                 continue
             if not status:
                 status = "ACTIVE"
@@ -1491,9 +1488,6 @@ class Twitch(object):
             for source_key in drop_sources:
                 source_items = collection_items(campaign.get(source_key))
                 source_items.extend(collection_items(active_progress.get(source_key)))
-                if not source_items and source_key == "timeBasedDrops":
-                    if campaign.get("unlockRequirements") or active_progress.get("currentMinutesWatched") is not None:
-                        source_items.append(campaign)
                 for raw_drop in source_items:
                     if not isinstance(raw_drop, dict):
                         continue
@@ -1624,11 +1618,27 @@ class Twitch(object):
                         "end_at": str(drop.get("endAt") or campaign.get("endAt") or ""),
                     })
 
+            raw_game = campaign.get("game")
+            if isinstance(raw_game, dict):
+                game_name = str(
+                    raw_game.get("displayName")
+                    or raw_game.get("name")
+                    or campaign.get("gameName")
+                    or campaign.get("gameDisplayName")
+                    or ""
+                ).strip()
+            else:
+                game_name = str(raw_game or "").strip()
+            if not game_name:
+                continue
+            drops = [
+                drop for drop in drops
+                if drop.get("is_time_based") and str(drop.get("image_url") or "").startswith("https://")
+            ]
+            if not drops:
+                continue
             allow = campaign.get("allow")
             allowed_channels = collection_items(allow.get("channels")) if isinstance(allow, dict) else []
-            game_name = str(game.get("displayName") or game.get("name") or campaign.get("gameName") or campaign.get("gameDisplayName") or "Игра")
-            if isinstance(campaign.get("game"), str):
-                game_name = campaign.get("game")
             slug_source = str(game.get("slug") or campaign.get("gameSlug") or game_name).lower()
             game_slug = re.sub(r"[^a-z0-9]+", "-", slug_source).strip("-")
             game_image = ""

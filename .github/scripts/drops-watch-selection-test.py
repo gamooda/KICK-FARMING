@@ -348,7 +348,7 @@ snapshot_campaign_two = {
                 "name": "Game Item",
                 "requiredMinutesWatched": 30,
                 "benefitEdges": [{
-                    "benefit": {"name": "Weapon Skin", "benefitType": "GAME_ITEM"}
+                    "benefit": {"name": "Weapon Skin", "benefitType": "GAME_ITEM", "imageAssetURL": "https://example.test/weapon.png"}
                 }],
             }
         }]
@@ -356,9 +356,9 @@ snapshot_campaign_two = {
 }
 snapshot_campaign_in_progress = {
     "id": "campaign-in-progress",
-    "status": "IN_PROGRESS",
+    "status": "UNKNOWN",
     "name": "GTAVI Launch Celebration",
-    "game": {"id": "50", "displayName": "Grand Theft Auto VI", "slug": "grand-theft-auto-vi"},
+    "game": None,
     "timeBasedDrops": [{
         "id": "available-emote-drop",
         "name": "GTAVI Twitch Emote",
@@ -366,6 +366,52 @@ snapshot_campaign_in_progress = {
         "self": {"isClaimed": "false", "currentMinutesWatched": "7"},
         "benefitEdges": [{
             "benefit": {"name": "GTAVI Emote", "benefitType": "EMOTE", "imageAssetURL": "https://example.test/gtavi-emote.png"}
+        }],
+    }],
+}
+snapshot_campaign_no_game = {
+    "id": "pokemon-evolutions",
+    "status": "ACTIVE",
+    "name": "Pokemon Evolutions",
+    "game": None,
+    "timeBasedDrops": [{
+        "id": "pokemon-drop",
+        "name": "Pokemon reward",
+        "benefitEdges": [{
+            "benefit": {"name": "Pokemon reward", "benefitType": "GAME_ITEM", "imageAssetURL": "https://example.test/pokemon.png"}
+        }],
+    }],
+}
+snapshot_campaign_no_time_drops = {
+    "id": "campaign-empty-timebased",
+    "status": "ACTIVE",
+    "name": "Empty rewards",
+    "game": {"id": "60", "displayName": "Empty Game"},
+    "timeBasedDrops": [],
+}
+snapshot_campaign_no_image = {
+    "id": "campaign-no-image",
+    "status": "ACTIVE",
+    "name": "Campaign without reward image",
+    "game": {"id": "61", "displayName": "Image Missing Game"},
+    "timeBasedDrops": [{
+        "id": "drop-no-image",
+        "name": "Unrenderable reward",
+        "benefitEdges": [{"benefit": {"name": "Reward", "benefitType": "GAME_ITEM"}}],
+    }],
+}
+snapshot_campaign_marvel = {
+    "id": "marvel-rivals",
+    "status": "ACTIVE",
+    "name": "Marvel Rivals",
+    "game": {"id": "62", "displayName": "Marvel Rivals", "slug": "marvel-rivals"},
+    "timeBasedDrops": [{
+        "id": "marvel-emote-drop",
+        "name": "Marvel Rivals Twitch Emote",
+        "requiredMinutesWatched": 45,
+        "self": {"isClaimed": "false", "currentMinutesWatched": "12"},
+        "benefitEdges": [{
+            "benefit": {"name": "Marvel Rivals Emote", "benefitType": "EMOTE", "imageAssetURL": "https://example.test/marvel-emote.png"}
         }],
     }],
 }
@@ -396,6 +442,10 @@ snapshot_dashboard = {
             "edges": [
                 {"node": {"campaign": snapshot_campaign_two}},
                 {"node": {"campaign": snapshot_campaign_in_progress}},
+                {"node": {"campaign": snapshot_campaign_no_game}},
+                {"node": {"campaign": snapshot_campaign_no_time_drops}},
+                {"node": {"campaign": snapshot_campaign_no_image}},
+                {"node": {"campaign": snapshot_campaign_marvel}},
             ],
         },
         "extraCampaigns": {
@@ -417,32 +467,31 @@ with (
     patch.object(Twitch, "_warn_drops_response", lambda self, *args: None),
 ):
     snapshot = snapshot_client.get_drop_inventory_snapshot()
-assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "campaign-three", "campaign-in-progress"}
+assert {campaign["id"] for campaign in snapshot} == {"campaign-one", "campaign-two", "marvel-rivals"}
 campaigns_by_id = {campaign["id"]: campaign for campaign in snapshot}
 assert campaigns_by_id["campaign-one"]["started"] is True
 assert campaigns_by_id["campaign-one"]["in_inventory"] is True
 assert campaigns_by_id["campaign-two"]["started"] is False
-assert campaigns_by_id["campaign-in-progress"]["started"] is True
-assert campaigns_by_id["campaign-in-progress"]["name"] == "GTAVI Launch Celebration"
-assert campaigns_by_id["campaign-in-progress"]["status"] == "IN_PROGRESS"
-assert "campaign-upcoming" not in campaigns_by_id
+assert campaigns_by_id["marvel-rivals"]["name"] == "Marvel Rivals"
+assert campaigns_by_id["marvel-rivals"]["status"] == "ACTIVE"
+for excluded in ("campaign-three", "campaign-in-progress", "pokemon-evolutions", "campaign-empty-timebased", "campaign-no-image", "campaign-upcoming"):
+    assert excluded not in campaigns_by_id, f"Invalid Drops campaign must be hidden: {excluded}"
 snapshot_drops = {
     drop["id"]: drop
     for campaign in snapshot
     for drop in campaign["drops"]
 }
-assert set(snapshot_drops) == {"badge-drop", "game-drop", "emote-drop", "available-emote-drop"}
+assert set(snapshot_drops) == {"badge-drop", "game-drop", "marvel-emote-drop"}
 assert snapshot_drops["badge-drop"]["category"] == "twitch"
-assert snapshot_drops["emote-drop"]["category"] == "twitch"
+assert snapshot_drops["marvel-emote-drop"]["category"] == "twitch"
 assert snapshot_drops["game-drop"]["category"] == "game"
-assert snapshot_drops["badge-drop"]["is_time_based"] is True
+assert all(drop["is_time_based"] for drop in snapshot_drops.values())
+assert all(drop["image_url"].startswith("https://") for drop in snapshot_drops.values())
 assert snapshot_drops["badge-drop"]["is_twitch_view"] is True
 assert snapshot_drops["game-drop"]["is_twitch_view"] is False
-assert snapshot_drops["emote-drop"]["is_time_based"] is False
-assert snapshot_drops["emote-drop"]["is_twitch_view"] is True
-assert snapshot_drops["available-emote-drop"]["claimed"] is False
-assert snapshot_drops["available-emote-drop"]["watched_minutes"] == 7
-assert snapshot_drops["available-emote-drop"]["is_twitch_view"] is True
+assert snapshot_drops["marvel-emote-drop"]["claimed"] is False
+assert snapshot_drops["marvel-emote-drop"]["watched_minutes"] == 12
+assert snapshot_drops["marvel-emote-drop"]["is_twitch_view"] is True
 assert all(drop["type"] == "watch" for drop in snapshot_drops.values())
 assert "paid-drop" not in snapshot_drops
 
