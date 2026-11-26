@@ -60,7 +60,9 @@ def _ui_build_info(directory):
 
 
 def _ui_bundle_is_valid(directory):
-    required = ("index.html", "style.css", "app.js", "build_info.json")
+    required = ("index.html", "style.css", "app.js")
+    if getattr(sys, "frozen", False):
+        required += ("build_info.json",)
     if not all((directory / name).is_file() for name in required):
         return False
     if getattr(sys, "frozen", False):
@@ -77,7 +79,9 @@ def _resolve_ui_directory():
 
 
 def _validate_ui_bundle():
-    required = ("index.html", "style.css", "app.js", "build_info.json")
+    required = ("index.html", "style.css", "app.js")
+    if getattr(sys, "frozen", False):
+        required += ("build_info.json",)
     missing = [name for name in required if not (UI_DIR / name).is_file()]
     if missing:
         raise RuntimeError(
