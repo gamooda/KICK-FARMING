@@ -688,23 +688,64 @@ class DropsInventoryWorker(threading.Thread):
             for campaign in catalog_targets:
                 game_id = str(campaign.get("game_id") or "")
                 if game_id not in streams_by_game:
+                    streams_by_login = {}
+                    helix_params = {"game_id": game_id, "first": 100}
                     try:
-                        streams = self.client.helix_get("streams", {"game_id": game_id, "first": 100})
-                        streams_by_game[game_id] = sorted(
-                            [dict(stream) for stream in streams if isinstance(stream, dict)],
-                            key=lambda stream: (
-                                stream_uptime_seconds(stream.get("started_at")),
-                                max(0, int(stream.get("viewer_count") or 0)),
-                            ),
-                            reverse=True,
-                        )
+                        for page in range(5):
+                            payload = self.client.helix_get_payload("streams", helix_params)
+                            page_streams = payload.get("data", []) if isinstance(payload, dict) else []
+                            for stream in page_streams if isinstance(page_streams, list) else []:
+                                if not isinstance(stream, dict):
+                                    continue
+                                login = str(stream.get("user_login") or "").strip().lower()
+                                if login:
+                                    streams_by_login[login] = dict(stream)
+                            cursor = str((payload.get("pagination") or {}).get("cursor") or "") if isinstance(payload, dict) else ""
+                            if not cursor:
+                                break
+                            helix_params["after"] = cursor
                     except Exception as catalog_error:
-                        streams_by_game[game_id] = []
                         logging.getLogger("twitch_farming.drops").warning(
-                            "Не удалось получить каталог Twitch для game_id=%s: %s",
+                            "Не удалось получить страницы Twitch Helix для game_id=%s: %s",
                             game_id,
                             catalog_error,
                         )
+                    game_slug = str(campaign.get("game_slug") or "").strip().lower()
+                    if game_slug:
+                        try:
+                            directory_streams = self.client.get_drops_streams_for_game(
+                                game_slug,
+                                game_id,
+                                limit=30,
+                            )
+                            for stream in directory_streams:
+                                if not isinstance(stream, dict):
+                                    continue
+                                login = str(stream.get("user_login") or "").strip().lower()
+                                if not login:
+                                    continue
+                                merged_stream = dict(streams_by_login.get(login) or {})
+                                merged_stream.update({
+                                    key: value
+                                    for key, value in stream.items()
+                                    if value not in (None, "", [], {})
+                                })
+                                streams_by_login[login] = merged_stream
+                        except Exception as catalog_error:
+                            logging.getLogger("twitch_farming.drops").warning(
+                                "Не удалось получить Twitch GameDirectory для game=%s (%s): %s",
+                                campaign.get("game") or game_slug,
+                                game_id,
+                                catalog_error,
+                            )
+                    streams_by_game[game_id] = sorted(
+                        list(streams_by_login.values()),
+                        key=lambda stream: (
+                            stream_uptime_seconds(stream.get("started_at")),
+                            max(0, int(stream.get("viewer_count") or 0)),
+                        ),
+                        reverse=True,
+                    )
                 for stream in streams_by_game[game_id]:
                     login = str(stream.get("user_login") or "").strip().lower()
                     channel_id = str(stream.get("user_id") or "")
