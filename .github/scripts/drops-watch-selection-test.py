@@ -659,14 +659,104 @@ assert [item["id"] for item in fallback_details] == ["fallback-campaign"]
 assert detail_requests[0][0]["variables"]["channelLogin"] == "1346146321"
 assert detail_requests[1][0]["variables"]["channelLogin"] == "dv4roka"
 
+directory_client = Twitch.__new__(Twitch)
+directory_request = []
+directory_response = {
+    "data": {
+        "game": {
+            "streams": {
+                "edges": [{
+                    "node": {
+                        "viewersCount": 4321,
+                        "title": "Drops enabled stream",
+                        "game": {"id": "4242", "displayName": "Example Game"},
+                        "broadcaster": {"id": "9001", "login": "drops_live", "displayName": "Drops Live"},
+                    }
+                }]
+            }
+        }
+    }
+}
+
+def fake_directory_request(self, payload):
+    directory_request.append(payload)
+    return directory_response
+
+with patch.object(Twitch, "post_gql_request", fake_directory_request):
+    directory_streams = directory_client.get_drops_streams_for_game("example-game", "4242")
+assert len(directory_streams) == 1
+assert directory_streams[0]["user_login"] == "drops_live"
+assert directory_streams[0]["user_id"] == "9001"
+assert directory_streams[0]["game_id"] == "4242"
+assert directory_streams[0]["viewer_count"] == 4321
+assert directory_request[0]["operationName"] == "DirectoryPage_Game"
+assert directory_request[0]["variables"]["options"]["systemFilters"] == ["DROPS_ENABLED"]
+
+claimed_campaign = {
+    "id": "claimed-merge-campaign",
+    "status": "ACTIVE",
+    "name": "Claimed Merge Campaign",
+    "game": {"id": "77", "displayName": "Claim Test Game"},
+    "timeBasedDrops": [{
+        "id": "claimed-merge-drop",
+        "name": "Already claimed reward",
+        "requiredMinutesWatched": 30,
+        "self": {"isClaimed": "true", "currentMinutesWatched": "30"},
+        "benefitEdges": [{"benefit": {"name": "Claimed Reward", "distributionType": "EMOTE"}}],
+    }],
+}
+stale_channel_campaign = {
+    "id": "claimed-merge-campaign",
+    "status": "ACTIVE",
+    "name": "Claimed Merge Campaign",
+    "game": {"id": "77", "displayName": "Claim Test Game"},
+    "timeBasedDrops": [{
+        "id": "claimed-merge-drop",
+        "name": "Already claimed reward",
+        "requiredMinutesWatched": 30,
+        "self": {"isClaimed": "false", "currentMinutesWatched": "0"},
+        "benefitEdges": [{"benefit": {"name": "Claimed Reward", "distributionType": "EMOTE"}}],
+    }],
+}
+claimed_merge_client = Twitch.__new__(Twitch)
+claimed_dashboard = {
+    "data": {
+        "currentUser": {
+            "dropCampaigns": {
+                "edges": [{"node": claimed_campaign}],
+            },
+        },
+    },
+}
+with (
+    patch.object(Twitch, "_Twitch__get_inventory", lambda self: {"dropCampaignsInProgress": [], "gameEventDrops": []}),
+    patch.object(Twitch, "post_gql_request", lambda self, request: claimed_dashboard),
+    patch.object(Twitch, "_Twitch__get_campaigns_details", lambda self, candidates: []),
+    patch.object(Twitch, "_warn_drops_response", lambda self, *args: None),
+):
+    claimed_snapshot = claimed_merge_client.get_drop_inventory_snapshot({
+        "stale_channel": [stale_channel_campaign],
+    })
+claimed_drops = {
+    drop["id"]: drop
+    for campaign in claimed_snapshot
+    for drop in campaign["drops"]
+}
+assert claimed_drops["claimed-merge-drop"]["claimed"] is True, "A stale channel campaign must not overwrite an already claimed inventory reward."
+
 engine_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "TwitchChannelPointsMiner.py").read_text(encoding="utf-8")
 assert "except requests.exceptions.RequestException as error:" in engine_source, "A single Twitch API timeout must not terminate the Engine worker."
 backend_source = (ROOT / "Twitch Farming" / "backend.py").read_text(encoding="utf-8")
 assert "get_drop_campaigns_for_channels(live_channels)" in backend_source, "Drops catalog must request full AvailableDrops campaign objects for all live farm/followed channels."
 assert "configured_logins = list(dict.fromkeys(" in backend_source and 'self.client.helix_get(\n                        "streams",' in backend_source, "Configured farm channels must be checked for live streams even when they are not followed."
 assert "get_drop_inventory_snapshot(" in backend_source and "available_campaigns_by_login\n            )" in backend_source, "AvailableDrops campaign summaries must be passed into catalog normalization."
+assert "get_drop_inventory_snapshot(" in backend_source and "helix_get_payload(\"streams\", helix_params)" in backend_source, "Drops streamer search must follow Helix pagination instead of stopping at the first 100 live channels."
+assert "get_drops_streams_for_game(" in backend_source, "Drops streamer search must also use Twitch's GameDirectory DROPS_ENABLED filter."
 twitch_source = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8")
 assert "for attempt in range(2):" in twitch_source and "requests.exceptions.Timeout" in twitch_source, "Helix requests must retry transient timeouts."
 assert "campaigns_update = 0" in twitch_source and "requests.exceptions.RequestException" in twitch_source, "Drops sync must retry after transient request failures."
+assert "def get_drops_streams_for_game(" in twitch_source and '"systemFilters": ["DROPS_ENABLED"]' in twitch_source, "Twitch GameDirectory must be queried with the DROPS_ENABLED filter."
+assert claimed_drops["claimed-merge-drop"]["claimed"] is True, "Claimed drops must remain filtered after data-source merging."
+assert "def _drop_is_claimed(drop)" in (ROOT / "Twitch Farming" / "qt_app.py").read_text(encoding="utf-8"), "The Drops UI must detect claimed flags from all Twitch response shapes."
 
-print("Multi-channel watch, AvailableDrops campaign catalog fallback, Twitch reward filtering, Helix timeout recovery, campaign detail fallback and HLS tests passed.")
+print("Drops inventory merging, already-claimed reward filtering, GameDirectory category lookup, Helix pagination, campaign detail fallback and HLS tests passed.")
