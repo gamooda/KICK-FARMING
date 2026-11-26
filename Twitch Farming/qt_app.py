@@ -2,6 +2,7 @@ import ctypes
 import hashlib
 import html
 import json
+import logging
 import random
 import re
 import sys
@@ -114,23 +115,28 @@ class ImageCache(QObject):
         value = str(url or "")
         if not value.startswith("https://"):
             return
-        label.setProperty("imageUrl", value)
-        if value in self.data:
-            self._set_label(label, self.data[value], circular)
-            return
-        self.waiting.setdefault(value, []).append((weakref.ref(label), circular))
-        if value in self.pending:
-            return
-        self.pending.add(value)
-        suffix = Path(value.split("?", 1)[0]).suffix.lower()
-        if suffix not in (".png", ".webp", ".jpg", ".jpeg", ".svg", ".gif"):
-            suffix = ".img"
-        key = hashlib.sha256(value.encode("utf-8")).hexdigest()
-        folder = "avatars" if circular else "currency"
-        cache_path = APP_DIR / "image_cache" / folder / (key + suffix)
-        task = ImageTask(value, cache_path)
-        task.signals.finished.connect(self._image_ready)
-        self.pool.start(task)
+        try:
+            label.setProperty("imageUrl", value)
+            if value in self.data:
+                self._set_label(label, self.data[value], circular)
+                return
+            self.waiting.setdefault(value, []).append((weakref.ref(label), circular))
+            if value in self.pending:
+                return
+            self.pending.add(value)
+            suffix = Path(value.split("?", 1)[0]).suffix.lower()
+            if suffix not in (".png", ".webp", ".jpg", ".jpeg", ".svg", ".gif"):
+                suffix = ".img"
+            key = hashlib.sha256(value.encode("utf-8")).hexdigest()
+            folder = "avatars" if circular else "currency"
+            cache_path = APP_DIR / "image_cache" / folder / (key + suffix)
+            task = ImageTask(value, cache_path)
+            task.signals.finished.connect(self._image_ready)
+            self.pool.start(task)
+        except Exception as error:
+            self.pending.discard(value)
+            self.waiting.pop(value, None)
+            _log_ui_exception("загрузка иконки " + value[:120], error)
 
     def _image_ready(self, url, data, error):
         self.pending.discard(url)
@@ -138,9 +144,12 @@ class ImageCache(QObject):
             self.data[url] = data
         targets = self.waiting.pop(url, [])
         for reference, circular in targets:
-            label = reference()
-            if label is not None and label.property("imageUrl") == url and data:
-                self._set_label(label, data, circular)
+            try:
+                label = reference()
+                if label is not None and label.property("imageUrl") == url and data:
+                    self._set_label(label, data, circular)
+            except Exception as render_error:
+                _log_ui_exception("отрисовка загруженной иконки " + str(url)[:120], render_error)
 
     def _set_label(self, label, data, circular):
         pixmap = QPixmap()
@@ -371,7 +380,10 @@ class ChannelCard(QFrame):
 
     def __init__(self, login, profile, balance, currency, slot, temporary, image_cache, remove_callback, edit_callback, move_callback, actions_enabled=True, parent=None):
         super().__init__(parent)
-        self.login = login
+        self.login = str(login or "").strip().lower()
+        login = self.login
+        profile = profile if isinstance(profile, dict) else {}
+        currency = currency if isinstance(currency, dict) else {}
         self.setObjectName("channelCard")
         self.setMinimumWidth(260)
         self.setFixedHeight(104)
@@ -387,7 +399,7 @@ class ChannelCard(QFrame):
         self.avatar.setObjectName("channelAvatar")
         self.avatar.setFixedSize(44, 44)
         self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.avatar.setText((profile.get("display_name") or login)[:1].upper())
+        self.avatar.setText(str(profile.get("display_name") or login or "T")[:1].upper())
         root.addWidget(self.avatar)
 
         details = QVBoxLayout()
@@ -398,7 +410,7 @@ class ChannelCard(QFrame):
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(8)
 
-        self.name = QLabel(str(profile.get("display_name") or login))
+        self.name = QLabel(str(profile.get("display_name") or login or "Канал"))
         self.name.setObjectName("channelName")
         self.name.setMinimumWidth(0)
         self.name.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
@@ -427,7 +439,7 @@ class ChannelCard(QFrame):
         self.currency_icon.setObjectName("channelCurrencyIcon")
         balance_row.addWidget(self.currency_icon)
 
-        points = QLabel(f"{int(balance or 0):,}".replace(",", " "))
+        points = QLabel(f"{_ui_int(balance):,}".replace(",", " "))
         points.setObjectName("channelBalance")
         balance_row.addWidget(points)
 
@@ -557,11 +569,30 @@ class ActiveSlotCard(QFrame):
         name.setObjectName("slotName")
         texts.addWidget(name)
         row.addLayout(texts, 1)
-        amount = QLabel(f"{int(balance or 0):,}".replace(",", " ") + " баллов")
+        amount = QLabel(f"{_ui_int(balance):,}".replace(",", " ") + " баллов")
         amount.setObjectName("slotBalance")
         row.addWidget(amount)
         if image_cache:
             image_cache.request(self.avatar, profile.get("avatar_url", ""), True)
+
+
+def _log_ui_exception(context, error):
+    try:
+        logging.getLogger("twitch_farming.ui").error(
+            "Ошибка интерфейса (%s): %s",
+            str(context),
+            str(error),
+            exc_info=(type(error), error, error.__traceback__)
+        )
+    except Exception:
+        pass
+
+
+def _ui_int(value, default=0):
+    try:
+        return int(str(value if value is not None else default).replace(" ", "").replace(",", "").strip())
+    except (TypeError, ValueError):
+        return default
 
 
 def _flag_enabled(value):
@@ -1783,9 +1814,27 @@ class MainWindow(QMainWindow):
         if error and key not in ("startup", "session-restore"):
             self._notify("Ошибка: " + error)
         if callback:
-            callback(result, error)
+            try:
+                callback(result, error)
+            except Exception as callback_error:
+                _log_ui_exception("callback " + str(key), callback_error)
+                try:
+                    if key in ("startup", "session-restore"):
+                        self._show_initialization_error("Ошибка интерфейса: " + str(callback_error))
+                    else:
+                        self._notify("Ошибка интерфейса: " + str(callback_error))
+                except Exception as notify_error:
+                    _log_ui_exception("показ ошибки callback", notify_error)
         elif result and isinstance(result, dict) and result.get("message"):
             self._notify(str(result.get("message")))
+
+    def _safe_ui_call(self, context, function, *args):
+        try:
+            result = function(*args)
+            return result if isinstance(result, bool) else True
+        except Exception as error:
+            _log_ui_exception(context, error)
+            return False
 
     def _set_header_status_notice(self, message, color="#B596FF", seconds=4.0):
         self._header_status_notice = (str(message or "")[:18], str(color), time.monotonic() + seconds)
@@ -1862,32 +1911,38 @@ class MainWindow(QMainWindow):
         self.followed_state = followed or {}
         self.update_state = update or {}
         auth = auth or {}
-        self._update_account_identity(state.get("account_profile") or {}, auth)
-        self._request_account_profile(state.get("account_profile") or {}, auth)
-        self._update_initialization_state(auth)
-        self._render_state()
-        self._render_drops()
-        self._render_followers()
-        self._render_update()
-        self.account_status.setText(str(auth.get("auth_status") or ""))
+        self._safe_ui_call("обновление аккаунта", self._update_account_identity, state.get("account_profile") or {}, auth)
+        self._safe_ui_call("запрос профиля аккаунта", self._request_account_profile, state.get("account_profile") or {}, auth)
+        self._safe_ui_call("обновление состояния инициализации", self._update_initialization_state, auth)
+        self._safe_ui_call("отрисовка основного состояния", self._render_state)
+        self._safe_ui_call("отрисовка инвентаря Drops", self._render_drops)
+        self._safe_ui_call("отрисовка подписок", self._render_followers)
+        self._safe_ui_call("отрисовка обновления", self._render_update)
+        self._safe_ui_call("обновление статуса аккаунта", self.account_status.setText, str(auth.get("auth_status") or ""))
         if auth.get("auth_error"):
             self.account_status.setToolTip(str(auth.get("auth_error")))
         username = str(self.latest_state.get("username") or "")
         if username and not self.username_input.hasFocus():
             self.username_input.setText(username)
         for key, check in self.option_checks.items():
-            if not check.property("dirty"):
-                check.blockSignals(True)
-                check.setChecked(bool(self.latest_state.get("options", {}).get(key, DEFAULT_OPTIONS.get(key, True))))
-                check.blockSignals(False)
+            try:
+                if not check.property("dirty"):
+                    check.blockSignals(True)
+                    check.setChecked(bool(self.latest_state.get("options", {}).get(key, DEFAULT_OPTIONS.get(key, True))))
+                    check.blockSignals(False)
+            except Exception as ui_error:
+                _log_ui_exception("обновление настройки " + str(key), ui_error)
         for key, check in self.app_setting_checks.items():
-            if not check.property("dirty"):
-                check.blockSignals(True)
-                check.setChecked(bool(self.latest_state.get("app_settings", {}).get(key, DEFAULT_APP_SETTINGS.get(key, False))))
-                check.blockSignals(False)
-        self._load_bet_values(self.latest_state.get("bet_settings") or DEFAULT_BET_SETTINGS)
-        self._load_bet_presets(self.latest_state.get("custom_presets") or {}, self.latest_state.get("selected_preset") or "Оптимальный")
-        self.version_sidebar.setText("v" + str(self.latest_state.get("app_version") or APP_VERSION))
+            try:
+                if not check.property("dirty"):
+                    check.blockSignals(True)
+                    check.setChecked(bool(self.latest_state.get("app_settings", {}).get(key, DEFAULT_APP_SETTINGS.get(key, False))))
+                    check.blockSignals(False)
+            except Exception as ui_error:
+                _log_ui_exception("обновление параметра приложения " + str(key), ui_error)
+        self._safe_ui_call("загрузка настроек ставок", self._load_bet_values, self.latest_state.get("bet_settings") or DEFAULT_BET_SETTINGS)
+        self._safe_ui_call("загрузка профилей ставок", self._load_bet_presets, self.latest_state.get("custom_presets") or {}, self.latest_state.get("selected_preset") or "Оптимальный")
+        self._safe_ui_call("обновление версии приложения", self.version_sidebar.setText, "v" + str(self.latest_state.get("app_version") or APP_VERSION))
 
     def _set_avatar_label(self, label, url, fallback):
         image_url = str(url or "")
@@ -1952,22 +2007,46 @@ class MainWindow(QMainWindow):
         self.logout_button.setToolTip(account_tip)
         self._update_session_clock()
         self.title_bar.set_gained_total(state.get("gained_total", 0))
-        self._render_active_slots()
-        signature = (
-            tuple(state.get("channels", [])),
-            json.dumps(state.get("channel_profiles", {}), sort_keys=True, ensure_ascii=False),
-            json.dumps(state.get("channel_balances", {}), sort_keys=True),
-            json.dumps(state.get("channel_currency", {}), sort_keys=True, ensure_ascii=False),
-            json.dumps(state.get("watch_status", {}), sort_keys=True),
-            tuple(state.get("watch_slots", [])),
-            tuple(state.get("temporary_channels", []))
-        )
-        if signature != self._last_channel_signature:
-            self._last_channel_signature = signature
-            self._render_channels()
-        self._render_reward_feed(state.get("rewards", []))
-        self._render_event_feed(state.get("events", []))
-        self._render_logs()
+        try:
+            self.title_bar.set_status(notice[0], notice[1]) if notice and time.monotonic() < notice[2] else self.title_bar.set_status(status, color)
+            if not (notice and time.monotonic() < notice[2]):
+                self._header_status_notice = None
+            self.farm_status.setText(status)
+            self.farm_status.setStyleSheet("color:" + color + ";")
+            running = bool(state.get("session_running"))
+            self.farm_button.setText("■  Остановить фарм" if running else "▶  Запустить фарм")
+            self.add_channel_button.setEnabled(not running)
+            self.add_channel_button.setToolTip("Остановите фарм, чтобы изменить список каналов." if running else "")
+            self.username_input.setEnabled(not running)
+            self.login_button.setEnabled(not running)
+            self.logout_button.setEnabled(not running)
+            account_tip = "Остановите фарм, чтобы сменить аккаунт" if running else ""
+            self.login_button.setToolTip(account_tip)
+            self.logout_button.setToolTip(account_tip)
+        except Exception as error:
+            _log_ui_exception("обновление статуса и элементов управления", error)
+        self._safe_ui_call("обновление часов сессии", self._update_session_clock)
+        self._safe_ui_call("обновление счётчика очков", self.title_bar.set_gained_total, state.get("gained_total", 0))
+        self._safe_ui_call("отрисовка активных слотов", self._render_active_slots)
+        try:
+            signature = (
+                tuple(state.get("channels", [])),
+                json.dumps(state.get("channel_profiles", {}), sort_keys=True, ensure_ascii=False),
+                json.dumps(state.get("channel_balances", {}), sort_keys=True),
+                json.dumps(state.get("channel_currency", {}), sort_keys=True, ensure_ascii=False),
+                json.dumps(state.get("watch_status", {}), sort_keys=True),
+                tuple(state.get("watch_slots", [])),
+                tuple(state.get("temporary_channels", []))
+            )
+        except Exception as error:
+            _log_ui_exception("подготовка данных карточек каналов", error)
+            signature = None
+        if signature is not None and signature != self._last_channel_signature:
+            if self._safe_ui_call("отрисовка карточек каналов", self._render_channels):
+                self._last_channel_signature = signature
+        self._safe_ui_call("отрисовка ленты наград", self._render_reward_feed, state.get("rewards", []))
+        self._safe_ui_call("отрисовка ленты событий", self._render_event_feed, state.get("events", []))
+        self._safe_ui_call("отрисовка журнала событий", self._render_logs)
 
     def _render_reward_feed(self, rewards):
         items = [dict(item) for item in (rewards or [])[-5:] if isinstance(item, dict)]
@@ -2081,24 +2160,36 @@ class MainWindow(QMainWindow):
         watch_map = self._watch_slot_map()
         profiles = state.get("channel_profiles", {})
         balances = state.get("channel_balances", {})
+        profiles = profiles if isinstance(profiles, dict) else {}
+        balances = balances if isinstance(balances, dict) else {}
         slot_data = []
         for number in (1, 2):
             login = next((key for key, value in watch_map.items() if value == number), "")
-            profile = profiles.get(login, {})
-            slot_data.append((login, str(profile.get("display_name") or ""), str(profile.get("avatar_url") or ""), int(balances.get(login, 0) or 0)))
+            profile = profiles.get(login, {}) if login else {}
+            if not isinstance(profile, dict):
+                profile = {}
+            slot_data.append((login, str(profile.get("display_name") or ""), str(profile.get("avatar_url") or ""), _ui_int(balances.get(login, 0))))
         signature = tuple(slot_data)
         if signature == self._last_slot_signature:
             return
-        self._last_slot_signature = signature
+        completed = True
         for number, card in enumerate(list(self.slot_cards), 1):
             login, display_name, avatar_url, balance = slot_data[number - 1]
             profile = profiles.get(login, {}) if login else {}
-            replacement = ActiveSlotCard(number, login, profile, balance, self.image_cache)
-            index = self.slot_layout.indexOf(card)
-            self.slot_layout.removeWidget(card)
-            card.deleteLater()
-            self.slot_layout.insertWidget(max(0, index), replacement, 1)
-            self.slot_cards[number - 1] = replacement
+            if not isinstance(profile, dict):
+                profile = {}
+            try:
+                replacement = ActiveSlotCard(number, login, profile, balance, self.image_cache)
+                index = self.slot_layout.indexOf(card)
+                self.slot_layout.removeWidget(card)
+                card.deleteLater()
+                self.slot_layout.insertWidget(max(0, index), replacement, 1)
+                self.slot_cards[number - 1] = replacement
+            except Exception as error:
+                _log_ui_exception("обновление активного слота " + str(number), error)
+                completed = False
+        if completed:
+            self._last_slot_signature = signature
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -2111,52 +2202,77 @@ class MainWindow(QMainWindow):
                 self._clear_layout(child)
 
     def _render_channels(self):
-        self._clear_layout(self.channels_grid)
-        state = self.latest_state
-        channels = state.get("channels", [])
-        profiles = state.get("channel_profiles", {})
-        balances = state.get("channel_balances", {})
-        currency = state.get("channel_currency", {})
-        temporary = set(state.get("temporary_channels", []))
-        watch = self._watch_slot_map()
-        actions_enabled = not bool(state.get("session_running"))
-        search = str(getattr(self, "channel_search_text", "") or "").strip().lower()
-        visible = [
-            login for login in channels
-            if not search
-            or search in str(login).lower()
-            or search in str(profiles.get(login, {}).get("display_name") or "").lower()
-        ]
-        for index, login in enumerate(visible):
-            profile = profiles.get(login, {})
-            card = ChannelCard(
-                login,
-                profile,
-                balances.get(login, 0),
-                currency.get(login, {}),
-                watch.get(login),
-                login in temporary,
-                self.image_cache,
-                self._remove_channel,
-                self._edit_channel,
-                self._select_channel,
-                actions_enabled
-            )
-            card.selected.connect(self._select_channel)
-            card.setProperty("selected", login == self.selected_channel)
-            card.style().unpolish(card)
-            card.style().polish(card)
-            self.channels_grid.addWidget(card, index // 2, index % 2)
-        if not channels:
-            empty_text = "Список каналов пуст. Добавь первый Twitch-канал."
-        elif not visible:
-            empty_text = "По запросу ничего не найдено."
-        else:
-            empty_text = ""
-        if empty_text:
-            empty = QLabel(empty_text)
-            empty.setObjectName("mutedText")
-            self.channels_grid.addWidget(empty, 0, 0)
+        try:
+            self._clear_layout(self.channels_grid)
+            state = self.latest_state if isinstance(self.latest_state, dict) else {}
+            channels = state.get("channels") or []
+            if not isinstance(channels, (list, tuple)):
+                channels = []
+            profiles = state.get("channel_profiles")
+            balances = state.get("channel_balances")
+            currency = state.get("channel_currency")
+            profiles = profiles if isinstance(profiles, dict) else {}
+            balances = balances if isinstance(balances, dict) else {}
+            currency = currency if isinstance(currency, dict) else {}
+            temporary = set(state.get("temporary_channels") or [])
+            watch = self._watch_slot_map()
+            actions_enabled = not bool(state.get("session_running"))
+            search = str(getattr(self, "channel_search_text", "") or "").strip().lower()
+            visible = []
+            for item in channels:
+                login = str(item or "").strip().lower()
+                if not login:
+                    continue
+                profile = profiles.get(login)
+                if not isinstance(profile, dict):
+                    profile = {}
+                if not search or search in login or search in str(profile.get("display_name") or "").lower():
+                    visible.append(login)
+            for index, login in enumerate(visible):
+                try:
+                    profile = profiles.get(login)
+                    if not isinstance(profile, dict):
+                        profile = {}
+                    currency_info = currency.get(login)
+                    if not isinstance(currency_info, dict):
+                        currency_info = {}
+                    card = ChannelCard(
+                        login,
+                        profile,
+                        balances.get(login, 0),
+                        currency_info,
+                        watch.get(login),
+                        login in temporary,
+                        self.image_cache,
+                        self._remove_channel,
+                        self._edit_channel,
+                        self._select_channel,
+                        actions_enabled
+                    )
+                    card.selected.connect(self._select_channel)
+                    card.setProperty("selected", login == self.selected_channel)
+                    card.style().unpolish(card)
+                    card.style().polish(card)
+                except Exception as error:
+                    _log_ui_exception("создание карточки канала @" + login, error)
+                    card = QLabel("@" + login + " · Ошибка отображения")
+                    card.setObjectName("mutedText")
+                    card.setMinimumHeight(72)
+                self.channels_grid.addWidget(card, index // 2, index % 2)
+            if not channels:
+                empty_text = "Список каналов пуст. Добавь первый Twitch-канал."
+            elif not visible:
+                empty_text = "По запросу ничего не найдено."
+            else:
+                empty_text = ""
+            if empty_text:
+                empty = QLabel(empty_text)
+                empty.setObjectName("mutedText")
+                self.channels_grid.addWidget(empty, 0, 0)
+            return True
+        except Exception as error:
+            _log_ui_exception("отрисовка списка каналов", error)
+            return False
 
     def _search_channels(self, value):
         self.channel_search_text = str(value or "").strip().lower()
