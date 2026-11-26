@@ -132,6 +132,10 @@ const uiBuildInfo = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../Tw
 if (!versionMatch || uiBuildInfo.version !== versionMatch[1]) {
   throw new Error("The frontend bundle build version does not match the Python executable version.");
 }
+if (!html.includes('href="style.css?v=' + uiBuildInfo.version + '"') ||
+    !html.includes('<script src="app.js?v=' + uiBuildInfo.version + '"></script>')) {
+  throw new Error("Frontend CSS and JavaScript URLs are not cache-busted with the current build version.");
+}
 for (const marker of [
   "settings-update-card",
   "update-check-button",
@@ -166,12 +170,27 @@ if (!css.includes(".active-farm-panel.is-visible") ||
 if (html.indexOf("settings-account-card") > html.indexOf("settings-update-card")) {
   throw new Error("The updater card must be beside the Twitch account card.");
 }
+const resolverStart = backend.indexOf("def _ui_candidate_directories():");
+const resolverEnd = backend.indexOf("\n\ndef _ui_build_info", resolverStart);
+const resolver = resolverStart >= 0 && resolverEnd > resolverStart
+  ? backend.slice(resolverStart, resolverEnd)
+  : "";
 if (!backend.includes("def _resolve_ui_directory():") ||
-    !backend.includes("executable_dir / \"ui\"") ||
-    !backend.includes("RESOURCE_DIR / \"ui\"") ||
+    !resolver.includes('candidates.append(executable_dir / "ui")') ||
+    !resolver.includes('meipass = getattr(sys, "_MEIPASS", None)') ||
+    !resolver.includes('candidates.append(Path(meipass).resolve() / "ui")') ||
+    !resolver.includes('legacy_cache = (APP_DIR / "ui").resolve()') ||
+    !resolver.includes('key == os.path.normcase(str(legacy_cache))') ||
+    resolver.includes('candidates.append(APP_DIR / "ui")') ||
+    resolver.includes("RESOURCE_DIR / \"ui\"") ||
     !backend.includes("def _validate_ui_bundle():") ||
     !backend.includes("ui_manifest = _validate_ui_bundle()")) {
-  throw new Error("The application does not resolve and validate the actual version-matched UI bundle.");
+  throw new Error("The UI resolver must use only the executable bundle or _MEIPASS and explicitly reject the AppData UI cache.");
+}
+if (!backend.includes('WEBVIEW_PROFILE_DIR = LOCAL_APP_DIR / "WebView2"') ||
+    !backend.includes("storage_path=str(WEBVIEW_PROFILE_DIR)") ||
+    !backend.includes('index_url = (UI_DIR / "index.html").resolve().as_uri() + "?build=" + quote(APP_VERSION, safe="")')) {
+  throw new Error("WebView2 must use its explicit profile and a build-versioned local page URL.");
 }
 const copyUiStepStart = workflow.indexOf("- name: Copy versioned frontend beside executable");
 const copyUiStepEnd = workflow.indexOf("\n      - name:", copyUiStepStart + 10);
