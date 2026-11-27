@@ -493,6 +493,9 @@ class TwitchChannelPointsMiner:
                 streamers=self.streamers,
                 events_predictions=self.events_predictions,
             )
+            if self.stop_requested:
+                self.ws_pool.end()
+                return
 
             # Subscribe to community-points-user. Get update for points spent or gains
             user_id = self.twitch.twitch_login.get_user_id()
@@ -561,17 +564,20 @@ class TwitchChannelPointsMiner:
 
     def request_stop(self):
         with self.state_lock:
+            first_request = not self.stop_requested
             self.stop_requested = True
             self.running = False
         self.twitch.running = False
+        self.twitch.stop_requested = True
         try:
             self.twitch.twitch_login.cancel()
         except Exception:
             pass
-        if self.ws_pool is not None:
+        if first_request and self.ws_pool is not None:
             self.ws_pool.end()
 
     def stop(self):
+        stop_started = time.monotonic()
         self.request_stop()
         listener = self.queue_listener
         self.queue_listener = None
@@ -592,8 +598,6 @@ class TwitchChannelPointsMiner:
                 except Exception:
                     logger.exception("Could not stop IRC chat for %s", streamer.username)
         if self.ws_pool is not None:
-            self.ws_pool.end()
-        if self.ws_pool is not None:
             self.ws_pool.join()
         for thread in [self.minute_watcher_thread, self.sync_campaigns_thread]:
             if thread is not None and thread is not threading.current_thread() and thread.is_alive():
@@ -611,6 +615,7 @@ class TwitchChannelPointsMiner:
                 listener.stop()
             except Exception:
                 logger.exception("Could not stop the miner log listener")
+        logger.info("Остановка майнера завершена за %.2f сек.", time.monotonic() - stop_started)
 
     def end(self, signum, frame):
         self.stop()

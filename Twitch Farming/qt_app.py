@@ -2701,10 +2701,10 @@ class MainWindow(QMainWindow):
         QFrame#followerCard[added="true"] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #261E38,stop:1 #171522); border:1px solid #7655A5; }
         QFrame#followerCard[live="true"] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #38202C,stop:1 #1B1520); border:2px solid #D94B69; }
         QFrame#followerCard[live="true"]:hover { border-color:#FF6A86; background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #442332,stop:1 #211722); }
-        QLabel#followerLiveBadge { color:#FFFFFF; background:#B82E50; border:1px solid #FF718C; border-radius:7px; padding:3px 8px; font-size:10px; font-weight:900; }
-        QPushButton#followerAddButton { background:#22212B; border:1px solid #383744; color:#C4BFCC; padding:5px 7px; border-radius:7px; font-size:9px; font-weight:700; }
+        QLabel#followerLiveBadge { color:#FFFFFF; background:#B82E50; border:1px solid #FF718C; border-radius:6px; padding:2px 5px; font-size:9px; font-weight:900; }
+        QPushButton#followerAddButton { background:#22212B; border:1px solid #383744; color:#C4BFCC; padding:3px 5px; border-radius:6px; font-size:8px; font-weight:700; }
         QPushButton#followerAddButton:hover { background:#2D2A38; border-color:#575164; }
-        QPushButton#followerAddedButton { background:#302345; border:1px solid #7655A5; color:#DCCAFF; padding:5px 7px; border-radius:7px; font-size:9px; font-weight:800; }
+        QPushButton#followerAddedButton { background:#302345; border:1px solid #7655A5; color:#DCCAFF; padding:3px 5px; border-radius:6px; font-size:8px; font-weight:800; }
         QPushButton#followerAddedButton:disabled { background:#302345; border:1px solid #7655A5; color:#DCCAFF; }
         QPushButton#followerAddedButton:hover { background:#3A2B52; }
         QFrame#channelCard[selected="true"] { background:#241A36; border-color:#A36BFF; }
@@ -4607,8 +4607,8 @@ class MainWindow(QMainWindow):
             frame.style().unpolish(frame)
             frame.style().polish(frame)
             row = QHBoxLayout(frame)
-            row.setContentsMargins(8, 7, 8, 7)
-            row.setSpacing(7)
+            row.setContentsMargins(7, 6, 7, 6)
+            row.setSpacing(5)
             avatar = QLabel()
             avatar.setFixedSize(40, 40)
             avatar.setObjectName("miniAvatar")
@@ -4617,12 +4617,15 @@ class MainWindow(QMainWindow):
             row.addWidget(avatar)
             details = QVBoxLayout()
             details.setSpacing(3)
+            details.setContentsMargins(0, 0, 0, 0)
+            details.setAlignment(Qt.AlignmentFlag.AlignVCenter)
             title_row = QHBoxLayout()
             title_row.setContentsMargins(0, 0, 0, 0)
-            title_row.setSpacing(7)
-            name = QLabel(str(item.get("display_name") or login or "Канал"))
+            title_row.setSpacing(4)
+            name = ElidedLabel(str(item.get("display_name") or login or "Канал"))
             name.setObjectName("streamerName")
-            name.setWordWrap(False)
+            name.setMinimumWidth(0)
+            name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             title_row.addWidget(name, 1)
             if is_live:
                 live_badge = QLabel("● В ЭФИРЕ")
@@ -4645,8 +4648,8 @@ class MainWindow(QMainWindow):
             add = QPushButton("Добавлен" if added else "Добавить")
             add.setSvgIcon("check" if added else "plus", 14)
             add.setObjectName("followerAddedButton" if added else "followerAddButton")
-            add.setFixedWidth(82)
-            add.setFixedHeight(27)
+            add.setFixedWidth(76)
+            add.setFixedHeight(25)
             add.setEnabled(not added)
             add.setToolTip("Канал уже находится в списке." if added else ("Остановите фарм, чтобы добавить канал." if session_running else "Добавить канал в список фарма"))
             add.clicked.connect(lambda checked=False, value=login: self._add_followed_channel(value))

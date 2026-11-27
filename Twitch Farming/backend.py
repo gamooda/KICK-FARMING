@@ -2660,7 +2660,6 @@ class TwitchFarmingApi:
             worker = self.engine_worker
             if worker is None or not worker.is_alive():
                 return {"ok": False, "message": "Сбор не запущен."}
-            self._refresh_channel_balances_locked()
             self._set_status_locked("●  ОСТАНОВКА", "#F0B65A")
             self.session_started_at = 0.0
             focus_worker = self.drops_focus_worker

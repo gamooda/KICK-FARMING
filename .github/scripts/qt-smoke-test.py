@@ -115,6 +115,7 @@ check(translate_text("Каналы") == "Каналы", "Russian translations mu
 
 backend = (APP / "backend.py").read_text(encoding="utf-8")
 qt = (APP / "qt_app.py").read_text(encoding="utf-8")
+miner_source = (APP / "engine" / "TwitchChannelPointsMiner" / "TwitchChannelPointsMiner.py").read_text(encoding="utf-8")
 requirements = (APP / "requirements.txt").read_text(encoding="utf-8").lower()
 workflow = (ROOT / ".github" / "workflows" / "build-twitch-exe.yml").read_text(encoding="utf-8").lower()
 entry = (APP / "app.py").read_text(encoding="utf-8")
@@ -187,12 +188,19 @@ check('.lstrip(" ·:")' in qt, "Twitch Drop event names must be parsed without t
 check("any(self._allow_drop_notification(reference) for reference in drop_references)" in qt and "self._drop_reward_fresh_ids.update(keys)" in qt, "Only Drops that cross 100% during the current app session may reach feeds.")
 check("QGuiApplication.primaryScreen()" in qt and "screen.availableGeometry()" in qt and "def _center_on_primary_screen(self):" in qt, "The main window must be centered on the primary screen.")
 check("def showEvent(self, event):" in qt and "QTimer.singleShot(0, self._center_on_primary_screen)" in qt and "QTimer.singleShot(100, self._center_on_primary_screen)" in qt, "Window centering must be repeated after the window becomes visible.")
-check('QFrame#followerCard[live="true"]' in qt and "QLabel#followerLiveBadge" in qt and "title_row.addWidget(live_badge" in qt and "font-size:10px; font-weight:900" in qt, "Live followers must have a prominent badge and accented card.")
+check('QFrame#followerCard[live="true"]' in qt and "QLabel#followerLiveBadge" in qt and "title_row.addWidget(live_badge" in qt and "font-size:9px; font-weight:900" in qt, "Live followers must have a prominent badge and accented card.")
+follower_source = qt[qt.index("    def _render_followers(self):"):qt.index("    def _clear_image_cache(", qt.index("    def _render_followers(self):"))]
+check("name = ElidedLabel(" in follower_source and "QSizePolicy.Policy.Ignored" in follower_source and "name.setMinimumWidth(0)" in follower_source, "Long follower names must elide to preserve the LIVE badge and button.")
+check("add.setFixedWidth(76)" in follower_source and "add.setFixedHeight(25)" in follower_source and "padding:3px 5px" in qt and "padding:2px 5px; font-size:9px" in qt, "Follower controls must use compact spacing and padding.")
 check('buttons=[("Отмена", False), ("Добавить", True)]' in qt and 'self._show_dialog(\n            "Добавить каналы"' in qt, "The Add Channels dialog must have explicit Cancel and Add actions.")
 check('buttons=[("Отмена", False), ("Добавить", True)]' in qt and 'box.setSpacing(4 if input_mode == "multiline" else 7)' in qt and "self.editor.setMinimumHeight(145)" in qt, "The Add Channels dialog must have compact spacing, an enlarged text field, and Cancel/Add buttons.")
 
 check("def install_update(self):" in backend and 'phase="downloaded"' in backend and 'phase == "downloaded"' in qt, "Updater must split download preparation from applying the update.")
 check('Остановите фарм, чтобы применить обновление.' in qt and 'phase="downloaded"' in backend, "Applying the update must require a stopped farm while downloading can proceed.")
+stop_method = backend[backend.index("    def stop_farm(self):"):backend.index("    def enqueue_ui_state(", backend.index("    def stop_farm(self):"))]
+engine_worker_source = backend[backend.index("class EngineWorker"):backend.index("class ChannelProfileWorker")]
+check("worker.request_stop()" in stop_method and "_refresh_channel_balances_locked" not in stop_method, "Stop must request shutdown without synchronous balance refresh.")
+check("self.app._refresh_channel_balances_locked()" in engine_worker_source and "miner.stop()" in engine_worker_source, "Final balances must still be saved before miner cleanup.")
 
 check("events_output" not in qt, "The duplicate event-log text area must be removed.")
 check("followers_list" not in qt, "Follower cards must use the compact grid layout.")
@@ -270,6 +278,8 @@ check("webview" not in app_readme.lower() and "pywebview" not in app_readme.lowe
 
 twitch_source = (APP / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8")
 check("if campaigns is None:" in twitch_source and 'logger.debug("ViewerDropsDashboard:' in twitch_source and 'self._warn_drops_response("ViewerDropsDashboard", "отсутствует массив dropCampaigns", response)' in twitch_source, "A normal None dropCampaigns response must be debug-level while malformed dashboard data remains a warning.")
+check("time.sleep(min(0.1, remaining))" in twitch_source and "self.__chuncked_sleep(random.uniform(5, 10))" in twitch_source and "time.sleep(random.uniform(5, 10))" not in twitch_source, "Drops waits must be interruptible during stop.")
+check("first_request = not self.stop_requested" in miner_source and "self.twitch.stop_requested = True" in miner_source and 'logger.info("Остановка майнера завершена за %.2f сек."' in miner_source, "Miner stop must be idempotent and record shutdown duration.")
 check('"is_followed" not in item or _flag_enabled(item.get("is_followed"))' not in qt, "Drops cards must not filter out general-catalog streamers.")
 check('QFrame[frameShape="4"], QFrame[frameShape="5"]' in qt, "Horizontal and vertical frame separators must use the neutral one-pixel style.")
 check("self.setMinimumWidth(190)" in qt and "self.setMinimumHeight(185)" in qt and "QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed" in qt, "Channel cards must preserve their minimum height and expand horizontally.")
