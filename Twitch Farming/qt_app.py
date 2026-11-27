@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QByteArray, QEvent, QEasingCurve, QPoint, QPointF, QRect, QRectF, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
-from PySide6.QtGui import QAction, QColor, QCursor, QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QPixmap, QIcon, QIconEngine
+from PySide6.QtGui import QAction, QColor, QCursor, QDesktopServices, QGuiApplication, QPainter, QPainterPath, QPen, QPolygonF, QPixmap, QIcon, QIconEngine
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox as QtComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel as QtLabel, QLineEdit as QtLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QToolTip, QVBoxLayout, QWidget
 
@@ -24,6 +24,7 @@ from i18n import get_language, set_language, translate_text
 
 APP_TITLE = "Twitch Farming"
 REPOSITORY_URL = "https://github.com/gamooda/KICK-FARMING"
+DROP_REWARD_CACHE_FILE = APP_DIR / "drop_reward_cache.json"
 RESOURCE_ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 UI_ICON_ATLAS = RESOURCE_ROOT / "assets" / "ui_icons.png"
 UI_ICON_CELLS = {"logo": 0, "channels": 1, "drops": 2, "bonuses": 3, "rewards": 4, "predictions": 5, "irc": 6, "events": 7, "settings": 8}
@@ -1758,8 +1759,8 @@ class ModalOverlay(QWidget):
         card.setMinimumWidth(340)
         card.setMaximumWidth(500)
         box = QVBoxLayout(card)
-        box.setContentsMargins(22, 20, 22, 18)
-        box.setSpacing(12)
+        box.setContentsMargins(22, 16, 22, 16)
+        box.setSpacing(7)
         heading = QLabel(str(title))
         heading.setObjectName("modalTitle")
         box.addWidget(heading)
@@ -1780,7 +1781,8 @@ class ModalOverlay(QWidget):
             self.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
             self.editor.setPlainText(str(initial_value or ""))
             self.editor.setMinimumHeight(125)
-            self.editor.setMaximumHeight(170)
+            self.editor.setMaximumHeight(145)
+            self.editor.setPlaceholderText("Каждый канал — с новой строки")
             box.addWidget(self.editor)
         row = QHBoxLayout()
         row.addStretch()
@@ -1884,6 +1886,7 @@ class MainWindow(QMainWindow):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setMinimumSize(980, 660)
         self.resize(1140, 760)
+        self._primary_screen_centered = False
         self.api = TwitchFarmingApi()
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(8)
@@ -1923,6 +1926,12 @@ class MainWindow(QMainWindow):
         self._tutorial_finish_pending = False
         self._welcome_login_pending = False
         self._header_status_notice = None
+        self._drop_reward_cache_data = self._load_drop_reward_cache()
+        self._drop_reward_cache_account = ""
+        self._drop_reward_processed_ids = set()
+        self._drop_reward_progress = {}
+        self._drop_reward_fresh_ids = set()
+        self._drop_reward_inventory_ready = False
         self.api.update_install_callback = self.installRequested.emit
         self.installRequested.connect(self._install_ready)
         self.ui_icon_atlas = QPixmap(str(UI_ICON_ATLAS))
@@ -1935,7 +1944,204 @@ class MainWindow(QMainWindow):
         self._sync_language_selectors()
         self._setup_timers()
         self._setup_tray()
+        self._center_on_primary_screen()
         self._run_task("startup", self.api._startup_tasks, (), self._startup_finished)
+
+    def _load_drop_reward_cache(self):
+        try:
+            data = json.loads(DROP_REWARD_CACHE_FILE.read_text(encoding="utf-8"))
+            accounts = data.get("accounts") if isinstance(data, dict) else {}
+            if isinstance(accounts, dict):
+                return {"version": 1, "accounts": accounts}
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+        return {"version": 1, "accounts": {}}
+
+    def _save_drop_reward_cache(self):
+        if not self._drop_reward_cache_account:
+            return
+        try:
+            accounts = self._drop_reward_cache_data.setdefault("accounts", {})
+            accounts[self._drop_reward_cache_account] = {
+                "processed": sorted(self._drop_reward_processed_ids)[-10000:],
+                "updated_at": time.time(),
+            }
+            DROP_REWARD_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            temporary = DROP_REWARD_CACHE_FILE.with_suffix(".tmp")
+            temporary.write_text(
+                json.dumps(self._drop_reward_cache_data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            temporary.replace(DROP_REWARD_CACHE_FILE)
+        except (OSError, TypeError, ValueError):
+            logging.getLogger("twitch_farming.ui").exception("Не удалось сохранить кэш Twitch Drops")
+
+    def _select_drop_reward_cache_account(self, auth, state):
+        account = str(
+            (auth or {}).get("username")
+            or (auth or {}).get("authenticated_username")
+            or (state or {}).get("authenticated_username")
+            or (state or {}).get("username")
+            or ""
+        ).strip().lower()
+        if not account:
+            return False
+        if account == self._drop_reward_cache_account:
+            return True
+        self._drop_reward_cache_account = account
+        accounts = self._drop_reward_cache_data.get("accounts", {})
+        entry = accounts.get(account, {}) if isinstance(accounts, dict) else {}
+        values = entry.get("processed", []) if isinstance(entry, dict) else []
+        self._drop_reward_processed_ids = {
+            str(value).strip() for value in values if str(value).strip()
+        } if isinstance(values, list) else set()
+        self._drop_reward_progress = {}
+        self._drop_reward_fresh_ids = set()
+        self._drop_reward_inventory_ready = False
+        return True
+
+    def _drop_reward_normalize_name(self, value):
+        name = str(value or "").strip()
+        name = re.sub(r"\\bid\\s*=\\s*[^, )]+", " ", name, flags=re.IGNORECASE)
+        name = re.sub(r"\\s+\\d+\\s*/\\s*\\d+\\s*\\(\\s*\\d+(?:\\.\\d+)?%\\s*\\)\\s*$", "", name)
+        name = re.sub(r"\\s+", " ", name).strip().casefold()
+        return name
+
+    def _drop_reward_identity_keys(self, value):
+        keys = set()
+        sources = []
+        if isinstance(value, dict):
+            sources.append(value)
+            for field in ("benefit", "drop", "self", "progress"):
+                nested = value.get(field)
+                if isinstance(nested, dict):
+                    sources.append(nested)
+            for source in sources:
+                for field in ("id", "drop_id", "dropId", "dropInstanceId", "drop_instance_id", "benefitId", "benefit_id", "benefitID"):
+                    identifier = str(source.get(field) or "").strip()
+                    if identifier:
+                        keys.add("id:" + identifier.casefold())
+                for field in ("name", "displayName", "display_name", "title"):
+                    name = self._drop_reward_normalize_name(source.get(field))
+                    if name:
+                        keys.add("name:" + name)
+                benefit = source.get("benefit")
+                if isinstance(benefit, str):
+                    name = self._drop_reward_normalize_name(benefit)
+                    if name:
+                        keys.add("name:" + name)
+        elif isinstance(value, (str, int, float)):
+            text_value = str(value).strip()
+            for match in re.finditer(r"\\bid\\s*=\\s*([^, )]+)", text_value, re.IGNORECASE):
+                keys.add("id:" + match.group(1).strip().casefold())
+            name = self._drop_reward_normalize_name(text_value)
+            if name:
+                keys.add("name:" + name)
+        return keys
+
+    def _drop_reward_primary_key(self, keys):
+        identifiers = sorted(key for key in keys if key.startswith("id:"))
+        if identifiers:
+            return identifiers[0]
+        names = sorted(key for key in keys if key.startswith("name:"))
+        return names[0] if names else ""
+
+    def _drop_reward_progress_percent(self, drop):
+        sources = [drop]
+        for field in ("self", "progress", "drop"):
+            nested = drop.get(field) if isinstance(drop, dict) else None
+            if isinstance(nested, dict):
+                sources.append(nested)
+        for source in sources:
+            for field in ("percentage", "watch_percentage", "watchPercentage", "progress_percentage", "progressPercentage", "percentage_complete", "percentageComplete"):
+                value = source.get(field)
+                if value is None:
+                    continue
+                try:
+                    return max(0.0, min(100.0, float(value)))
+                except (TypeError, ValueError):
+                    match = re.search(r"-?\\d+(?:\\.\\d+)?", str(value))
+                    if match:
+                        return max(0.0, min(100.0, float(match.group(0))))
+            watched = next((source.get(field) for field in ("watched_minutes", "watchedMinutes", "current_minutes", "currentMinutes", "currentMinutesWatched", "current_minutes_watched", "minutesWatched") if source.get(field) is not None), None)
+            required = next((source.get(field) for field in ("required_minutes", "requiredMinutes", "requiredMinutesWatched", "required_minutes_watched", "duration_minutes", "minutesRequired") if source.get(field) is not None), None)
+            try:
+                if required is not None and float(required) > 0:
+                    return max(0.0, min(100.0, float(watched or 0) * 100.0 / float(required)))
+            except (TypeError, ValueError):
+                pass
+        return 100.0 if _drop_is_claimed(drop) else 0.0
+
+    def _sync_drop_reward_cache(self, drops_state, auth, state):
+        if not isinstance(drops_state, dict) or not drops_state.get("loaded") or drops_state.get("loading") or drops_state.get("error"):
+            return
+        if not self._select_drop_reward_cache_account(auth, state):
+            return
+        observed = {}
+        for campaign in drops_state.get("campaigns", []) or []:
+            if not isinstance(campaign, dict):
+                continue
+            raw_drops = campaign.get("drops") or campaign.get("timeBasedDrops") or campaign.get("visible_drops") or []
+            if isinstance(raw_drops, dict):
+                raw_drops = raw_drops.get("nodes") or raw_drops.get("edges") or []
+            for item in raw_drops if isinstance(raw_drops, list) else []:
+                drop = item.get("node", item) if isinstance(item, dict) else item
+                if not isinstance(drop, dict):
+                    continue
+                keys = self._drop_reward_identity_keys(drop)
+                primary = self._drop_reward_primary_key(keys)
+                if not primary:
+                    continue
+                observed[primary] = (keys, self._drop_reward_progress_percent(drop))
+        if not self._drop_reward_inventory_ready:
+            for primary, (keys, percentage) in observed.items():
+                self._drop_reward_progress[primary] = percentage
+                for key in keys:
+                    self._drop_reward_progress[key] = percentage
+                if percentage >= 100:
+                    self._drop_reward_processed_ids.update(keys)
+            self._drop_reward_inventory_ready = True
+            self._save_drop_reward_cache()
+            return
+        changed = False
+        for primary, (keys, percentage) in observed.items():
+            previous = next((self._drop_reward_progress[key] for key in keys if key in self._drop_reward_progress), None)
+            already_processed = bool(keys.intersection(self._drop_reward_processed_ids))
+            if percentage >= 100:
+                if previous is not None and previous < 100 and not already_processed:
+                    self._drop_reward_fresh_ids.update(keys)
+                    self._drop_reward_processed_ids.update(keys)
+                    changed = True
+                elif not already_processed:
+                    self._drop_reward_processed_ids.update(keys)
+                    changed = True
+            self._drop_reward_progress[primary] = percentage
+            for key in keys:
+                self._drop_reward_progress[key] = percentage
+        if changed:
+            self._save_drop_reward_cache()
+
+    def _allow_drop_notification(self, reference):
+        if not self._drop_reward_inventory_ready:
+            return False
+        keys = self._drop_reward_identity_keys(reference)
+        if not keys:
+            return False
+        if keys.intersection(self._drop_reward_fresh_ids):
+            return True
+        if keys.intersection(self._drop_reward_processed_ids):
+            return False
+        previous = [
+            self._drop_reward_progress[key]
+            for key in keys
+            if key in self._drop_reward_progress
+        ]
+        if previous and min(previous) < 100:
+            self._drop_reward_fresh_ids.update(keys)
+            self._drop_reward_processed_ids.update(keys)
+            self._save_drop_reward_cache()
+            return True
+        return False
 
     def _build_ui(self):
         self.setStyleSheet(self._style())
@@ -2446,6 +2652,9 @@ class MainWindow(QMainWindow):
         QFrame#channelCard:hover, QFrame#campaignCard:hover, QFrame#followerCard:hover, QFrame#settingCard:hover { border-color:#70569B; }
         QFrame#channelActions { background:transparent; border:0; }
         QFrame#followerCard[added="true"] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #261E38,stop:1 #171522); border:1px solid #7655A5; }
+        QFrame#followerCard[live="true"] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #30202D,stop:1 #191521); border:1px solid #9A4358; }
+        QFrame#followerCard[live="true"]:hover { border-color:#E05B78; }
+        QLabel#followerLiveBadge { color:#FF9BAA; background:#47212E; border:1px solid #8B4357; border-radius:6px; padding:2px 6px; font-size:9px; font-weight:900; }
         QPushButton#followerAddButton { background:#22212B; border:1px solid #383744; color:#C4BFCC; padding:5px 7px; border-radius:7px; font-size:9px; font-weight:700; }
         QPushButton#followerAddButton:hover { background:#2D2A38; border-color:#575164; }
         QPushButton#followerAddedButton { background:#302345; border:1px solid #7655A5; color:#DCCAFF; padding:5px 7px; border-radius:7px; font-size:9px; font-weight:800; }
@@ -3421,6 +3630,7 @@ class MainWindow(QMainWindow):
         elif not self._drops_auto_initial_requested and not self.drops_state.get("loaded") and not self.drops_state.get("loading"):
             self._drops_auto_initial_requested = True
             self._call("refresh_drops_inventory", True)
+        self._safe_ui_call("синхронизация кэша Twitch Drops", self._sync_drop_reward_cache, self.drops_state, auth, state)
         self._safe_ui_call("обновление аккаунта", self._update_account_identity, state.get("account_profile") or {}, auth)
         self._safe_ui_call("запрос профиля аккаунта", self._request_account_profile, state.get("account_profile") or {}, auth)
         self._safe_ui_call("контроль первого запуска", self._update_first_run_gate, auth)
@@ -3550,7 +3760,14 @@ class MainWindow(QMainWindow):
         self._safe_ui_call("отрисовка журнала событий", self._render_logs)
 
     def _render_reward_feed(self, rewards):
-        items = [dict(item) for item in (rewards or [])[-5:] if isinstance(item, dict)]
+        all_items = [dict(item) for item in (rewards or []) if isinstance(item, dict)]
+        items = []
+        for item in all_items:
+            is_drop = str(item.get("kind") or "").strip().lower() in ("gift", "drop") or "twitch drop" in str(item.get("description") or "").lower()
+            if is_drop and not self._allow_drop_notification(item.get("title") or item.get("description") or ""):
+                continue
+            items.append(item)
+        items = items[-5:]
         signature = json.dumps(items, sort_keys=True, ensure_ascii=False)
         if signature == self._last_reward_signature:
             return
@@ -3599,7 +3816,16 @@ class MainWindow(QMainWindow):
 
 
     def _render_event_feed(self, events):
-        items = [str(item) for item in (events or [])[-5:]]
+        all_items = [str(item) for item in (events or [])]
+        items = []
+        for item in all_items:
+            match = re.search(r"twitch\\s+drop\\s*(?:[·:]\\s*)?(.*)$", item, re.IGNORECASE)
+            if match:
+                if self._allow_drop_notification(match.group(1)):
+                    items.append(item)
+            else:
+                items.append(item)
+        items = items[-5:]
         signature = tuple(items)
         if signature == self._last_events_signature:
             return
@@ -4004,6 +4230,7 @@ class MainWindow(QMainWindow):
         self._show_dialog(
             "Добавить каналы",
             "Вставь Twitch-логины или ссылки, по одному на строку:",
+            buttons=[("Отмена", False), ("Добавить", True)],
             input_mode="multiline",
             callback=lambda accepted, value: self._call("save_channel_editor", "add", "", value, [], message="Каналы добавлены.") if accepted and value.strip() else None
         )
@@ -4324,9 +4551,11 @@ class MainWindow(QMainWindow):
         for index, item in enumerate(items):
             login = str(item.get("login") or "").strip().lower()
             added = login in configured
+            is_live = bool(item.get("is_live"))
             frame = QFrame()
             frame.setObjectName("followerCard")
             frame.setProperty("added", added)
+            frame.setProperty("live", is_live)
             frame.setMinimumHeight(72)
             frame.style().unpolish(frame)
             frame.style().polish(frame)
@@ -4352,15 +4581,15 @@ class MainWindow(QMainWindow):
                     followed_date = datetime.fromisoformat(followed_at.replace("Z", "+00:00")).strftime("%d.%m.%Y")
                 except (TypeError, ValueError):
                     followed_date = followed_at[:10]
-            if item.get("is_live"):
-                meta_text = "@" + login + " · В ЭФИРЕ"
-            elif followed_date:
-                meta_text = "@" + login + " · с " + followed_date
-            else:
-                meta_text = "@" + login
+            meta_text = "@" + login + ((" · с " + followed_date) if followed_date else "")
             meta = QLabel(meta_text)
             meta.setObjectName("followerMeta")
             details.addWidget(meta)
+            if is_live:
+                live_badge = QLabel("● В ЭФИРЕ")
+                live_badge.setObjectName("followerLiveBadge")
+                live_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+                details.addWidget(live_badge)
             row.addLayout(details, 1)
             add = QPushButton("Добавлен" if added else "Добавить")
             add.setSvgIcon("check" if added else "plus", 14)
@@ -4606,6 +4835,21 @@ class MainWindow(QMainWindow):
         self.clock_timer.stop()
         self._run_task("shutdown", self.api.shutdown, (), lambda result, error: QApplication.quit())
         QTimer.singleShot(2500, QApplication.quit)
+
+    def _center_on_primary_screen(self):
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        x = available.x() + max(0, (available.width() - self.width()) // 2)
+        y = available.y() + max(0, (available.height() - self.height()) // 2)
+        self.move(x, y)
+        self._primary_screen_centered = True
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not self._primary_screen_centered:
+            self._center_on_primary_screen()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
