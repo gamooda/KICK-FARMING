@@ -16,6 +16,7 @@ from TwitchChannelPointsMiner.classes.Settings import Events, Settings
 from TwitchChannelPointsMiner.classes.TwitchWebSocket import TwitchWebSocket
 from TwitchChannelPointsMiner.constants import WEBSOCKET
 from TwitchChannelPointsMiner.utils import (
+    create_nonce,
     get_streamer_index,
     internet_connection_available,
 )
@@ -60,6 +61,20 @@ class WebSocketsPool:
             self.ws[index].pending_topics.append(topic)
         else:
             self.ws[index].listen(topic, self.twitch.twitch_login.get_auth_token())
+
+    def unsubscribe(self, topic):
+        topic_name = str(topic)
+        for ws in list(self.ws):
+            if topic_name not in ws.topics and topic_name not in ws.pending_topics:
+                continue
+            ws.topics = [item for item in ws.topics if item != topic_name]
+            ws.pending_topics = [item for item in ws.pending_topics if item != topic_name]
+            if ws.is_opened and not self.stop_event.is_set():
+                ws.send({
+                    "type": "UNLISTEN",
+                    "nonce": create_nonce(),
+                    "data": {"topics": [topic_name]},
+                })
 
     def __new(self, index):
         return TwitchWebSocket(

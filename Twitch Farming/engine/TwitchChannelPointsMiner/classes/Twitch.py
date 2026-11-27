@@ -796,10 +796,11 @@ class Twitch(object):
             return []
 
         focus_login = str(getattr(self, "drops_focus_login", "") or "").lower()
-        priority_streamer = next(
+        focus_streamer = next(
             (streamer for streamer in online if str(streamer.username).lower() == focus_login),
             None,
         ) if focus_login else None
+        priority_streamer = focus_streamer
         if priority_streamer is None:
             priority_streamer = next(
                 (
@@ -809,13 +810,23 @@ class Twitch(object):
                 ),
                 None,
             )
+        secondary_priority = None
+        if focus_streamer is not None:
+            secondary_priority = next(
+                (
+                    streamer for streamer in online
+                    if streamer is not focus_streamer and self._has_active_inventory_drop(streamer)
+                ),
+                None,
+            )
+        fixed_priorities = [item for item in (priority_streamer, secondary_priority) if item is not None]
         rotating_streamers = [
-            streamer for streamer in online if streamer is not priority_streamer
+            streamer for streamer in online if streamer not in fixed_priorities
         ]
-        rotating_slots = self.WATCH_SLOT_COUNT - int(priority_streamer is not None)
+        rotating_slots = max(0, self.WATCH_SLOT_COUNT - len(fixed_priorities))
         signature = (
             focus_login,
-            str(priority_streamer.username).lower() if priority_streamer else "",
+            tuple(str(streamer.username).lower() for streamer in fixed_priorities),
             tuple(str(streamer.username).lower() for streamer in rotating_streamers),
         )
 
@@ -834,7 +845,7 @@ class Twitch(object):
             ) % len(rotating_streamers)
             self._watch_rotation_started_at = current_time
 
-        selected = [priority_streamer] if priority_streamer is not None else []
+        selected = list(fixed_priorities)
         selected_count = min(rotating_slots, len(rotating_streamers))
         selected.extend(
             rotating_streamers[

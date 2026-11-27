@@ -264,6 +264,22 @@ class TwitchChannelPointsMiner:
             logger.exception("Could not add Drops streamer %s", username)
             return {"ok": False, "message": str(error)[:240] or "Не удалось добавить канал."}
 
+    def _unsubscribe_streamer_topics(self, streamer):
+        pool = self.ws_pool
+        if pool is None:
+            return
+        topics = [PubsubTopic("video-playback-by-id", streamer=streamer)]
+        if streamer.settings.follow_raid:
+            topics.append(PubsubTopic("raid", streamer=streamer))
+        if streamer.settings.make_predictions:
+            topics.append(PubsubTopic("predictions-channel-v1", streamer=streamer))
+        if streamer.settings.claim_moments:
+            topics.append(PubsubTopic("community-moments-channel-v1", streamer=streamer))
+        if streamer.settings.community_goals:
+            topics.append(PubsubTopic("community-points-channel-v1", streamer=streamer))
+        for topic in topics:
+            pool.unsubscribe(topic)
+
     def remove_streamer(self, username):
         username = str(username or "").strip().lower()
         if not username:
@@ -287,6 +303,7 @@ class TwitchChannelPointsMiner:
             ]
             if str(getattr(self.twitch, "drops_focus_login", "") or "").lower() == username:
                 self.twitch.drops_focus_login = ""
+        self._unsubscribe_streamer_topics(streamer)
         chat = getattr(streamer, "irc_chat", None)
         if chat is not None:
             try:

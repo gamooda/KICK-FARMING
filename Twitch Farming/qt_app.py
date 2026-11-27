@@ -2948,8 +2948,7 @@ class MainWindow(QMainWindow):
                 json.dumps(state.get("channel_currency") or {}, sort_keys=True, ensure_ascii=False),
                 json.dumps(state.get("watch_status") or {}, sort_keys=True),
                 tuple(state.get("watch_slots") or []),
-                tuple(state.get("temporary_channels") or []),
-                str(state.get("drops_focus_login") or "")
+                tuple(state.get("temporary_channels") or [])
             )
         except Exception as error:
             _log_ui_exception("подготовка данных карточек каналов", error)
@@ -3087,9 +3086,6 @@ class MainWindow(QMainWindow):
             for item in (state.get("temporary_channels") or [])
             if str(item).strip()
         }
-        focus_login = str(state.get("drops_focus_login") or "").strip().lower()
-        if focus_login:
-            temporary.add(focus_login)
         profiles = profiles if isinstance(profiles, dict) else {}
         balances = balances if isinstance(balances, dict) else {}
         currencies = currencies if isinstance(currencies, dict) else {}

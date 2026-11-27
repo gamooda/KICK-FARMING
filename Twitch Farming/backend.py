@@ -1040,6 +1040,8 @@ class DropsFocusWorker(threading.Thread):
             if now >= next_inventory_refresh and not drops_loading:
                 self.app.refresh_drops_inventory(True)
                 next_inventory_refresh = now + 90
+            if self.stop_event.is_set():
+                break
             if current_login and campaign is not None:
                 valid = self.app._validate_drops_focus_channel(campaign, current_login)
                 if valid is True:
@@ -1049,8 +1051,12 @@ class DropsFocusWorker(threading.Thread):
                 if valid is None:
                     self.stop_event.wait(10)
                     continue
+            if self.stop_event.is_set():
+                break
             if campaign is not None:
                 candidate = self.app._find_drops_focus_candidate(campaign)
+                if self.stop_event.is_set():
+                    break
                 if candidate:
                     result = self.app._assign_drops_focus_channel(campaign_id, candidate)
                     if result.get("ok"):
@@ -1827,7 +1833,7 @@ class TwitchFarmingApi:
             self.drops_focus_campaign_name = str(campaign.get("name") or campaign.get("game") or "Drops")
             self.drops_focus_status = "Ищем живого стримера с Drops…"
             worker = self.drops_focus_worker
-            if worker is None or not worker.is_alive():
+            if worker is None or not worker.is_alive() or worker.stop_event.is_set():
                 worker = DropsFocusWorker(self)
                 self.drops_focus_worker = worker
                 start_worker = True
@@ -2157,6 +2163,19 @@ class TwitchFarmingApi:
                 daemon=True,
             ).start()
         if rollback:
+            with self.lock:
+                rollback_info = dict(self.temporary_channels.get(login) or {})
+                rollback_remove = bool(rollback_info.get("drops_focus") and self.drops_focus_login != login)
+                if rollback_remove:
+                    self.temporary_channels.pop(login, None)
+                    if login in self.channels:
+                        self.channels.remove(login)
+                    self.online_channels.discard(login)
+                    self.channel_profiles.pop(login, None)
+                    self.channel_balances.pop(login, None)
+                    self.watch_status.pop(login, None)
+            if rollback_remove and engine is not None:
+                threading.Thread(target=engine.remove_streamer, args=(login,), name="RollbackDropsFocusStreamer", daemon=True).start()
             return {"ok": False, "message": "Фокус кампании уже снят."}
         return {"ok": True, "message": "Целевой Drops-канал: @" + login}
 

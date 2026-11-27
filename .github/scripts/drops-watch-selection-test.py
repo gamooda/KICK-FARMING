@@ -14,6 +14,8 @@ sys.path.insert(0, str(ROOT / "Twitch Farming" / "engine"))
 from TwitchChannelPointsMiner.classes.Twitch import Twitch
 from TwitchChannelPointsMiner.classes.entities.Stream import Stream
 from TwitchChannelPointsMiner.classes.Settings import Settings
+from TwitchChannelPointsMiner.TwitchChannelPointsMiner import TwitchChannelPointsMiner
+import threading
 from TwitchChannelPointsMiner.constants import GQLOperations
 
 sys.path.insert(0, str(ROOT / "Twitch Farming"))
@@ -253,6 +255,37 @@ assert [
     streamer.username
     for streamer in priority_watcher._select_minute_watched_streamers(priority_channels, 761)
 ] == ["first", "second"]
+
+
+class FakeChat:
+    def __init__(self):
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
+
+
+removed_chat = FakeChat()
+remove_miner = TwitchChannelPointsMiner.__new__(TwitchChannelPointsMiner)
+remove_miner.streamers_lock = threading.RLock()
+remove_miner.streamers = [
+    SimpleNamespace(username="remove_me", irc_chat=removed_chat, settings=SimpleNamespace(
+        follow_raid=False, make_predictions=False, claim_moments=False, community_goals=False
+    )),
+    SimpleNamespace(username="keep_me", irc_chat=None, settings=SimpleNamespace(
+        follow_raid=False, make_predictions=False, claim_moments=False, community_goals=False
+    )),
+]
+remove_miner.original_streamers = [100, 200]
+remove_miner.twitch = SimpleNamespace(active_watch_channels=["remove_me", "keep_me"], drops_focus_login="remove_me")
+remove_miner.ws_pool = None
+remove_miner.streamer_topics_initialized = False
+removed = remove_miner.remove_streamer("remove_me")
+assert removed.get("ok") and [item.username for item in remove_miner.streamers] == ["keep_me"]
+assert remove_miner.original_streamers == [200]
+assert removed_chat.stopped
+assert remove_miner.twitch.active_watch_channels == ["keep_me"]
+assert remove_miner.twitch.drops_focus_login == ""
 
 focus_watcher = Twitch.__new__(Twitch)
 focus_watcher._watch_rotation_cursor = 0
