@@ -1750,17 +1750,17 @@ class ModalOverlay(QWidget):
         self.editor = None
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 24, 24, 24)
+        outer.setContentsMargins(18, 18, 18, 18)
         outer.addStretch()
         center = QHBoxLayout()
         center.addStretch()
         card = QFrame(self)
         card.setObjectName("modalCard")
-        card.setMinimumWidth(340)
-        card.setMaximumWidth(500)
+        card.setMinimumWidth(380 if input_mode == "multiline" else 340)
+        card.setMaximumWidth(560 if input_mode == "multiline" else 500)
         box = QVBoxLayout(card)
-        box.setContentsMargins(22, 16, 22, 16)
-        box.setSpacing(7)
+        box.setContentsMargins(22, 14, 22, 17)
+        box.setSpacing(4 if input_mode == "multiline" else 7)
         heading = QLabel(str(title))
         heading.setObjectName("modalTitle")
         box.addWidget(heading)
@@ -1780,11 +1780,13 @@ class ModalOverlay(QWidget):
             self.editor.setObjectName("modalEditor")
             self.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
             self.editor.setPlainText(str(initial_value or ""))
-            self.editor.setMinimumHeight(125)
-            self.editor.setMaximumHeight(145)
+            self.editor.setMinimumHeight(145)
+            self.editor.setMaximumHeight(170)
             self.editor.setPlaceholderText("Каждый канал — с новой строки")
             box.addWidget(self.editor)
         row = QHBoxLayout()
+        row.setContentsMargins(0, 7 if input_mode == "multiline" else 0, 0, 0)
+        row.setSpacing(8)
         row.addStretch()
         for label, accepted in buttons or [("Понятно", True)]:
             button = QPushButton(str(label))
@@ -1887,6 +1889,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(980, 660)
         self.resize(1140, 760)
         self._primary_screen_centered = False
+        self._initial_show_center_pending = True
         self.api = TwitchFarmingApi()
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(8)
@@ -1932,6 +1935,7 @@ class MainWindow(QMainWindow):
         self._drop_reward_progress = {}
         self._drop_reward_fresh_ids = set()
         self._drop_reward_inventory_ready = False
+        self._drop_reward_feed_bootstrap_done = False
         self.api.update_install_callback = self.installRequested.emit
         self.installRequested.connect(self._install_ready)
         self.ui_icon_atlas = QPixmap(str(UI_ICON_ATLAS))
@@ -1944,7 +1948,6 @@ class MainWindow(QMainWindow):
         self._sync_language_selectors()
         self._setup_timers()
         self._setup_tray()
-        self._center_on_primary_screen()
         self._run_task("startup", self.api._startup_tasks, (), self._startup_finished)
 
     def _load_drop_reward_cache(self):
@@ -1998,6 +2001,7 @@ class MainWindow(QMainWindow):
         self._drop_reward_progress = {}
         self._drop_reward_fresh_ids = set()
         self._drop_reward_inventory_ready = False
+        self._drop_reward_feed_bootstrap_done = False
         return True
 
     def _drop_reward_normalize_name(self, value):
@@ -2072,10 +2076,53 @@ class MainWindow(QMainWindow):
                 pass
         return 100.0 if _drop_is_claimed(drop) else 0.0
 
+    def _drop_feed_references(self, item):
+        if isinstance(item, dict):
+            kind = str(item.get("kind") or item.get("type") or item.get("reward_type") or "").strip().lower()
+            title = str(item.get("title") or item.get("name") or "").strip()
+            description = str(item.get("description") or "").strip()
+            combined = (title + " " + description + " " + kind).casefold()
+            is_drop = kind in ("gift", "drop", "twitch_drop", "twitch drop") or "twitch drop" in combined
+            if not is_drop:
+                return []
+            return [value for value in (title, description) if value]
+        text_value = str(item or "").strip()
+        marker = text_value.casefold().find("twitch drop")
+        if marker < 0:
+            return []
+        reference = text_value[marker + len("twitch drop"):].lstrip(" ·:\\t")
+        return [reference] if reference else []
+
+    def _bootstrap_drop_reward_feed_cache(self, state):
+        if self._drop_reward_feed_bootstrap_done or not isinstance(state, dict):
+            return False
+        rewards = state.get("rewards")
+        events = state.get("events")
+        if not isinstance(rewards, list) or not isinstance(events, list):
+            return False
+        changed = False
+        for item in rewards:
+            for reference in self._drop_feed_references(item):
+                keys = self._drop_reward_identity_keys(reference)
+                before = len(self._drop_reward_processed_ids)
+                self._drop_reward_processed_ids.update(keys)
+                changed = changed or len(self._drop_reward_processed_ids) != before
+        for item in events:
+            for reference in self._drop_feed_references(item):
+                keys = self._drop_reward_identity_keys(reference)
+                before = len(self._drop_reward_processed_ids)
+                self._drop_reward_processed_ids.update(keys)
+                changed = changed or len(self._drop_reward_processed_ids) != before
+        self._drop_reward_feed_bootstrap_done = True
+        if changed:
+            self._save_drop_reward_cache()
+        return changed
+
     def _sync_drop_reward_cache(self, drops_state, auth, state):
-        if not isinstance(drops_state, dict) or not drops_state.get("loaded") or drops_state.get("loading") or drops_state.get("error"):
-            return
         if not self._select_drop_reward_cache_account(auth, state):
+            return
+        self._bootstrap_drop_reward_feed_cache(state)
+        if not isinstance(drops_state, dict) or not drops_state.get("loaded") or drops_state.get("loading") or drops_state.get("error"):
             return
         observed = {}
         for campaign in drops_state.get("campaigns", []) or []:
@@ -2652,9 +2699,9 @@ class MainWindow(QMainWindow):
         QFrame#channelCard:hover, QFrame#campaignCard:hover, QFrame#followerCard:hover, QFrame#settingCard:hover { border-color:#70569B; }
         QFrame#channelActions { background:transparent; border:0; }
         QFrame#followerCard[added="true"] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #261E38,stop:1 #171522); border:1px solid #7655A5; }
-        QFrame#followerCard[live="true"] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #30202D,stop:1 #191521); border:1px solid #9A4358; }
-        QFrame#followerCard[live="true"]:hover { border-color:#E05B78; }
-        QLabel#followerLiveBadge { color:#FF9BAA; background:#47212E; border:1px solid #8B4357; border-radius:6px; padding:2px 6px; font-size:9px; font-weight:900; }
+        QFrame#followerCard[live="true"] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #38202C,stop:1 #1B1520); border:2px solid #D94B69; }
+        QFrame#followerCard[live="true"]:hover { border-color:#FF6A86; background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #442332,stop:1 #211722); }
+        QLabel#followerLiveBadge { color:#FFFFFF; background:#B82E50; border:1px solid #FF718C; border-radius:7px; padding:3px 8px; font-size:10px; font-weight:900; }
         QPushButton#followerAddButton { background:#22212B; border:1px solid #383744; color:#C4BFCC; padding:5px 7px; border-radius:7px; font-size:9px; font-weight:700; }
         QPushButton#followerAddButton:hover { background:#2D2A38; border-color:#575164; }
         QPushButton#followerAddedButton { background:#302345; border:1px solid #7655A5; color:#DCCAFF; padding:5px 7px; border-radius:7px; font-size:9px; font-weight:800; }
@@ -3763,8 +3810,8 @@ class MainWindow(QMainWindow):
         all_items = [dict(item) for item in (rewards or []) if isinstance(item, dict)]
         items = []
         for item in all_items:
-            is_drop = str(item.get("kind") or "").strip().lower() in ("gift", "drop") or "twitch drop" in str(item.get("description") or "").lower()
-            if is_drop and not self._allow_drop_notification(item.get("title") or item.get("description") or ""):
+            drop_references = self._drop_feed_references(item)
+            if drop_references and not any(self._allow_drop_notification(reference) for reference in drop_references):
                 continue
             items.append(item)
         items = items[-5:]
@@ -3819,9 +3866,9 @@ class MainWindow(QMainWindow):
         all_items = [str(item) for item in (events or [])]
         items = []
         for item in all_items:
-            match = re.search(r"twitch\s+drop\s*(?:[·:]\s*)?(.*)$", item, re.IGNORECASE)
-            if match:
-                if self._allow_drop_notification(match.group(1)):
+            references = self._drop_feed_references(item)
+            if references:
+                if any(self._allow_drop_notification(reference) for reference in references):
                     items.append(item)
             else:
                 items.append(item)
@@ -4569,11 +4616,20 @@ class MainWindow(QMainWindow):
             avatar.setText(str(item.get("display_name") or login or "?")[:1].upper())
             row.addWidget(avatar)
             details = QVBoxLayout()
-            details.setSpacing(2)
+            details.setSpacing(3)
+            title_row = QHBoxLayout()
+            title_row.setContentsMargins(0, 0, 0, 0)
+            title_row.setSpacing(7)
             name = QLabel(str(item.get("display_name") or login or "Канал"))
             name.setObjectName("streamerName")
             name.setWordWrap(False)
-            details.addWidget(name)
+            title_row.addWidget(name, 1)
+            if is_live:
+                live_badge = QLabel("● В ЭФИРЕ")
+                live_badge.setObjectName("followerLiveBadge")
+                live_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+                title_row.addWidget(live_badge, 0, Qt.AlignmentFlag.AlignVCenter)
+            details.addLayout(title_row)
             followed_at = str(item.get("followed_at") or "").strip()
             followed_date = ""
             if followed_at:
@@ -4585,11 +4641,6 @@ class MainWindow(QMainWindow):
             meta = QLabel(meta_text)
             meta.setObjectName("followerMeta")
             details.addWidget(meta)
-            if is_live:
-                live_badge = QLabel("● В ЭФИРЕ")
-                live_badge.setObjectName("followerLiveBadge")
-                live_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-                details.addWidget(live_badge)
             row.addLayout(details, 1)
             add = QPushButton("Добавлен" if added else "Добавить")
             add.setSvgIcon("check" if added else "plus", 14)
@@ -4841,15 +4892,17 @@ class MainWindow(QMainWindow):
         if screen is None:
             return
         available = screen.availableGeometry()
-        x = available.x() + max(0, (available.width() - self.width()) // 2)
-        y = available.y() + max(0, (available.height() - self.height()) // 2)
+        x = available.x() + (available.width() - self.width()) // 2
+        y = available.y() + (available.height() - self.height()) // 2
         self.move(x, y)
         self._primary_screen_centered = True
 
     def showEvent(self, event):
         super().showEvent(event)
-        if not self._primary_screen_centered:
-            self._center_on_primary_screen()
+        if self._initial_show_center_pending:
+            self._initial_show_center_pending = False
+            QTimer.singleShot(0, self._center_on_primary_screen)
+            QTimer.singleShot(100, self._center_on_primary_screen)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
