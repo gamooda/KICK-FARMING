@@ -1049,7 +1049,7 @@ class DropsFocusWorker(threading.Thread):
                     self.stop_event.wait(20)
                     continue
                 if valid is False:
-                    self.app._remove_drops_focus_channel(campaign_id)
+                    self.app._remove_drops_focus_channel(campaign_id, stop_if_empty=False)
                     current_login = ""
                 if valid is None:
                     self.stop_event.wait(10)
@@ -1882,7 +1882,7 @@ class TwitchFarmingApi:
         self._remove_drops_focus_channel(campaign_id)
         self._append_event("Целевой Drops-фокус завершён · " + str(reason))
 
-    def _remove_drops_focus_channel(self, campaign_id=""):
+    def _remove_drops_focus_channel(self, campaign_id="", stop_if_empty=True):
         with self.lock:
             login = str(self.drops_focus_login or "")
             self.drops_focus_login = ""
@@ -1899,7 +1899,8 @@ class TwitchFarmingApi:
                 self.watch_status.pop(login, None)
             engine = self.engine_worker
             should_stop = bool(
-                remove_from_list
+                stop_if_empty
+                and remove_from_list
                 and self.session_running
                 and not self.channels
                 and engine is not None
