@@ -1022,6 +1022,7 @@ class DropsFocusWorker(threading.Thread):
                 drops_loading = bool(self.app.drops_loading)
             if not campaign_id:
                 break
+            self.app._sync_drops_focus_slot(campaign_id, current_login)
             if campaign is None:
                 if updated_at > last_inventory_update and not drops_loading:
                     last_inventory_update = updated_at
@@ -1863,6 +1864,19 @@ class TwitchFarmingApi:
         self._append_event("Целевой Drops-фокус снят.")
         return {"ok": True, "message": "Фокус кампании снят."}
 
+    def _sync_drops_focus_slot(self, campaign_id, login):
+        login = str(login or "").strip().lower()
+        if not login:
+            return
+        with self.lock:
+            if self.drops_focus_campaign_id != str(campaign_id or "") or self.drops_focus_login != login:
+                return
+            engine = self.engine_worker
+        miner = getattr(engine, "miner", None) if engine is not None else None
+        twitch_client = getattr(miner, "twitch", None) if miner is not None else None
+        if twitch_client is not None:
+            twitch_client.drops_focus_login = login
+
     def _set_drops_focus_status(self, campaign_id, status):
         with self.lock:
             if self.drops_focus_campaign_id == str(campaign_id or ""):
@@ -1906,7 +1920,7 @@ class TwitchFarmingApi:
                 and engine is not None
                 and engine.is_alive()
             )
-        if engine is not None and engine.is_alive() and login:
+        if remove_from_list and engine is not None and engine.is_alive() and login:
             threading.Thread(
                 target=engine.remove_streamer,
                 args=(login,),
