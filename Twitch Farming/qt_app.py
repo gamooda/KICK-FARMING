@@ -16,7 +16,7 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QEvent, QEasingCurve, QPoint, QPointF, QRect, QRectF, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
 from PySide6.QtGui import QAction, QColor, QCursor, QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QPixmap, QIcon, QIconEngine
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox as QtComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel as QtLabel, QLineEdit as QtLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox as QtComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel as QtLabel, QLineEdit as QtLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QToolTip, QVBoxLayout, QWidget
 
 from backend import APP_DIR, APP_VERSION, DEFAULT_APP_SETTINGS, DEFAULT_BET_SETTINGS, DEFAULT_OPTIONS, FILTER_KEYS, ICON_FILE, OPTION_NAMES, STRATEGIES, TwitchFarmingApi
 from i18n import get_language, set_language, translate_text
@@ -2291,6 +2291,11 @@ class MainWindow(QMainWindow):
         )
         if not 0 <= self._tutorial_step < len(steps):
             return
+        QToolTip.hideText()
+        if hasattr(self, "toast_timer"):
+            self.toast_timer.stop()
+        if hasattr(self, "toast"):
+            self.toast.hide()
         page, title, description = steps[self._tutorial_step]
         self._navigate(page)
         self.tutorial_title.setText(title)
@@ -2305,23 +2310,33 @@ class MainWindow(QMainWindow):
         self.tutorial_overlay.show()
         self.tutorial_overlay.raise_()
         self.tutorial_overlay.setFocus()
-        if self._tutorial_step == 3 and hasattr(self, "settings_scroll"):
-            target = self.app_setting_checks.get("auto_start_farm")
-            if target:
-                QTimer.singleShot(100, lambda widget=target: self.settings_scroll.ensureWidgetVisible(widget, 24, 24))
-        if self._tutorial_step == 4 and hasattr(self, "bets_scroll"):
-            QTimer.singleShot(100, lambda: self.bets_scroll.ensureWidgetVisible(self.bet_strategy, 24, 24))
-        QTimer.singleShot(180, self._update_tutorial_spotlights)
-        QTimer.singleShot(420, self._update_tutorial_spotlights)
+        QTimer.singleShot(50, self._prepare_tutorial_step_geometry)
+        if self._tutorial_step == 1:
+            QTimer.singleShot(320, self._update_tutorial_spotlights)
 
-    def _tutorial_widget_rect(self, widget):
-        if widget is None:
+    def _prepare_tutorial_step_geometry(self):
+        if not self._tutorial_active or not self.tutorial_overlay.isVisible():
+            return
+        if self._tutorial_step == 2 and hasattr(self, "drops_scroll"):
+            self.drops_scroll.ensureWidgetVisible(self.drops_cards_area, 20, 20)
+        elif self._tutorial_step == 3 and hasattr(self, "settings_scroll"):
+            self.settings_scroll.ensureWidgetVisible(self.farm_actions_panel, 20, 20)
+        elif self._tutorial_step == 4 and hasattr(self, "bets_scroll"):
+            self.bets_scroll.ensureWidgetVisible(self.bet_strategy_panel, 20, 20)
+        self.tutorial_overlay.setGeometry(self.centralWidget().rect())
+        self.tutorial_overlay.raise_()
+        QTimer.singleShot(50, self._update_tutorial_spotlights)
+
+    def _tutorial_widget_rect(self, target_widget):
+        if target_widget is None:
             return None
         try:
-            if not widget.isVisible():
+            if not target_widget.isVisible():
                 return None
-            point = widget.mapTo(self.tutorial_overlay, QPoint(0, 0))
-            rect = QRect(point, widget.size()).adjusted(-8, -8, 8, 8)
+            window_point = target_widget.mapTo(self, QPoint(0, 0))
+            overlay_origin = self.tutorial_overlay.mapTo(self, QPoint(0, 0))
+            overlay_point = window_point - overlay_origin
+            rect = QRect(overlay_point, target_widget.size()).adjusted(-8, -8, 8, 8)
             rect = rect.intersected(self.tutorial_overlay.rect())
             return rect if rect.width() > 0 and rect.height() > 0 else None
         except RuntimeError:
@@ -2336,35 +2351,14 @@ class MainWindow(QMainWindow):
         elif self._tutorial_step == 1:
             targets.append(self.active_panel)
         elif self._tutorial_step == 2:
-            cards = [
-                self.drops_grid.itemAt(index).widget()
-                for index in range(self.drops_grid.count())
-                if isinstance(self.drops_grid.itemAt(index).widget(), CampaignCard)
-            ]
-            if cards:
-                targets.append(cards[0])
-                focus_button = cards[0].findChild(QPushButton, "dropsFocusButton") or cards[0].findChild(QPushButton, "dropsFocusActiveButton")
-                if focus_button:
-                    targets.append(focus_button)
-            else:
-                targets.append(self.drops_scroll)
+            targets.append(self.drops_cards_area)
         elif self._tutorial_step == 3:
-            for key in ("claim_drops", "claim_moments", "follow_raid"):
-                if key in self.option_checks:
-                    targets.append(self.option_checks[key])
-            for key in ("minimize_to_tray", "auto_start_farm"):
-                if key in self.app_setting_checks:
-                    targets.append(self.app_setting_checks[key])
+            targets.extend((self.farm_actions_panel, self.application_settings_panel))
         elif self._tutorial_step == 4:
-            targets.append(self.bet_strategy.parentWidget())
-            targets.append(self.bet_strategy)
+            targets.extend((self.bet_strategy_panel, self.bet_filter_panel))
         elif self._tutorial_step == 5:
             targets.append(self.farm_button)
         rects = [rect for rect in (self._tutorial_widget_rect(widget) for widget in targets) if rect is not None]
-        if not rects:
-            rect = self._tutorial_widget_rect(self.stack)
-            if rect is not None:
-                rects.append(rect)
         self.tutorial_overlay.set_spotlights(rects)
 
     def _advance_tutorial(self):
@@ -2833,13 +2827,17 @@ class MainWindow(QMainWindow):
         self.drops_status = QLabel("Подключи Twitch и нажми «Обновить кампании».")
         self.drops_status.setObjectName("statusHint")
         layout.addWidget(self.drops_status)
-        self.drops_grid = QGridLayout()
+        self.drops_cards_area = QWidget()
+        self.drops_cards_area.setObjectName("dropsCardsArea")
+        self.drops_cards_area.setMinimumHeight(84)
+        self.drops_cards_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.drops_grid = QGridLayout(self.drops_cards_area)
         self.drops_grid.setContentsMargins(0, 0, 0, 0)
         self.drops_grid.setHorizontalSpacing(12)
         self.drops_grid.setVerticalSpacing(12)
         self.drops_grid.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.drops_list = self.drops_grid
-        layout.addLayout(self.drops_grid)
+        layout.addWidget(self.drops_cards_area)
         layout.addStretch()
 
 
@@ -2956,6 +2954,7 @@ class MainWindow(QMainWindow):
         updater.layout().addWidget(self.update_speed)
         grid.addWidget(updater, 0, 1)
         options = self._setting_panel("ДЕЙСТВИЯ ФАРМА", "Включи только нужные автоматические действия.")
+        self.farm_actions_panel = options
         self.option_checks = {}
         checks_grid = QGridLayout()
         checks_grid.setHorizontalSpacing(12)
@@ -2969,6 +2968,7 @@ class MainWindow(QMainWindow):
         options.layout().addLayout(checks_grid)
         grid.addWidget(options, 1, 0)
         app_settings = self._setting_panel("ПРИЛОЖЕНИЕ", "Поведение окна и локальный кэш.")
+        self.application_settings_panel = app_settings
         language_row = QHBoxLayout()
         language_label = QLabel("Язык интерфейса")
         language_label.setObjectName("statusHint")
@@ -3074,6 +3074,7 @@ class MainWindow(QMainWindow):
         grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         panel = self._setting_panel("СТРАТЕГИЯ И ЛИМИТЫ", "Основные параметры ставки.")
+        self.bet_strategy_panel = panel
         self.bet_strategy = QComboBox()
         self.bet_strategy.setEditable(False)
         self.bet_strategy.setMaxVisibleItems(12)
@@ -3116,6 +3117,7 @@ class MainWindow(QMainWindow):
         panel.layout().addWidget(self.bet_stealth)
         grid.addWidget(panel, 0, 0)
         filters = self._setting_panel("ФИЛЬТР УЧАСТНИКОВ", "Ставка размещается только при совпадении условия.")
+        self.bet_filter_panel = filters
         self.bet_filter_enabled = SwitchCheckBox("Включить фильтр")
         filters.layout().setAlignment(Qt.AlignmentFlag.AlignTop)
         filters.layout().addWidget(self.bet_filter_enabled)
@@ -4628,6 +4630,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(0, self._update_channel_grid_columns)
         if hasattr(self, "drops_grid"):
             QTimer.singleShot(0, self._update_drops_card_widths)
+        if self._tutorial_active and self.tutorial_overlay.isVisible():
+            QTimer.singleShot(50, self._update_tutorial_spotlights)
 
     def eventFilter(self, watched, event):
         if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:

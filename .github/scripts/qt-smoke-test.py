@@ -171,6 +171,13 @@ check("QComboBox#languageCombo" in qt and "setFixedSize(74, 28)" in qt, "The RU/
 check('widget.property("avatarUrl") or widget.property("imageUrl")' in qt, "Language changes must preserve downloaded avatar images.")
 check("self.active_panel" in qt and "self.bet_strategy" in qt and "self.farm_button" in qt and "campaignFocusButton" in qt or "dropsFocusButton" in qt, "Tutorial must highlight the main farm, Drops, settings, and prediction targets.")
 check("Пропустить обучение" not in qt and "Пропустить" not in qt, "The mandatory tutorial must not expose a skip action.")
+check("widget.mapTo(self, QPoint(0, 0))" in qt and "self.tutorial_overlay.mapTo(self, QPoint(0, 0))" in qt, "Tutorial spotlight rectangles must be mapped through MainWindow coordinates.")
+check("QTimer.singleShot(50, self._prepare_tutorial_step_geometry)" in qt and "QTimer.singleShot(50, self._update_tutorial_spotlights)" in qt, "Tutorial spotlight geometry must be recalculated after tab layout settles.")
+check("if self._tutorial_active and self.tutorial_overlay.isVisible():\n            QTimer.singleShot(50, self._update_tutorial_spotlights)" in qt, "Tutorial spotlight geometry must refresh after window resizing.")
+check("self.drops_cards_area" in qt and "layout.addWidget(self.drops_cards_area)" in qt, "Drops tutorial must target the campaign-card area.")
+check("self.farm_actions_panel" in qt and "self.application_settings_panel" in qt, "Settings tutorial must target the farm-actions and application cards.")
+check("self.bet_strategy_panel" in qt and "self.bet_filter_panel" in qt, "Prediction tutorial must target strategy and participant-filter cards.")
+check("QToolTip.hideText()" in qt, "Tutorial transitions must dismiss stray tooltip popups.")
 
 check("def install_update(self):" in backend and 'phase="downloaded"' in backend and 'phase == "downloaded"' in qt, "Updater must split download preparation from applying the update.")
 check('Остановите фарм, чтобы применить обновление.' in qt and 'phase="downloaded"' in backend, "Applying the update must require a stopped farm while downloading can proceed.")
