@@ -1018,11 +1018,11 @@ def _drops_reward_log_identity(value):
     text = str(value or "").strip()
     if not text:
         return ""
-    identifier = re.search(r"\\bid\\s*=\\s*['\\\"]?([^, )'\\\"]+)", text, re.IGNORECASE)
+    identifier = re.search(r"\bid\s*=\s*['"]?([^, )'"]+)", text, re.IGNORECASE)
     if identifier:
         return "id:" + identifier.group(1).strip().casefold()
-    text = re.sub(r"\\s+\\d+\\s*/\\s*\\d+\\s*\\(\\s*\\d+(?:\\.\\d+)?%\\s*\\)\\s*$", "", text)
-    text = re.sub(r"\\s+", " ", text).strip().casefold()
+    text = re.sub(r"\s+\d+\s*/\s*\d+\s*\(\s*\d+(?:\.\d+)?%\s*\)\s*$", "", text)
+    text = re.sub(r"\s+", " ", text).strip().casefold()
     return text
 
 
@@ -2958,7 +2958,7 @@ class TwitchFarmingApi:
             history_lines = content.splitlines()[-500:]
             historical_drop_keys = []
             for line in history_lines:
-                match = re.search(r"Twitch Drop received:\\s*(.+)", line)
+                match = re.search(r"Twitch Drop received:\s*(.+)", line)
                 if match:
                     identity = _drops_reward_log_identity(match.group(1))
                     if identity:
