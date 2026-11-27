@@ -140,10 +140,10 @@ class Twitch(object):
         return False
 
     def _reauthenticate_after_expiry(self, expired_token):
-        if self.stop_requested:
+        if getattr(self, "stop_requested", False):
             return False
         with self.auth_lock:
-            if self.stop_requested:
+            if getattr(self, "stop_requested", False):
                 return False
             if self.twitch_login.token != expired_token and self.twitch_login.check_login():
                 return True
@@ -174,7 +174,7 @@ class Twitch(object):
                         timeout=7,
                     )
                 except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
-                    if attempt or self.stop_requested:
+                    if attempt or getattr(self, "stop_requested", False):
                         raise
                     logger.warning(
                         f"Twitch Helix {endpoint}: временная ошибка сети ({error}). Повтор через 1 секунду."
@@ -182,7 +182,7 @@ class Twitch(object):
                     self.__chuncked_sleep(1)
 
         response = request_with_retry(token)
-        if response.status_code == 401 and not self.stop_requested and self._reauthenticate_after_expiry(token):
+        if response.status_code == 401 and not getattr(self, "stop_requested", False) and self._reauthenticate_after_expiry(token):
             token = self.twitch_login.token
             response = request_with_retry(token)
         response.raise_for_status()
@@ -367,7 +367,7 @@ class Twitch(object):
     # Create chunk of sleep of speed-up the break loop after CTRL+C
     def __chuncked_sleep(self, seconds, chunk_size=3):
         deadline = time.monotonic() + max(0.0, float(seconds))
-        while self.running and not self.stop_requested:
+        while self.running and not getattr(self, "stop_requested", False):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
@@ -417,7 +417,7 @@ class Twitch(object):
                 headers=headers,
                 timeout=7,
             )
-            if response.status_code == 401 and not self.stop_requested and self._reauthenticate_after_expiry(token):
+            if response.status_code == 401 and not getattr(self, "stop_requested", False) and self._reauthenticate_after_expiry(token):
                 token = self.twitch_login.get_auth_token()
                 headers["Authorization"] = f"OAuth {token}"
                 response = requests.post(
@@ -1324,7 +1324,7 @@ class Twitch(object):
                     result_by_id[str(drop_campaign["id"])] = drop_campaign
 
         for chunk in chunks:
-            if not self.running or self.stop_requested:
+            if not self.running or getattr(self, "stop_requested", False):
                 break
             last_response = None
             valid_chunk = [
@@ -1334,7 +1334,7 @@ class Twitch(object):
             if not valid_chunk:
                 continue
             response = self.post_gql_request(build_request(valid_chunk, user_id))
-            if not self.running or self.stop_requested:
+            if not self.running or getattr(self, "stop_requested", False):
                 break
             last_response = response
             collect_details(response)
@@ -1342,7 +1342,7 @@ class Twitch(object):
                 campaign for campaign in valid_chunk
                 if str(campaign["id"]) not in result_by_id
             ]
-            if missing and user_login and user_login != user_id and self.running and not self.stop_requested:
+            if missing and user_login and user_login != user_id and self.running and not getattr(self, "stop_requested", False):
                 fallback_response = self.post_gql_request(
                     build_request(missing, user_login)
                 )
@@ -1368,7 +1368,7 @@ class Twitch(object):
         # We need the inventory only for get the real updated value/progress
         # Get data from inventory and sync current status with streamers.campaigns
         inventory = self.__get_inventory()
-        if not self.running or self.stop_requested:
+        if not self.running or getattr(self, "stop_requested", False):
             return campaigns
         if inventory not in [None, {}] and inventory["dropCampaignsInProgress"] not in [
             None,
@@ -1377,12 +1377,12 @@ class Twitch(object):
             # Iterate all campaigns from dashboard (only active, with working drops)
             # In this array we have also the campaigns never started from us (not in nventory)
             for i in range(len(campaigns)):
-                if not self.running or self.stop_requested:
+                if not self.running or getattr(self, "stop_requested", False):
                     break
                 campaigns[i].clear_drops()  # Remove all the claimed drops
                 # Iterate all campaigns currently in progress from out inventory
                 for progress in inventory["dropCampaignsInProgress"]:
-                    if not self.running or self.stop_requested:
+                    if not self.running or getattr(self, "stop_requested", False):
                         break
                     if progress["id"] == campaigns[i].id:
                         campaigns[i].in_inventory = True
@@ -2116,18 +2116,18 @@ class Twitch(object):
             return False
 
     def claim_all_drops_from_inventory(self):
-        if not self.running or self.stop_requested:
+        if not self.running or getattr(self, "stop_requested", False):
             return
         inventory = self.__get_inventory()
-        if not self.running or self.stop_requested:
+        if not self.running or getattr(self, "stop_requested", False):
             return
         if inventory not in [None, {}]:
             if inventory["dropCampaignsInProgress"] not in [None, {}]:
                 for campaign in inventory["dropCampaignsInProgress"]:
-                    if not self.running or self.stop_requested:
+                    if not self.running or getattr(self, "stop_requested", False):
                         return
                     for drop_dict in campaign["timeBasedDrops"]:
-                        if not self.running or self.stop_requested:
+                        if not self.running or getattr(self, "stop_requested", False):
                             return
                         drop = Drop(drop_dict)
                         drop.update(drop_dict["self"])
@@ -2153,7 +2153,7 @@ class Twitch(object):
 
                     # TEMPORARY AUTO DROP CLAIMING FIX
                     self.claim_all_drops_from_inventory()
-                    if not self.running or self.stop_requested:
+                    if not self.running or getattr(self, "stop_requested", False):
                         return
                     #####################################
 
@@ -2162,7 +2162,7 @@ class Twitch(object):
                     campaigns_details = self.__get_campaigns_details(
                         self.__get_drops_dashboard(status="ACTIVE")
                     )
-                    if not self.running or self.stop_requested:
+                    if not self.running or getattr(self, "stop_requested", False):
                         return
                     campaigns = []
 
@@ -2180,12 +2180,12 @@ class Twitch(object):
 
                 # Divide et impera :)
                 campaigns = self.__sync_campaigns(campaigns)
-                if not self.running or self.stop_requested:
+                if not self.running or getattr(self, "stop_requested", False):
                     return
 
                 # Check if user It's currently streaming the same game present in campaigns_details
                 for i in range(0, len(streamers)):
-                    if not self.running or self.stop_requested:
+                    if not self.running or getattr(self, "stop_requested", False):
                         return
                     if streamers[i].drops_condition() is True:
                         # yes! The streamer[i] have the drops_tags enabled and we It's currently stream a game with campaign active!
