@@ -957,13 +957,16 @@ class SwitchCheckBox(QCheckBox):
 class ChannelCard(QFrame):
     selected = Signal(str)
 
-    def __init__(self, login, profile, balance, currency, slot, temporary, image_cache, remove_callback, edit_callback, move_callback, actions_enabled=True, parent=None):
+    def __init__(self, login, profile, balance, currency, slot, temporary, image_cache, remove_callback, edit_callback, move_callback, actions_enabled=True, parent=None, loading=False, queued=False):
         super().__init__(parent)
         self.login = str(login or "").strip().lower()
         login = self.login
         profile = profile if isinstance(profile, dict) else {}
         currency = currency if isinstance(currency, dict) else {}
         self.setObjectName("channelCard")
+        self.setProperty("loading", bool(loading))
+        self.setProperty("loadingPulse", False)
+        self.loading_timer = None
         self.setMinimumWidth(190)
         self.setMinimumHeight(185)
         self.setFixedHeight(232)
@@ -1046,6 +1049,22 @@ class ChannelCard(QFrame):
             temporary_badge.setObjectName("temporaryBadge")
             badges.addWidget(temporary_badge)
         badges.addStretch(1)
+        if loading:
+            activity_badge = QLabel("Загрузка...")
+            activity_badge.setObjectName("channelLoadingBadge")
+        elif slot:
+            activity_badge = QLabel("СМОТРИМ")
+            activity_badge.setObjectName("watchBadge")
+            activity_badge.setToolTip("Активный слот просмотра: " + str(slot))
+        elif queued:
+            activity_badge = QLabel("В очереди")
+            activity_badge.setObjectName("channelQueueBadge")
+            activity_badge.setToolTip("Канал в эфире и ожидает свободного слота просмотра.")
+        else:
+            activity_badge = None
+        if activity_badge is not None:
+            activity_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            badges.addWidget(activity_badge, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         root.addLayout(badges)
 
         avatar_row = QHBoxLayout()
@@ -1102,10 +1121,25 @@ class ChannelCard(QFrame):
         self.actions_opacity_animation.setDuration(140)
         self.actions_opacity_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.actions_opacity_animation.finished.connect(self._finish_actions_animation)
+        if loading:
+            self.loading_timer = QTimer(self)
+            self.loading_timer.setInterval(520)
+            self.loading_timer.timeout.connect(self._pulse_loading_border)
+            self.loading_timer.start()
 
         if image_cache:
             image_cache.request(self.avatar, profile.get("avatar_url", ""), True)
             image_cache.request(self.currency_icon, currency.get("icon_url", ""), False)
+
+    def _pulse_loading_border(self):
+        if not self.property("loading"):
+            if self.loading_timer is not None:
+                self.loading_timer.stop()
+            return
+        self.setProperty("loadingPulse", not bool(self.property("loadingPulse")))
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
 
     def _animate_actions(self, visible):
         self.actions_opacity_animation.stop()
@@ -2719,6 +2753,10 @@ class MainWindow(QMainWindow):
         QLabel#channelLogin { color:#928BA2; font-size:11px; }
         QLabel#channelViewers { color:#AAA3B8; font-size:9px; }
         QLabel#channelSlotBadge { color:#D8C5FF; background:#392858; border:1px solid #5E4383; border-radius:5px; padding:2px 6px; font-size:8px; font-weight:900; }
+        QLabel#channelQueueBadge { color:#F5CF82; background:#392D1C; border:1px solid #8A6A32; border-radius:5px; padding:3px 7px; font-size:8px; font-weight:900; }
+        QLabel#channelLoadingBadge { color:#E9DBFF; background:#332448; border:1px solid #8A68C3; border-radius:5px; padding:3px 7px; font-size:8px; font-weight:900; }
+        QFrame#channelCard[loading="true"] { border:1px solid #7652B3; }
+        QFrame#channelCard[loading="true"][loadingPulse="true"] { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #281F3B,stop:1 #191523); border:2px solid #B18BFF; }
         QLabel#channelBalance { color:#FFFFFF; font-size:14px; font-weight:700; }
         QLabel#channelCurrencyName { color:#BDB7C9; font-size:9px; font-weight:600; }
         QLabel#channelCurrencyIcon { background:transparent; border:none; border-radius:0; color:#D8C7F6; font-size:18px; font-weight:900; padding:0; }
@@ -3793,6 +3831,8 @@ class MainWindow(QMainWindow):
                 json.dumps(state.get("watch_status") or {}, sort_keys=True),
                 tuple(state.get("watch_slots") or []),
                 tuple(state.get("temporary_channels") or []),
+                tuple(sorted(str(item).strip().lower() for item in state.get("online_channels") or [] if str(item).strip())),
+                self._loading_channel_login(state),
                 str(state.get("drops_focus_login") or ""),
                 bool(state.get("session_running"))
             )
@@ -3911,6 +3951,44 @@ class MainWindow(QMainWindow):
             if login:
                 result[login] = index
         return result
+
+    def _loading_channel_login(self, state=None):
+        state = state if isinstance(state, dict) else self.latest_state
+        if not state.get("session_running"):
+            return ""
+        active = ""
+        for event in state.get("events") or []:
+            line = str(event or "")
+            lower = line.lower()
+            loading_match = re.search(
+                r"(?:loading channel\s+\d+\s*/\s*\d+\s*:\s*|загружаю канал\s*[·•:]\s*)@?([a-z0-9_]{1,25})",
+                line,
+                re.IGNORECASE,
+            )
+            if loading_match:
+                active = loading_match.group(1).lower()
+                continue
+            if any(marker in lower for marker in ("monitoring started for ", "no valid twitch channels", "нет доступных каналов")):
+                active = ""
+                continue
+            checked_match = re.search(
+                r"\b([a-z0-9_]{1,25})\s*[·•]\s*(?:в эфире|не в эфире)\b",
+                line,
+                re.IGNORECASE,
+            )
+            if active and checked_match and checked_match.group(1).lower() == active:
+                active = ""
+        if active:
+            for item in state.get("logs") or []:
+                line = str(item.get("line") or item.get("message") or item) if isinstance(item, dict) else str(item)
+                missing_match = re.search(
+                    r"streamer\s+@?([a-z0-9_]{1,25})\s+does not exist",
+                    line,
+                    re.IGNORECASE,
+                )
+                if missing_match and missing_match.group(1).lower() == active:
+                    active = ""
+        return active
 
     def _active_panel_animation_finished(self):
         if self._active_panel_target == 0:
@@ -4094,7 +4172,8 @@ class MainWindow(QMainWindow):
                 self._clear_layout(child)
 
     def _channel_grid_column_count(self):
-        width = self.channels_scroll.viewport().width() if hasattr(self, "channels_scroll") and self.channels_scroll.viewport().width() > 0 else (self.channels_wrap.width() if hasattr(self, "channels_wrap") else self.width() - 316)
+        viewport_width = self.channels_scroll.viewport().width() if hasattr(self, "channels_scroll") else 0
+        width = viewport_width if viewport_width > 0 else max(1, self.width() - 316)
         spacing = max(12, self.channels_grid.horizontalSpacing() if hasattr(self, "channels_grid") else 12)
         minimum_card_width = 190
         return max(1, min(6, int((max(1, width) + spacing) // (minimum_card_width + spacing))))
@@ -4132,6 +4211,13 @@ class MainWindow(QMainWindow):
             if focus_login:
                 temporary.add(focus_login)
             watch = self._watch_slot_map()
+            online_channels = {
+                str(item).strip().lower()
+                for item in (state.get("online_channels") or [])
+                if str(item).strip()
+            }
+            session_running = bool(state.get("session_running"))
+            loading_login = self._loading_channel_login(state)
             actions_enabled = True
             search = str(getattr(self, "channel_search_text", "") or "").strip().lower()
             visible = []
@@ -4167,7 +4253,9 @@ class MainWindow(QMainWindow):
                         self._remove_channel,
                         self._edit_channel,
                         self._select_channel,
-                        actions_enabled
+                        actions_enabled,
+                        loading=(login == loading_login),
+                        queued=(session_running and login in online_channels and login not in watch and login != loading_login)
                     )
                     card.selected.connect(self._select_channel)
                     card.setProperty("selected", login == self.selected_channel)
@@ -4202,6 +4290,7 @@ class MainWindow(QMainWindow):
             self.channels_wrap.setMinimumHeight(max(required_height, self.channels_grid.sizeHint().height() + 8))
             self.channels_wrap.updateGeometry()
             self.channels_scroll.updateGeometry()
+            QTimer.singleShot(0, self._update_channel_grid_columns)
             return True
         except Exception as error:
             _log_ui_exception("отрисовка списка каналов", error)
@@ -4906,6 +4995,9 @@ class MainWindow(QMainWindow):
             self._initial_show_center_pending = False
             QTimer.singleShot(0, self._center_on_primary_screen)
             QTimer.singleShot(100, self._center_on_primary_screen)
+        if hasattr(self, "channels_grid"):
+            QTimer.singleShot(0, self._update_channel_grid_columns)
+            QTimer.singleShot(80, self._update_channel_grid_columns)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
