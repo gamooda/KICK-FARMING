@@ -367,7 +367,7 @@ class Twitch(object):
     # Create chunk of sleep of speed-up the break loop after CTRL+C
     def __chuncked_sleep(self, seconds, chunk_size=3):
         deadline = time.monotonic() + max(0.0, float(seconds))
-        while self.running and not getattr(self, "stop_requested", False):
+        while getattr(self, "running", True) and not getattr(self, "stop_requested", False):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
