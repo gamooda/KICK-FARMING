@@ -183,6 +183,7 @@ check("def _sync_drop_reward_cache(self, drops_state, auth, state):" in qt and "
 check("self._drop_reward_fresh_ids.update(keys)" in qt and "self._drop_reward_processed_ids.update(keys)" in qt, "Only Drops that cross 100% during the current app session may reach feeds.")
 check("def _allow_drop_notification(self, reference):" in qt and "self._drop_feed_references(item)" in qt and "self._bootstrap_drop_reward_feed_cache(state)" in qt, "Historical Twitch Drop entries from both feeds must be seeded into the persistent cache.")
 check("self._drop_reward_feed_bootstrap_done = False" in qt and "self._drop_reward_processed_ids.update(keys)" in qt, "Historical Drops must be persisted as processed for each account.")
+check('.lstrip(" ·:")' in qt, "Twitch Drop event names must be parsed without trimming reward-name characters.")
 check("any(self._allow_drop_notification(reference) for reference in drop_references)" in qt and "self._drop_reward_fresh_ids.update(keys)" in qt, "Only Drops that cross 100% during the current app session may reach feeds.")
 check("QGuiApplication.primaryScreen()" in qt and "screen.availableGeometry()" in qt and "def _center_on_primary_screen(self):" in qt, "The main window must be centered on the primary screen.")
 check("def showEvent(self, event):" in qt and "QTimer.singleShot(0, self._center_on_primary_screen)" in qt and "QTimer.singleShot(100, self._center_on_primary_screen)" in qt, "Window centering must be repeated after the window becomes visible.")

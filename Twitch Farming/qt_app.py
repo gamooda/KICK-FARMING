@@ -2090,7 +2090,7 @@ class MainWindow(QMainWindow):
         marker = text_value.casefold().find("twitch drop")
         if marker < 0:
             return []
-        reference = text_value[marker + len("twitch drop"):].lstrip(" ·:\\t")
+        reference = text_value[marker + len("twitch drop"):].lstrip(" ·:")
         return [reference] if reference else []
 
     def _bootstrap_drop_reward_feed_cache(self, state):
