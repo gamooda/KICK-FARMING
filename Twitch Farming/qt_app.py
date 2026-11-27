@@ -962,6 +962,7 @@ class ChannelCard(QFrame):
         self.login = str(login or "").strip().lower()
         login = self.login
         profile = profile if isinstance(profile, dict) else {}
+        is_live = bool(profile.get("is_live"))
         currency = currency if isinstance(currency, dict) else {}
         self.setObjectName("channelCard")
         self.setProperty("loading", bool(loading))
@@ -969,7 +970,7 @@ class ChannelCard(QFrame):
         self.loading_timer = None
         self.setMinimumWidth(190)
         self.setMinimumHeight(185)
-        self.setFixedHeight(232)
+        self.setFixedHeight(232 if is_live else 212)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMouseTracking(True)
@@ -981,14 +982,14 @@ class ChannelCard(QFrame):
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(4)
-        live = QLabel("• В ЭФИРЕ" if profile.get("is_live") else "• ОФЛАЙН")
-        live.setObjectName("liveBadge" if profile.get("is_live") else "offlineBadge")
+        live = QLabel("• В ЭФИРЕ" if is_live else "• ОФЛАЙН")
+        live.setObjectName("liveBadge" if is_live else "offlineBadge")
         live.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         live.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         top.addWidget(live, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         top.addStretch(1)
 
-        self.actions_panel = QFrame()
+        self.actions_panel = QFrame(self)
         self.actions_panel.setObjectName("channelActions")
         self.actions_panel.setFixedSize(90, 22)
         action_layout = QHBoxLayout(self.actions_panel)
@@ -1034,7 +1035,15 @@ class ChannelCard(QFrame):
         self.actions_opacity.setOpacity(0.0)
         self.actions_panel.setGraphicsEffect(self.actions_opacity)
         self.actions_panel.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        top.addWidget(self.actions_panel, 0, Qt.AlignmentFlag.AlignRight)
+        if loading:
+            activity_badge = QLabel("Загрузка...")
+            activity_badge.setObjectName("channelLoadingBadge")
+            activity_badge.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+            top.addWidget(activity_badge, 0, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.actions_panel.hide()
+        else:
+            self.actions_panel.show()
+            top.addWidget(self.actions_panel, 0, Qt.AlignmentFlag.AlignRight)
         root.addLayout(top)
 
         badges = QHBoxLayout()
@@ -1049,14 +1058,11 @@ class ChannelCard(QFrame):
             temporary_badge.setObjectName("temporaryBadge")
             badges.addWidget(temporary_badge)
         badges.addStretch(1)
-        if loading:
-            activity_badge = QLabel("Загрузка...")
-            activity_badge.setObjectName("channelLoadingBadge")
-        elif slot:
+        if not loading and slot:
             activity_badge = QLabel("СМОТРИМ")
             activity_badge.setObjectName("watchBadge")
             activity_badge.setToolTip("Активный слот просмотра: " + str(slot))
-        elif queued:
+        elif not loading and queued:
             activity_badge = QLabel("В очереди")
             activity_badge.setObjectName("channelQueueBadge")
             activity_badge.setToolTip("Канал в эфире и ожидает свободного слота просмотра.")
@@ -1110,11 +1116,14 @@ class ChannelCard(QFrame):
         balance_row.addStretch(1)
         root.addLayout(balance_row)
 
-        viewers = int(profile.get("viewer_count") or 0)
-        self.viewers = QLabel(f"{viewers:,}".replace(",", " ") + " зрителей" if profile.get("is_live") else "")
-        self.viewers.setObjectName("channelViewers")
-        self.viewers.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        root.addWidget(self.viewers)
+        if is_live:
+            viewers = int(profile.get("viewer_count") or 0)
+            self.viewers = QLabel(f"{viewers:,}".replace(",", " ") + " зрителей")
+            self.viewers.setObjectName("channelViewers")
+            self.viewers.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            root.addWidget(self.viewers)
+        else:
+            self.viewers = None
         root.addStretch(1)
 
         self.actions_opacity_animation = QPropertyAnimation(self.actions_opacity, b"opacity", self)
@@ -1962,7 +1971,6 @@ class MainWindow(QMainWindow):
         self._tutorial_step = -1
         self._tutorial_finish_pending = False
         self._welcome_login_pending = False
-        self._header_status_notice = None
         self._drop_reward_cache_data = self._load_drop_reward_cache()
         self._drop_reward_cache_account = ""
         self._drop_reward_processed_ids = set()
@@ -3633,21 +3641,9 @@ class MainWindow(QMainWindow):
             _log_ui_exception(context, error)
             return False
 
-    def _set_header_status_notice(self, message, color="#B596FF", seconds=4.0):
-        self._header_status_notice = (str(message or "")[:18], str(color), time.monotonic() + seconds)
-        self.title_bar.set_status(self._header_status_notice[0], self._header_status_notice[1])
-
     def _call(self, method, *args, message=""):
         function = getattr(self.api, method)
-        update_action = method in ("check_for_updates", "download_update")
-        if update_action:
-            label = "ПРОВЕРКА ОБНОВЛЕНИЙ" if method == "check_for_updates" else "ЗАГРУЗКА ОБНОВЛЕНИЯ"
-            self._set_header_status_notice(label, "#B596FF", 5.0)
         def completed(result, error):
-            if update_action:
-                if error or (isinstance(result, dict) and result.get("ok") is False):
-                    self._set_header_status_notice("ОШИБКА ОБНОВЛЕНИЯ", "#FF8294", 5.0)
-                return
             if not error and message:
                 self._notify(message)
             if not error and isinstance(result, dict) and result.get("message"):
@@ -3794,13 +3790,8 @@ class MainWindow(QMainWindow):
         state = self.latest_state if isinstance(self.latest_state, dict) else {}
         status = str(state.get("status_text") or "● НЕ ЗАПУЩЕН")
         color = str(state.get("status_color") or "#9BA3B4")
-        notice = self._header_status_notice
         try:
-            if notice and time.monotonic() < notice[2]:
-                self.title_bar.set_status(notice[0], notice[1])
-            else:
-                self._header_status_notice = None
-                self.title_bar.set_status(status, color)
+            self.title_bar.set_status(status, color)
             self.farm_status.setText(status)
             self.farm_status.setStyleSheet("color:" + color + ";")
             running = bool(state.get("session_running"))
@@ -4266,7 +4257,7 @@ class MainWindow(QMainWindow):
                     card = QLabel("@" + login + " · Ошибка отображения")
                     card.setObjectName("mutedText")
                     card.setMinimumHeight(72)
-                self.channels_grid.addWidget(card, index // columns, index % columns)
+                self.channels_grid.addWidget(card, index // columns, index % columns, Qt.AlignmentFlag.AlignTop)
             if not channels:
                 empty_text = "Список каналов пуст. Добавь первый Twitch-канал."
             elif not visible:
@@ -4278,13 +4269,16 @@ class MainWindow(QMainWindow):
                 empty.setObjectName("mutedText")
                 self.channels_grid.addWidget(empty, 0, 0)
             rows_count = (len(visible) + columns - 1) // columns if visible else 0
-            card_height = 232
+            row_heights = []
             row_spacing = max(0, self.channels_grid.verticalSpacing())
             for row in range(rows_count):
-                self.channels_grid.setRowMinimumHeight(row, card_height)
+                row_logins = visible[row * columns:(row + 1) * columns]
+                row_height = max((232 if bool((profiles.get(login) or {}).get("is_live")) else 212 for login in row_logins), default=212)
+                self.channels_grid.setRowMinimumHeight(row, row_height)
+                row_heights.append(row_height)
             self._channel_row_count = rows_count
             self.channels_grid.activate()
-            required_height = rows_count * card_height + max(0, rows_count - 1) * row_spacing + 8
+            required_height = sum(row_heights) + max(0, rows_count - 1) * row_spacing + 8
             if not rows_count:
                 required_height = max(56, self.channels_grid.sizeHint().height() + 8)
             self.channels_wrap.setMinimumHeight(max(required_height, self.channels_grid.sizeHint().height() + 8))
@@ -4798,19 +4792,6 @@ class MainWindow(QMainWindow):
             self.update_speed.setText(translate_text("Скачивание: {percent}% · {downloaded} / {total} МБ · {speed} МБ/с").format(percent=self.update_progress.value(), downloaded=f"{downloaded:.1f}", total=f"{total:.1f}", speed=f"{speed:.2f}"))
         else:
             self.update_speed.setText(str(state.get("error") or state.get("latest_version") or ""))
-        status_labels = {
-            "checking": ("ПРОВЕРКА ОБНОВЛЕНИЙ", "#B596FF"),
-            "downloading": ("ЗАГРУЗКА ОБНОВЛЕНИЯ", "#B596FF"),
-            "extracting": ("РАСПАКОВКА ОБНОВЛЕНИЯ", "#B596FF"),
-            "installing": ("УСТАНОВКА ОБНОВЛЕНИЯ", "#B596FF"),
-            "available": ("ЕСТЬ ОБНОВЛЕНИЕ", "#75D5A6"),
-            "downloaded": ("ОБНОВЛЕНИЕ ГОТОВО К ПРИМЕНЕНИЮ", "#75D5A6"),
-            "error": ("ОШИБКА ОБНОВЛЕНИЯ", "#FF8294"),
-        }
-        if phase in status_labels:
-            label, color = status_labels[phase]
-            self._set_header_status_notice(label, color, 2.0)
-
     def _download_update(self):
         phase = str((self.update_state or {}).get("phase") or "")
         if phase == "downloaded":
@@ -4944,9 +4925,6 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "toast"):
             return
         text_value = str(message)
-        if "обновлен" in text_value.lower():
-            self._set_header_status_notice(text_value.upper(), "#B596FF", 5.0)
-            return
         self.toast.setText(text_value)
         self._position_toast()
         self.toast.show()
@@ -4954,7 +4932,6 @@ class MainWindow(QMainWindow):
         self.toast_timer.start(3500)
 
     def _install_ready(self):
-        self._set_header_status_notice("ОБНОВЛЕНИЕ ГОТОВО", "#75D5A6", 8.0)
         QTimer.singleShot(400, self._quit_for_update)
 
     def _quit_for_update(self):
