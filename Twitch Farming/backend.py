@@ -1993,13 +1993,34 @@ class TwitchFarmingApi:
             str(item.get("login") or "").lower(): item
             for item in followed_profiles
         }
-        try:
-            live_followed = client.helix_get(
-                "streams",
-                [("user_login", login) for login in followed_by_login],
-            ) if followed_by_login else []
-        except Exception:
-            live_followed = []
+        additional_followed = []
+        for item in followed:
+            login = str(item.get("login") or "").strip().lower()
+            channel_id = str(item.get("channel_id") or "")
+            followed_game_id = str(item.get("game_id") or "")
+            if not login or login in followed_by_login or not item.get("is_live") or not channel_id:
+                continue
+            if game_id and followed_game_id != game_id:
+                continue
+            if allowed and channel_id not in allowed:
+                continue
+            additional_followed.append(dict(item))
+        additional_followed.sort(
+            key=lambda item: max(0, int(item.get("viewer_count") or 0)),
+            reverse=True,
+        )
+        for item in additional_followed:
+            followed_by_login[str(item.get("login") or "").lower()] = item
+        live_followed = []
+        followed_logins = list(followed_by_login)
+        for offset in range(0, len(followed_logins), 100):
+            batch = followed_logins[offset:offset + 100]
+            try:
+                live_followed.extend(
+                    client.helix_get("streams", [("user_login", login) for login in batch])
+                )
+            except Exception:
+                continue
         followed_rows = []
         for stream in live_followed if isinstance(live_followed, list) else []:
             if not isinstance(stream, dict):
