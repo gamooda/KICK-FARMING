@@ -264,12 +264,12 @@ class EngineWorker(threading.Thread):
         self.miner_lock = threading.RLock()
 
     def add_streamer(self, login, channel_id=None):
-        deadline = time.monotonic() + 25
+        deadline = time.monotonic() + 35
         while self.is_alive() and not self.stop_event.is_set():
             miner = self.miner
             if miner is not None:
                 try:
-                    ready = bool(miner.running and miner.twitch.twitch_login.get_auth_token())
+                    ready = bool(miner.running and miner.twitch.twitch_login.get_auth_token() and miner.streamer_topics_initialized)
                 except Exception:
                     ready = False
                 if ready:
@@ -278,6 +278,22 @@ class EngineWorker(threading.Thread):
                 break
             time.sleep(0.15)
         return {"ok": False, "message": "Фарм ещё подключается к Twitch. Повтори добавление через несколько секунд."}
+
+    def remove_streamer(self, login):
+        deadline = time.monotonic() + 35
+        while self.is_alive() and not self.stop_event.is_set():
+            miner = self.miner
+            if miner is not None:
+                try:
+                    ready = bool(miner.running and miner.streamer_topics_initialized)
+                except Exception:
+                    ready = False
+                if ready:
+                    return miner.remove_streamer(login)
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.15)
+        return {"ok": False, "message": "Майнер ещё запускается или уже останавливается."}
 
     def request_stop(self):
         self.stop_event.set()
@@ -939,6 +955,113 @@ class DropsInventoryWorker(threading.Thread):
         )
 
 
+def _drops_reward_received(drop):
+    if not isinstance(drop, dict):
+        return False
+    for key in ("claimed", "is_claimed", "isClaimed", "isRewardClaimed", "rewardClaimed"):
+        value = drop.get(key)
+        if isinstance(value, str):
+            if value.strip().lower() in ("1", "true", "yes", "on", "claimed", "success", "completed"):
+                return True
+        elif bool(value):
+            return True
+    for key in ("claimedAt", "claimed_at", "claimedDate", "claimed_date", "claimDate", "claim_date"):
+        if str(drop.get(key) or "").strip().lower() not in ("", "0", "false", "none", "null"):
+            return True
+    status = str(drop.get("status") or drop.get("claimStatus") or drop.get("claim_status") or "").strip().lower()
+    if status in ("claimed", "received", "success", "completed", "already_claimed"):
+        return True
+    try:
+        percentage = drop.get("percentage")
+        if percentage is not None and float(percentage) >= 100:
+            return True
+    except (TypeError, ValueError):
+        pass
+    watched = drop.get("watched_minutes", drop.get("current_minutes", drop.get("currentMinutes", 0)))
+    required = drop.get("required_minutes", drop.get("requiredMinutes", drop.get("duration_minutes", 0)))
+    try:
+        return int(float(required or 0)) > 0 and float(watched or 0) >= float(required or 0)
+    except (TypeError, ValueError):
+        return False
+
+
+def _drops_campaign_completed(campaign):
+    if not isinstance(campaign, dict):
+        return False
+    drops = campaign.get("drops") or campaign.get("timeBasedDrops") or []
+    if isinstance(drops, dict):
+        drops = drops.get("nodes") or drops.get("edges") or []
+        drops = [item.get("node", item) if isinstance(item, dict) else item for item in drops]
+    drops = [item for item in drops if isinstance(item, dict)]
+    return bool(drops) and all(_drops_reward_received(item) for item in drops)
+
+
+class DropsFocusWorker(threading.Thread):
+    def __init__(self, app):
+        super().__init__(name="TwitchDropsCampaignFocus", daemon=True)
+        self.app = app
+        self.stop_event = threading.Event()
+
+    def run(self):
+        next_inventory_refresh = 0.0
+        missing_refresh_at = 0.0
+        missing_refresh_count = 0
+        last_inventory_update = 0.0
+        while not self.stop_event.is_set():
+            with self.app.lock:
+                campaign_id = str(self.app.drops_focus_campaign_id or "")
+                current_login = str(self.app.drops_focus_login or "")
+                campaign = next(
+                    (
+                        dict(item) for item in self.app.drops_campaigns
+                        if str(item.get("id") or "") == campaign_id
+                    ),
+                    None,
+                ) if campaign_id else None
+                updated_at = float(self.app.drops_updated_at or 0)
+                drops_loading = bool(self.app.drops_loading)
+            if not campaign_id:
+                break
+            if campaign is None:
+                if updated_at > last_inventory_update and not drops_loading:
+                    last_inventory_update = updated_at
+                    missing_refresh_count += 1
+                if missing_refresh_count >= 2:
+                    self.app._finish_drops_campaign_focus(campaign_id, "Кампания больше не активна")
+                    break
+            else:
+                missing_refresh_count = 0
+                if _drops_campaign_completed(campaign):
+                    self.app._finish_drops_campaign_focus(campaign_id, "Все награды получены")
+                    break
+                if updated_at > last_inventory_update:
+                    last_inventory_update = updated_at
+            now = time.monotonic()
+            if now >= next_inventory_refresh and not drops_loading:
+                self.app.refresh_drops_inventory(True)
+                next_inventory_refresh = now + 90
+            if current_login and campaign is not None:
+                valid = self.app._validate_drops_focus_channel(campaign, current_login)
+                if valid is True:
+                    self.app._set_drops_focus_status(campaign_id, "Фармится")
+                    self.stop_event.wait(25)
+                    continue
+                if valid is None:
+                    self.stop_event.wait(10)
+                    continue
+            if campaign is not None:
+                candidate = self.app._find_drops_focus_candidate(campaign)
+                if candidate:
+                    result = self.app._assign_drops_focus_channel(campaign_id, candidate)
+                    if result.get("ok"):
+                        self.stop_event.wait(15)
+                        continue
+            self.app._set_drops_focus_status(campaign_id, "Ищем живого стримера с Drops…")
+            self.stop_event.wait(20)
+
+
+
+
 class TwitchFarmingApi:
     def __init__(self):
         self.lock = threading.RLock()
@@ -984,6 +1107,11 @@ class TwitchFarmingApi:
         self.followed_channels_event = threading.Event()
         self.drops_campaigns = []
         self.drops_catalog_streamers = {}
+        self.drops_focus_campaign_id = ""
+        self.drops_focus_campaign_name = ""
+        self.drops_focus_login = ""
+        self.drops_focus_status = ""
+        self.drops_focus_worker = None
         self.drops_loading = False
         self.drops_loaded = False
         self.drops_error = ""
@@ -1653,6 +1781,12 @@ class TwitchFarmingApi:
                 "followers_error": self.drops_followers_error,
                 "updated_at": self.drops_updated_at,
                 "active_campaigns": len(self.drops_campaigns),
+                "focus": {
+                    "campaign_id": self.drops_focus_campaign_id,
+                    "campaign_name": self.drops_focus_campaign_name,
+                    "login": self.drops_focus_login,
+                    "status": self.drops_focus_status,
+                } if self.drops_focus_campaign_id else {},
             }
 
     def finish_drops_worker(self, worker, request_id, campaigns, error="", followers_error="", catalog_streamers=None):
@@ -1673,6 +1807,351 @@ class TwitchFarmingApi:
                 }
                 self.drops_updated_at = time.time()
             self.drops_event.set()
+
+    def set_drops_campaign_focus(self, raw_campaign_id):
+        campaign_id = str(raw_campaign_id or "").strip()
+        if not campaign_id:
+            return {"ok": False, "message": "Кампания не найдена."}
+        with self.lock:
+            if self.drops_focus_campaign_id == campaign_id:
+                return self.clear_drops_campaign_focus()
+            if not self.authenticated or self.api_client is None:
+                return {"ok": False, "message": "Сначала подключи аккаунт Twitch."}
+            campaign = next(
+                (dict(item) for item in self.drops_campaigns if str(item.get("id") or "") == campaign_id),
+                None,
+            )
+            if campaign is None:
+                return {"ok": False, "message": "Кампания больше не найдена. Обнови инвентарь Drops."}
+            self.drops_focus_campaign_id = campaign_id
+            self.drops_focus_campaign_name = str(campaign.get("name") or campaign.get("game") or "Drops")
+            self.drops_focus_status = "Ищем живого стримера с Drops…"
+            worker = self.drops_focus_worker
+            if worker is None or not worker.is_alive():
+                worker = DropsFocusWorker(self)
+                self.drops_focus_worker = worker
+                start_worker = True
+            else:
+                start_worker = False
+        if start_worker:
+            worker.start()
+        self._append_event("Целевой Drops-фарм: " + self.drops_focus_campaign_name)
+        return {"ok": True, "message": "Целевой фарм кампании запущен."}
+
+    def clear_drops_campaign_focus(self):
+        with self.lock:
+            campaign_id = self.drops_focus_campaign_id
+            if not campaign_id:
+                return {"ok": True, "message": "Целевой фарм уже выключен."}
+            self.drops_focus_campaign_id = ""
+            self.drops_focus_campaign_name = ""
+            self.drops_focus_status = ""
+            worker = self.drops_focus_worker
+            self.drops_focus_worker = None
+            if worker is not None:
+                worker.stop_event.set()
+        self._remove_drops_focus_channel(campaign_id)
+        self._append_event("Целевой Drops-фокус снят.")
+        return {"ok": True, "message": "Фокус кампании снят."}
+
+    def _set_drops_focus_status(self, campaign_id, status):
+        with self.lock:
+            if self.drops_focus_campaign_id == str(campaign_id or ""):
+                self.drops_focus_status = str(status or "")
+
+    def _finish_drops_campaign_focus(self, campaign_id, reason):
+        with self.lock:
+            if self.drops_focus_campaign_id != str(campaign_id or ""):
+                return
+            self.drops_focus_campaign_id = ""
+            self.drops_focus_campaign_name = ""
+            self.drops_focus_status = ""
+            worker = self.drops_focus_worker
+            self.drops_focus_worker = None
+            if worker is not None:
+                worker.stop_event.set()
+        self._remove_drops_focus_channel(campaign_id)
+        self._append_event("Целевой Drops-фокус завершён · " + str(reason))
+
+    def _remove_drops_focus_channel(self, campaign_id=""):
+        with self.lock:
+            login = str(self.drops_focus_login or "")
+            self.drops_focus_login = ""
+            temporary_info = dict(self.temporary_channels.get(login) or {}) if login else {}
+            remove_from_list = bool(login and temporary_info.get("drops_focus"))
+            if remove_from_list:
+                self.temporary_channels.pop(login, None)
+                if login in self.channels:
+                    self.channels.remove(login)
+                self.online_channels.discard(login)
+                self.channel_profiles.pop(login, None)
+                self.channel_balances.pop(login, None)
+                self.channel_points_branding_cache.pop(login, None)
+                self.watch_status.pop(login, None)
+            engine = self.engine_worker
+            should_stop = bool(
+                remove_from_list
+                and self.session_running
+                and not self.channels
+                and engine is not None
+                and engine.is_alive()
+            )
+        if engine is not None and engine.is_alive() and login:
+            threading.Thread(
+                target=engine.remove_streamer,
+                args=(login,),
+                name="RemoveDropsFocusStreamer",
+                daemon=True,
+            ).start()
+        miner = getattr(engine, "miner", None) if engine is not None else None
+        twitch_client = getattr(miner, "twitch", None) if miner is not None else None
+        if twitch_client is not None:
+            twitch_client.drops_focus_login = ""
+        if should_stop:
+            engine.request_stop()
+
+    def _validate_drops_focus_channel(self, campaign, login):
+        with self.lock:
+            client = self.api_client if self.authenticated else None
+        if client is None:
+            return None
+        campaign_id = str(campaign.get("id") or "")
+        game_id = str(campaign.get("game_id") or "")
+        game_slug = str(campaign.get("game_slug") or "").strip().lower()
+        if not game_id or not game_slug:
+            game_info = client.get_game_info(game_id, str(campaign.get("game") or ""))
+            game_id = str(game_info.get("id") or game_id)
+            game_slug = str(game_info.get("slug") or game_slug)
+        try:
+            stream = client.get_stream_by_login(login)
+        except Exception:
+            return None
+        if not isinstance(stream, dict):
+            return False
+        if game_id and str(stream.get("game_id") or "") != game_id:
+            return False
+        try:
+            directory = client.get_drops_streams_for_game(game_slug, game_id, limit=30)
+            if any(
+                str(item.get("user_login") or "").lower() == str(login).lower()
+                and (not game_id or str(item.get("game_id") or game_id) == game_id)
+                for item in directory if isinstance(item, dict)
+            ):
+                return True
+            direct = client.get_drop_campaign_ids_for_channels([{
+                "login": login,
+                "channel_id": str(stream.get("user_id") or ""),
+            }])
+            return campaign_id in set(str(value) for value in direct.get(str(login).lower(), []))
+        except Exception:
+            return None
+
+    def _find_drops_focus_candidate(self, campaign):
+        with self.lock:
+            client = self.api_client if self.authenticated else None
+            followed = [dict(item) for item in self.followed_channels if isinstance(item, dict)]
+        if client is None:
+            return None
+        campaign_id = str(campaign.get("id") or "")
+        game_id = str(campaign.get("game_id") or "")
+        game_slug = str(campaign.get("game_slug") or "").strip().lower()
+        game_name = str(campaign.get("game") or "")
+        if not game_id or not game_slug:
+            try:
+                game_info = client.get_game_info(game_id, game_name)
+                game_id = str(game_info.get("id") or game_id)
+                game_slug = str(game_info.get("slug") or game_slug)
+            except Exception:
+                pass
+        if not game_slug:
+            return None
+        allowed = {str(value) for value in campaign.get("allowed_channel_ids") or []}
+        followed_profiles = [
+            dict(item) for item in campaign.get("streamers", [])
+            if isinstance(item, dict) and item.get("is_followed") and item.get("login")
+        ]
+        followed_by_login = {
+            str(item.get("login") or "").lower(): item
+            for item in followed_profiles
+        }
+        try:
+            live_followed = client.helix_get(
+                "streams",
+                [("user_login", login) for login in followed_by_login],
+            ) if followed_by_login else []
+        except Exception:
+            live_followed = []
+        followed_rows = []
+        for stream in live_followed if isinstance(live_followed, list) else []:
+            if not isinstance(stream, dict):
+                continue
+            login = str(stream.get("user_login") or "").lower()
+            channel_id = str(stream.get("user_id") or "")
+            if not login or not channel_id:
+                continue
+            if game_id and str(stream.get("game_id") or "") != game_id:
+                continue
+            if allowed and channel_id not in allowed:
+                continue
+            followed_rows.append({
+                "login": login,
+                "channel_id": channel_id,
+                "game_id": str(stream.get("game_id") or ""),
+                "game_name": str(stream.get("game_name") or game_name),
+                "viewer_count": max(0, int(stream.get("viewer_count") or 0)),
+                "started_at": str(stream.get("started_at") or ""),
+            })
+        active_followed_ids = {}
+        if followed_rows:
+            try:
+                active_followed_ids = client.get_drop_campaign_ids_for_channels(followed_rows)
+            except Exception:
+                active_followed_ids = {}
+        directory_by_login = {}
+        try:
+            directory = client.get_drops_streams_for_game(game_slug, game_id, limit=30)
+            for stream in directory if isinstance(directory, list) else []:
+                if not isinstance(stream, dict):
+                    continue
+                login = str(stream.get("user_login") or "").lower()
+                channel_id = str(stream.get("user_id") or "")
+                stream_game_id = str(stream.get("game_id") or game_id)
+                if not login or not channel_id or (game_id and stream_game_id != game_id):
+                    continue
+                if allowed and channel_id not in allowed:
+                    continue
+                directory_by_login[login] = dict(stream)
+        except Exception:
+            directory_by_login = {}
+        followed_rows_by_login = {item["login"]: item for item in followed_rows}
+        for login, profile in followed_by_login.items():
+            row = followed_rows_by_login.get(login)
+            if row is None:
+                continue
+            active = campaign_id in set(str(value) for value in active_followed_ids.get(login, []))
+            if not active and login not in directory_by_login:
+                continue
+            selected = dict(profile)
+            selected.update({
+                "login": login,
+                "channel_id": row["channel_id"],
+                "game_id": row["game_id"],
+                "game_name": row["game_name"],
+                "viewer_count": row["viewer_count"],
+                "is_live": True,
+                "is_followed": True,
+            })
+            return selected
+        catalog_rows = sorted(
+            directory_by_login.values(),
+            key=lambda item: max(0, int(item.get("viewer_count") or 0)),
+            reverse=True,
+        )
+        if not catalog_rows:
+            return None
+        selected = catalog_rows[0]
+        login = str(selected.get("user_login") or "").lower()
+        channel_id = str(selected.get("user_id") or "")
+        profile = {}
+        try:
+            users = client.helix_get("users", {"id": channel_id})
+            profile = users[0] if users and isinstance(users[0], dict) else {}
+        except Exception:
+            profile = {}
+        avatar = str(profile.get("profile_image_url") or "")
+        return {
+            "login": login,
+            "channel_id": channel_id,
+            "display_name": str(profile.get("display_name") or selected.get("user_name") or login),
+            "avatar_url": avatar if avatar.startswith("https://") else "",
+            "viewer_count": max(0, int(selected.get("viewer_count") or 0)),
+            "game_id": str(selected.get("game_id") or game_id),
+            "game_name": str(selected.get("game_name") or game_name),
+            "is_live": True,
+            "is_followed": False,
+        }
+
+    def _assign_drops_focus_channel(self, campaign_id, profile):
+        login = self.normalize_channel(profile.get("login"))
+        channel_id = str(profile.get("channel_id") or "")
+        if not login or not channel_id:
+            return {"ok": False, "message": "Twitch не вернул данные стримера."}
+        with self.lock:
+            if self.drops_focus_campaign_id != str(campaign_id or ""):
+                return {"ok": False, "message": "Фокус кампании уже изменён."}
+            old_login = str(self.drops_focus_login or "")
+            if old_login == login:
+                self.drops_focus_status = "Фармится"
+                return {"ok": True, "unchanged": True}
+            previous_focus_info = dict(self.temporary_channels.get(old_login) or {}) if old_login else {}
+            already_configured = login in self.channels and login not in self.temporary_channels
+            if login not in self.channels:
+                self.channels.append(login)
+            if not already_configured:
+                temp_info = dict(self.temporary_channels.get(login) or {})
+                temp_info.update({
+                    "campaign_id": str(campaign_id),
+                    "created_at": float(temp_info.get("created_at") or time.time()),
+                    "drops_focus": True,
+                })
+                self.temporary_channels[login] = temp_info
+            self.channel_profiles[login] = {
+                "loaded": True,
+                "display_name": str(profile.get("display_name") or login),
+                "avatar_url": str(profile.get("avatar_url") or ""),
+                "is_live": True,
+                "viewer_count": max(0, int(profile.get("viewer_count") or 0)),
+                "error": "",
+            }
+            self.online_channels.add(login)
+            engine = self.engine_worker
+            session_running = bool(self.session_running and engine is not None and engine.is_alive())
+        if session_running:
+            result = engine.add_streamer(login, channel_id)
+        else:
+            result = self.start_farm({})
+        if not result.get("ok"):
+            with self.lock:
+                info = self.temporary_channels.get(login) or {}
+                if info.get("drops_focus") and self.drops_focus_login != login:
+                    self.temporary_channels.pop(login, None)
+                    if login in self.channels:
+                        self.channels.remove(login)
+                    self.online_channels.discard(login)
+                    self.channel_profiles.pop(login, None)
+            return result
+        with self.lock:
+            if self.drops_focus_campaign_id != str(campaign_id or ""):
+                rollback = True
+            else:
+                rollback = False
+                self.drops_focus_login = login
+                self.drops_focus_status = "Фармится"
+                previous_focus_info = dict(self.temporary_channels.get(old_login) or {}) if old_login else {}
+                if old_login and old_login != login and previous_focus_info.get("drops_focus"):
+                    self.temporary_channels.pop(old_login, None)
+                    if old_login in self.channels:
+                        self.channels.remove(old_login)
+                    self.online_channels.discard(old_login)
+                    self.channel_profiles.pop(old_login, None)
+                    self.channel_balances.pop(old_login, None)
+                    self.watch_status.pop(old_login, None)
+        miner = getattr(engine, "miner", None) if engine is not None else None
+        twitch_client = getattr(miner, "twitch", None) if miner is not None else None
+        if twitch_client is not None and not rollback:
+            twitch_client.drops_focus_login = login
+        if old_login and old_login != login and previous_focus_info.get("drops_focus") and engine is not None:
+            threading.Thread(
+                target=engine.remove_streamer,
+                args=(old_login,),
+                name="ReplaceDropsFocusStreamer",
+                daemon=True,
+            ).start()
+        if rollback:
+            return {"ok": False, "message": "Фокус кампании уже снят."}
+        return {"ok": True, "message": "Целевой Drops-канал: @" + login}
+
+
 
     def add_drop_channel_to_farm(self, raw_login, campaign_id=""):
         login = self.normalize_channel(raw_login)
@@ -2027,6 +2506,14 @@ class TwitchFarmingApi:
                 return {"ok": False, "message": "Сбор не запущен."}
             self._set_status_locked("●  ОСТАНОВКА", "#F0B65A")
             self.session_started_at = 0.0
+            focus_worker = self.drops_focus_worker
+            if focus_worker is not None:
+                focus_worker.stop_event.set()
+            self.drops_focus_worker = None
+            self.drops_focus_campaign_id = ""
+            self.drops_focus_campaign_name = ""
+            self.drops_focus_login = ""
+            self.drops_focus_status = ""
         worker.request_stop()
         return {"ok": True, "message": "Остановка запрошена."}
 
@@ -2064,6 +2551,14 @@ class TwitchFarmingApi:
         self.session_running = False
         self.session_started_at = 0.0
         self.engine_worker = None
+        focus_worker = self.drops_focus_worker
+        if focus_worker is not None:
+            focus_worker.stop_event.set()
+        self.drops_focus_worker = None
+        self.drops_focus_campaign_id = ""
+        self.drops_focus_campaign_name = ""
+        self.drops_focus_login = ""
+        self.drops_focus_status = ""
         temporary = list(self.temporary_channels)
         for login in temporary:
             if login in self.channels:
@@ -2533,6 +3028,8 @@ class TwitchFarmingApi:
                 "logs": logs[-100:],
                 "next_log_id": self.next_log_id,
                 "drops_active_campaigns": len(self.drops_campaigns),
+                "drops_focus_login": self.drops_focus_login,
+                "drops_focus_campaign_id": self.drops_focus_campaign_id,
             }
 
     def get_log_snapshot(self):

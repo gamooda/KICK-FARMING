@@ -17,7 +17,7 @@ from TwitchChannelPointsMiner.classes.Settings import Settings
 from TwitchChannelPointsMiner.constants import GQLOperations
 
 sys.path.insert(0, str(ROOT / "Twitch Farming"))
-from backend import select_drops_streamers
+from backend import select_drops_streamers, _drops_campaign_completed, _drops_reward_received
 
 Settings.logger = SimpleNamespace(less=True)
 
@@ -253,6 +253,39 @@ assert [
     streamer.username
     for streamer in priority_watcher._select_minute_watched_streamers(priority_channels, 761)
 ] == ["first", "second"]
+
+focus_watcher = Twitch.__new__(Twitch)
+focus_watcher._watch_rotation_cursor = 0
+focus_watcher._watch_rotation_started_at = 0.0
+focus_watcher._watch_rotation_signature = None
+focus_watcher._watch_online_signature = ()
+focus_watcher.active_watch_channels = []
+focus_watcher.drops_focus_login = "focus_target"
+focus_channels = [
+    make_rotation_streamer("focus_target"),
+    make_rotation_streamer("other_drop", True),
+    make_rotation_streamer("ordinary"),
+]
+assert [
+    streamer.username
+    for streamer in focus_watcher._select_minute_watched_streamers(focus_channels, 100)
+] == ["focus_target", "other_drop"], "A selected campaign focus must reserve one watch slot ahead of other active Drops."
+focus_watcher.drops_focus_login = "offline_focus"
+assert [
+    streamer.username
+    for streamer in focus_watcher._select_minute_watched_streamers(focus_channels, 101)
+] == ["other_drop", "focus_target"], "An offline focus login must not block the normal Drops watch-slot selection."
+
+assert _drops_reward_received({"claimed": True})
+assert _drops_reward_received({"percentage": 100})
+assert _drops_reward_received({"watched_minutes": 60, "required_minutes": 60})
+assert not _drops_reward_received({"percentage": 99, "watched_minutes": 59, "required_minutes": 60})
+assert _drops_campaign_completed({"drops": [{"claimed": True}, {"percentage": 100}]})
+assert not _drops_campaign_completed({"drops": [{"claimed": True}, {"percentage": 99}]})
+assert not _drops_campaign_completed({"drops": []})
+
+
+
 streamer = make_streamer("example_channel")
 event = Twitch._build_minute_watched_event(streamer, "12345")
 assert event is not None and len(event) == 1
@@ -801,5 +834,9 @@ assert "campaigns_update = 0" in twitch_source and "requests.exceptions.RequestE
 assert "def get_drops_streams_for_game(" in twitch_source and '"systemFilters": ["DROPS_ENABLED"]' in twitch_source, "Twitch GameDirectory must be queried with the DROPS_ENABLED filter."
 assert claimed_drops["claimed-merge-drop"]["claimed"] is True, "Claimed drops must remain filtered after data-source merging."
 assert "def _drop_is_claimed(drop)" in (ROOT / "Twitch Farming" / "qt_app.py").read_text(encoding="utf-8"), "The Drops UI must detect claimed flags from all Twitch response shapes."
+assert "def set_drops_campaign_focus(" in backend_source and "def _find_drops_focus_candidate(" in backend_source and "def _validate_drops_focus_channel(" in backend_source, "The backend must provide a continuous campaign focus manager with live, category and Drops validation."
+assert "def remove_streamer(self, username):" in engine_source and "drops_focus_login" in twitch_source, "The active miner must support removing replaced temporary channels and pinning the focus streamer into one watch slot."
+qt_source = (ROOT / "Twitch Farming" / "qt_app.py").read_text(encoding="utf-8")
+assert "Фармить кампанию" in qt_source and "Фармится · Снять фокус" in qt_source and "drops_focus_banner" in qt_source, "Each Drops campaign card and the top inventory banner must expose selected campaign focus."
 
 print("Drops inventory merging, already-claimed reward filtering, GameDirectory category lookup, Helix pagination, campaign detail fallback and HLS tests passed.")

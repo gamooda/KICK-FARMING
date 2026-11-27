@@ -70,6 +70,7 @@ class Twitch(object):
         "_watch_rotation_signature",
         "_watch_online_signature",
         "active_watch_channels",
+        "drops_focus_login",
         "streamers_lock",
     ]
 
@@ -91,6 +92,7 @@ class Twitch(object):
         self._watch_rotation_signature = None
         self._watch_online_signature = ()
         self.active_watch_channels = []
+        self.drops_focus_login = ""
         self.streamers_lock = None
         # self.integrity = None
         # self.integrity_expire = 0
@@ -793,19 +795,26 @@ class Twitch(object):
             self._watch_rotation_signature = None
             return []
 
+        focus_login = str(getattr(self, "drops_focus_login", "") or "").lower()
         priority_streamer = next(
-            (
-                streamer
-                for streamer in online
-                if self._has_active_inventory_drop(streamer)
-            ),
+            (streamer for streamer in online if str(streamer.username).lower() == focus_login),
             None,
-        )
+        ) if focus_login else None
+        if priority_streamer is None:
+            priority_streamer = next(
+                (
+                    streamer
+                    for streamer in online
+                    if self._has_active_inventory_drop(streamer)
+                ),
+                None,
+            )
         rotating_streamers = [
             streamer for streamer in online if streamer is not priority_streamer
         ]
         rotating_slots = self.WATCH_SLOT_COUNT - int(priority_streamer is not None)
         signature = (
+            focus_login,
             str(priority_streamer.username).lower() if priority_streamer else "",
             tuple(str(streamer.username).lower() for streamer in rotating_streamers),
         )

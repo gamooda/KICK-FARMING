@@ -264,6 +264,40 @@ class TwitchChannelPointsMiner:
             logger.exception("Could not add Drops streamer %s", username)
             return {"ok": False, "message": str(error)[:240] or "Не удалось добавить канал."}
 
+    def remove_streamer(self, username):
+        username = str(username or "").strip().lower()
+        if not username:
+            return {"ok": False, "message": "Некорректный логин Twitch."}
+        with self.streamers_lock:
+            index = next(
+                (
+                    position for position, streamer in enumerate(self.streamers)
+                    if str(streamer.username).lower() == username
+                ),
+                -1,
+            )
+            if index < 0:
+                return {"ok": True, "unchanged": True}
+            streamer = self.streamers.pop(index)
+            if index < len(self.original_streamers):
+                self.original_streamers.pop(index)
+            self.twitch.active_watch_channels = [
+                login for login in self.twitch.active_watch_channels
+                if str(login).lower() != username
+            ]
+            if str(getattr(self.twitch, "drops_focus_login", "") or "").lower() == username:
+                self.twitch.drops_focus_login = ""
+        chat = getattr(streamer, "irc_chat", None)
+        if chat is not None:
+            try:
+                chat.stop()
+            except Exception:
+                logger.debug("Could not stop IRC chat for %s", username, exc_info=True)
+        logger.info("Удалён временный Drops-стример из активного фарма: %s", username)
+        return {"ok": True, "login": username}
+
+
+
     def mine(
         self,
         streamers: list = [],

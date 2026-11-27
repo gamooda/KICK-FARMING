@@ -1344,7 +1344,7 @@ class ElidedLabel(QLabel):
 
 
 class CampaignCard(QFrame):
-    def __init__(self, campaign, image_cache, add_callback, parent=None, add_enabled=True):
+    def __init__(self, campaign, image_cache, add_callback, parent=None, add_enabled=True, focus_callback=None, focused_campaign_id=""):
         super().__init__(parent)
         self.setObjectName("campaignCard")
         self.setMinimumWidth(220)
@@ -1395,6 +1395,16 @@ class CampaignCard(QFrame):
         watch_badge = QLabel("WATCH DROP")
         watch_badge.setObjectName("watchDropBadge")
         header.addWidget(watch_badge, 0, Qt.AlignmentFlag.AlignTop)
+        campaign_id = str(campaign.get("id") or "")
+        focused = bool(campaign_id and campaign_id == str(focused_campaign_id or ""))
+        focus_button = QPushButton("Фармится · Снять фокус" if focused else "Фармить кампанию")
+        focus_button.setObjectName("dropsFocusActiveButton" if focused else "dropsFocusButton")
+        focus_button.setFixedHeight(25)
+        focus_button.setMinimumWidth(0)
+        focus_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        focus_button.setEnabled(callable(focus_callback))
+        focus_button.clicked.connect(lambda checked=False, value=campaign_id: focus_callback(value) if callable(focus_callback) else None)
+        header.addWidget(focus_button, 0, Qt.AlignmentFlag.AlignTop)
         layout.addLayout(header)
 
         if image_cache and game_image_url:
@@ -1986,6 +1996,15 @@ class MainWindow(QMainWindow):
         QPushButton#dropAddButton { background:#211E2C; border:1px solid #383247; color:#D2CBE0; padding:4px 8px; border-radius:6px; font-size:10px; font-weight:700; }
         QPushButton#dropAddButton:hover { background:#2B263B; border-color:#7656A2; }
         QPushButton#dropAddButton:disabled { background:#181720; border-color:#282632; color:#696575; }
+        QPushButton#dropsFocusButton { background:#282039; border:1px solid #5C4380; color:#D8C1FF; padding:4px 7px; border-radius:6px; font-size:8px; font-weight:800; }
+        QPushButton#dropsFocusButton:hover { background:#38274F; border-color:#9667D7; }
+        QPushButton#dropsFocusActiveButton { background:#1D352D; border:1px solid #43866A; color:#9AE5C2; padding:4px 7px; border-radius:6px; font-size:8px; font-weight:900; }
+        QPushButton#dropsFocusActiveButton:hover { background:#284637; border-color:#67B18D; }
+        QFrame#dropsFocusBanner { background:#211B31; border:1px solid #6C4B9D; border-radius:9px; }
+        QLabel#dropsFocusCaption { color:#CDB0FF; font-size:8px; font-weight:900; }
+        QLabel#dropsFocusText { color:#EEE6FF; font-size:10px; font-weight:700; }
+        QPushButton#dropsFocusClearButton { background:#302345; border:1px solid #7655A5; color:#E1CFFF; padding:4px 9px; border-radius:6px; font-size:9px; font-weight:800; }
+        QPushButton#dropsFocusClearButton:hover { background:#3C2A55; border-color:#A278E3; }
         QProgressBar#dropProgressBar { background:#282238; border:0; border-radius:3px; }
         QProgressBar#dropProgressBar::chunk { background:#9660F2; border-radius:3px; }
         QPushButton#campaignStreamerToggle { background:#211C2D; border:1px solid #39304C; border-radius:7px; color:#CFC3E4; padding:7px 8px; text-align:left; font-size:9px; font-weight:700; }
@@ -2243,6 +2262,26 @@ class MainWindow(QMainWindow):
         updated_box.addWidget(self.drops_updated_label, 0, Qt.AlignmentFlag.AlignRight)
         summary_row.addLayout(updated_box)
         layout.addWidget(self.drops_summary)
+
+        self.drops_focus_banner = QFrame()
+        self.drops_focus_banner.setObjectName("dropsFocusBanner")
+        self.drops_focus_banner.setVisible(False)
+        focus_banner_row = QHBoxLayout(self.drops_focus_banner)
+        focus_banner_row.setContentsMargins(12, 8, 12, 8)
+        focus_banner_row.setSpacing(8)
+        self.drops_focus_caption = QLabel("ЦЕЛЕВОЙ ФАРМ")
+        self.drops_focus_caption.setObjectName("dropsFocusCaption")
+        focus_banner_row.addWidget(self.drops_focus_caption)
+        self.drops_focus_text = QLabel("")
+        self.drops_focus_text.setObjectName("dropsFocusText")
+        self.drops_focus_text.setWordWrap(False)
+        focus_banner_row.addWidget(self.drops_focus_text, 1)
+        self.drops_focus_clear = QPushButton("Снять фокус")
+        self.drops_focus_clear.setObjectName("dropsFocusClearButton")
+        self.drops_focus_clear.setFixedHeight(25)
+        self.drops_focus_clear.clicked.connect(lambda: self._call("clear_drops_campaign_focus", message="Фокус кампании снят."))
+        focus_banner_row.addWidget(self.drops_focus_clear)
+        layout.addWidget(self.drops_focus_banner)
 
         row = QHBoxLayout()
         self.drops_filter_index = 1
@@ -3193,6 +3232,9 @@ class MainWindow(QMainWindow):
             balances = balances if isinstance(balances, dict) else {}
             currency = currency if isinstance(currency, dict) else {}
             temporary = set(state.get("temporary_channels") or [])
+            focus_login = str(state.get("drops_focus_login") or "").lower()
+            if focus_login:
+                temporary.add(focus_login)
             watch = self._watch_slot_map()
             actions_enabled = not bool(state.get("session_running"))
             search = str(getattr(self, "channel_search_text", "") or "").strip().lower()
@@ -3556,12 +3598,29 @@ class MainWindow(QMainWindow):
         self.drops_updated_label.setText(updated_text)
 
         session_running = bool(self.latest_state.get("session_running"))
+        focus = self.drops_state.get("focus") if isinstance(self.drops_state.get("focus"), dict) else {}
+        focus_campaign_id = str(focus.get("campaign_id") or "")
+        focus_name = str(focus.get("campaign_name") or "")
+        focus_login = str(focus.get("login") or "")
+        focus_status = str(focus.get("status") or "")
+        focus_active = bool(focus_campaign_id)
+        self.drops_focus_banner.setVisible(focus_active)
+        if focus_active:
+            target_text = focus_name or "Drops"
+            if focus_login:
+                target_text += " · @" + focus_login
+            if focus_status:
+                target_text += " · " + focus_status
+            self.drops_focus_text.setText(target_text)
         signature = json.dumps([
             campaigns,
             self.drops_state.get("loading"),
             self.drops_state.get("error"),
             self.drops_state.get("updated_at"),
-            session_running
+            session_running,
+            focus_campaign_id,
+            focus_login,
+            focus_status
         ], sort_keys=True, ensure_ascii=False)
         if signature == self._last_campaign_signature:
             return
@@ -3584,10 +3643,20 @@ class MainWindow(QMainWindow):
             width = self.drops_scroll.viewport().width() if hasattr(self, "drops_scroll") else self.width() - 280
             card_width = max(220, min(440, int((max(1, width) - 24) // 3)))
             for index, campaign in enumerate(campaigns):
-                card = CampaignCard(campaign, self.image_cache, self._add_drop_streamer, add_enabled=not session_running)
+                card = CampaignCard(
+                    campaign,
+                    self.image_cache,
+                    self._add_drop_streamer,
+                    add_enabled=not session_running,
+                    focus_callback=self._toggle_drops_campaign_focus,
+                    focused_campaign_id=focus_campaign_id,
+                )
                 card.setFixedWidth(card_width)
                 self.drops_grid.addWidget(card, index // 3, index % 3)
 
+
+    def _toggle_drops_campaign_focus(self, campaign_id):
+        self._call("set_drops_campaign_focus", str(campaign_id or ""), message="Целевой фарм кампании запущен.")
 
     def _add_drop_streamer(self, login, campaign_id):
         if self.latest_state.get("session_running"):
