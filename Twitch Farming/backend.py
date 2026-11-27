@@ -1046,8 +1046,11 @@ class DropsFocusWorker(threading.Thread):
                 valid = self.app._validate_drops_focus_channel(campaign, current_login)
                 if valid is True:
                     self.app._set_drops_focus_status(campaign_id, "Фармится")
-                    self.stop_event.wait(25)
+                    self.stop_event.wait(20)
                     continue
+                if valid is False:
+                    self.app._remove_drops_focus_channel(campaign_id)
+                    current_login = ""
                 if valid is None:
                     self.stop_event.wait(10)
                     continue
@@ -1940,6 +1943,10 @@ class TwitchFarmingApi:
         if not isinstance(stream, dict):
             return False
         if game_id and str(stream.get("game_id") or "") != game_id:
+            return False
+        allowed = {str(value) for value in campaign.get("allowed_channel_ids") or []}
+        channel_id = str(stream.get("user_id") or "")
+        if allowed and channel_id not in allowed:
             return False
         try:
             directory = client.get_drops_streams_for_game(game_slug, game_id, limit=30)

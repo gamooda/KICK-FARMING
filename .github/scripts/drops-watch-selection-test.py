@@ -887,6 +887,7 @@ assert "def get_drops_streams_for_game(" in twitch_source and '"systemFilters": 
 assert claimed_drops["claimed-merge-drop"]["claimed"] is True, "Claimed drops must remain filtered after data-source merging."
 assert "def _drop_is_claimed(drop)" in (ROOT / "Twitch Farming" / "qt_app.py").read_text(encoding="utf-8"), "The Drops UI must detect claimed flags from all Twitch response shapes."
 assert "def set_drops_campaign_focus(" in backend_source and "def _find_drops_focus_candidate(" in backend_source and "def _validate_drops_focus_channel(" in backend_source, "The backend must provide a continuous campaign focus manager with live, category and Drops validation."
+assert "self.app._remove_drops_focus_channel(campaign_id)" in backend_source and "allowed_channel_ids" in backend_source, "The old temporary channel must be released immediately when it no longer matches the focused game or Drops eligibility."
 assert "def remove_streamer(self, username):" in engine_source and "drops_focus_login" in twitch_source, "The active miner must support removing replaced temporary channels and pinning the focus streamer into one watch slot."
 qt_source = (ROOT / "Twitch Farming" / "qt_app.py").read_text(encoding="utf-8")
 assert "Фармить кампанию" in qt_source and "Фармится · Снять фокус" in qt_source and "drops_focus_banner" in qt_source, "Each Drops campaign card and the top inventory banner must expose selected campaign focus."
