@@ -873,7 +873,7 @@ class ChannelCard(QFrame):
         move.setObjectName("cardAction")
         move.setSvgIcon("swap", 13)
         move.setFixedSize(21, 21)
-        move.setEnabled(bool(actions_enabled))
+        move.setEnabled(True)
         move.setToolTip("Переместить: выбери вторую карточку")
         move.clicked.connect(lambda checked=False, value=login: move_callback(value))
         action_layout.addWidget(move)
@@ -882,7 +882,7 @@ class ChannelCard(QFrame):
         edit.setObjectName("cardAction")
         edit.setSvgIcon("settings", 13)
         edit.setFixedSize(21, 21)
-        edit.setEnabled(bool(actions_enabled))
+        edit.setEnabled(True)
         edit.setToolTip("Редактировать канал")
         edit.clicked.connect(lambda checked=False, value=login: edit_callback(value))
         action_layout.addWidget(edit)
@@ -891,7 +891,7 @@ class ChannelCard(QFrame):
         remove.setObjectName("cardAction")
         remove.setSvgIcon("trash", 13, danger=True)
         remove.setFixedSize(21, 21)
-        remove.setEnabled(bool(actions_enabled))
+        remove.setEnabled(True)
         remove.setToolTip("Удалить канал")
         remove.clicked.connect(lambda checked=False, value=login: remove_callback(value))
         action_layout.addWidget(remove)
@@ -2982,7 +2982,8 @@ class MainWindow(QMainWindow):
                 json.dumps(state.get("watch_status") or {}, sort_keys=True),
                 tuple(state.get("watch_slots") or []),
                 tuple(state.get("temporary_channels") or []),
-                str(state.get("drops_focus_login") or "")
+                str(state.get("drops_focus_login") or ""),
+                bool(state.get("session_running"))
             )
         except Exception as error:
             _log_ui_exception("подготовка данных карточек каналов", error)
@@ -3304,7 +3305,7 @@ class MainWindow(QMainWindow):
             if focus_login:
                 temporary.add(focus_login)
             watch = self._watch_slot_map()
-            actions_enabled = not bool(state.get("session_running"))
+            actions_enabled = True
             search = str(getattr(self, "channel_search_text", "") or "").strip().lower()
             visible = []
             for item in channels:
@@ -3386,9 +3387,14 @@ class MainWindow(QMainWindow):
         self._render_channels()
 
 
+    def _channel_mutation_blocked(self, action):
+        if bool(self.latest_state.get("session_running")):
+            self._notify("Нельзя " + str(action) + " канал во время фарма. Сначала останови фарм.")
+            return True
+        return False
+
     def _select_channel(self, login):
-        if self.latest_state.get("session_running"):
-            self._notify("Останови фарм перед изменением порядка каналов.")
+        if self._channel_mutation_blocked("перемещать"):
             return
         if not self.selected_channel:
             self.selected_channel = login
@@ -3411,6 +3417,8 @@ class MainWindow(QMainWindow):
         self.selection_hint.setText("Выбери две карточки по очереди, чтобы поменять их местами.")
 
     def _remove_channel(self, login):
+        if self._channel_mutation_blocked("удалять"):
+            return
         self._show_dialog(
             "Удалить канал",
             "Удалить @" + login + " из списка?",
@@ -3420,8 +3428,7 @@ class MainWindow(QMainWindow):
         )
 
     def _edit_channel(self, login):
-        if self.latest_state.get("session_running"):
-            self._notify("Останови фарм перед изменением каналов.")
+        if self._channel_mutation_blocked("редактировать"):
             return
         self._show_dialog(
             "Редактировать канал",

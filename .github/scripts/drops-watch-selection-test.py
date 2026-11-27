@@ -1079,5 +1079,8 @@ assert '"channel_points_loaded"' in source_streamer and "channel_points_loaded =
 assert "streamer.channel_points = max(0, int(cached_branding.get(\"points\")))" in source_backend, "The last persisted points must be restored into Streamer before the first Twitch refresh."
 assert "logged_drop_rewards" in source_backend and "historical_drop_keys" in source_backend, "Already logged Drops must be restored from config and previous log history."
 assert "rotation_deadline" in source_qt and "До следующего круга:" in source_qt and "Все онлайн-каналы в слотах" in source_qt, "The active farm panel must display a live countdown or the all-slots-full state."
+assert "move.setEnabled(True)" in source_qt and "edit.setEnabled(True)" in source_qt and "remove.setEnabled(True)" in source_qt, "Channel action buttons must remain clickable while the farm is running."
+assert "bool(state.get(\"session_running\"))" in source_qt and "str(state.get(\"drops_focus_login\") or \"\")" in source_qt, "The channel card render signature must track farm state so stale card controls are refreshed."
+assert "def _channel_mutation_blocked(self, action):" in source_qt and "_channel_mutation_blocked(\"удалять\")" in source_qt and "_channel_mutation_blocked(\"редактировать\")" in source_qt and "_channel_mutation_blocked(\"перемещать\")" in source_qt, "Remove, edit and move clicks must show a blocking notification during farming instead of executing."
 
 print("Drops completion, target cleanup, persisted balances, live rotation countdown, reward deduplication, GameDirectory and HLS tests passed.")
