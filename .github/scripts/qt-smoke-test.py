@@ -7,6 +7,7 @@ APP = ROOT / "Twitch Farming"
 sys.path.insert(0, str(APP))
 
 from qt_app import _campaign_game_art_url, eligible_twitch_campaigns, eligible_watch_campaigns, started_watch_campaigns, format_duration, log_entry_matches_level
+from i18n import set_language, translate_text
 
 
 def check(condition, message):
@@ -105,6 +106,11 @@ check([item["id"] for item in started_only] == ["started", "inventory"], "The Dr
 
 check(format_duration(3660) == "1 ч 1 мин", "Stream uptime must be formatted.")
 check(format_duration(0) == "0 мин", "Zero uptime must be formatted.")
+set_language("en", persist=False)
+check(translate_text("Каналы") == "Channels", "English translations must load from the external locale file.")
+check(translate_text("Добавить канал") == "Add channel", "English button labels must be translated.")
+set_language("ru", persist=False)
+check(translate_text("Каналы") == "Каналы", "Russian translations must load from the external locale file.")
 
 backend = (APP / "backend.py").read_text(encoding="utf-8")
 qt = (APP / "qt_app.py").read_text(encoding="utf-8")
@@ -123,6 +129,7 @@ for required in (
     check(required in backend or required in (APP / "engine" / "TwitchChannelPointsMiner" / "classes" / "Twitch.py").read_text(encoding="utf-8"), "Backend feature missing: " + required)
 check("webview" not in backend.lower() and "pystray" not in backend.lower() and "clr_loader" not in backend.lower(), "The native backend still contains a legacy WebView or PyStray reference.")
 check("pyside6-essentials" in requirements, "PySide6-Essentials dependency is missing.")
+check((APP / "i18n.py").is_file() and (APP / "locales" / "ru.json").is_file() and (APP / "locales" / "en.json").is_file(), "External Russian and English locale files are required.")
 check("QMessageBox" not in qt and "QInputDialog" not in qt, "Native system dialogs must be replaced with in-window overlays.")
 check("events_output" not in qt, "The duplicate event-log text area must be removed.")
 check("followers_list" not in qt, "Follower cards must use the compact grid layout.")
@@ -146,8 +153,13 @@ check('setContentsMargins(10 if title == "Последние награды" els
 check('QLabel#slotAvatar, QLabel#miniAvatar { background:transparent; border:0;' in qt, "Slot and follower avatars must not have square frames.")
 check("in configured" in qt and 'QFrame#followerCard[added="true"]' in qt, "Added followers must be sorted and highlighted.")
 check("followerAddedButton" in qt and "followerAddButton" in qt, "Added and not-added follower buttons must be visually distinct.")
+check("add.setEnabled(not added)" in qt and "self._add_followed_channel(value)" in qt, "Follower add buttons must stay clickable during farming and use the farm guard.")
+check("def _change_language(self, language):" in qt and "self.title_bar.languageChanged.connect(self._change_language)" in qt and "self.settings_language_combo" in qt, "Language selection must be available in the title bar and settings.")
+check("add.setEnabled(not session_running and not added)" not in qt, "Follower add buttons must not be disabled solely during farming.")
 check("def log_entry_matches_level" in qt and "INFO / Важные" in qt, "Log filters must parse severity markers and default to INFO / Important.")
 check("def _set_header_status_notice" in qt and '_show_dialog("Обновление"' not in qt, "Update status must stay in the main titlebar.")
+check("def install_update(self):" in backend and 'phase="downloaded"' in backend and 'phase == "downloaded"' in qt, "Updater must split download preparation from applying the update.")
+check('Остановите фарм, чтобы применить обновление.' in qt and 'phase="downloaded"' in backend, "Applying the update must require a stopped farm while downloading can proceed.")
 
 check("events_output" not in qt, "The duplicate event-log text area must be removed.")
 check("followers_list" not in qt, "Follower cards must use the compact grid layout.")

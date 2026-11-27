@@ -16,9 +16,10 @@ from pathlib import Path
 from PySide6.QtCore import QByteArray, QEvent, QEasingCurve, QPoint, QPointF, QRect, QRectF, QPropertyAnimation, Property, QRunnable, QSize, Qt, QThreadPool, QTimer, Signal, QObject, QUrl
 from PySide6.QtGui import QAction, QColor, QCursor, QDesktopServices, QPainter, QPainterPath, QPen, QPolygonF, QPixmap, QIcon, QIconEngine
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QButtonGroup, QCheckBox, QComboBox as QtComboBox, QFrame, QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel as QtLabel, QLineEdit as QtLineEdit, QMainWindow, QMenu, QProgressBar, QPushButton as QtPushButton, QScrollArea, QScrollBar, QSizePolicy, QSlider, QStackedWidget, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget
 
 from backend import APP_DIR, APP_VERSION, DEFAULT_APP_SETTINGS, DEFAULT_BET_SETTINGS, DEFAULT_OPTIONS, FILTER_KEYS, ICON_FILE, OPTION_NAMES, STRATEGIES, TwitchFarmingApi
+from i18n import get_language, set_language, translate_text
 
 
 APP_TITLE = "Twitch Farming"
@@ -28,6 +29,108 @@ UI_ICON_ATLAS = RESOURCE_ROOT / "assets" / "ui_icons.png"
 UI_ICON_CELLS = {"logo": 0, "channels": 1, "drops": 2, "bonuses": 3, "rewards": 4, "predictions": 5, "irc": 6, "events": 7, "settings": 8}
 APP_ICON_FILE = RESOURCE_ROOT / "assets" / "app.ico"
 _INSTANCE_MUTEX_HANDLE = None
+
+
+class QLabel(QtLabel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._i18n_source_text = None
+        if args and isinstance(args[0], str):
+            self._i18n_source_text = args[0]
+            QtLabel.setText(self, translate_text(args[0]))
+
+    def setText(self, value):
+        self._i18n_source_text = str(value or "")
+        QtLabel.setText(self, translate_text(self._i18n_source_text))
+
+    def setToolTip(self, value):
+        self._i18n_source_tooltip = str(value or "")
+        QtLabel.setToolTip(self, translate_text(self._i18n_source_tooltip))
+
+
+class QLineEdit(QtLineEdit):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._i18n_source_text = None
+        if args and isinstance(args[0], str):
+            self._i18n_source_text = args[0]
+            QtLineEdit.setText(self, translate_text(args[0]))
+
+    def setText(self, value):
+        self._i18n_source_text = str(value or "")
+        QtLineEdit.setText(self, translate_text(self._i18n_source_text))
+
+    def setPlaceholderText(self, value):
+        self._i18n_source_placeholder = str(value or "")
+        QtLineEdit.setPlaceholderText(self, translate_text(self._i18n_source_placeholder))
+
+    def setToolTip(self, value):
+        self._i18n_source_tooltip = str(value or "")
+        QtLineEdit.setToolTip(self, translate_text(self._i18n_source_tooltip))
+
+
+class QComboBox(QtComboBox):
+    def __init__(self, *args, **kwargs):
+        self._i18n_item_sources = []
+        super().__init__(*args, **kwargs)
+
+    def addItem(self, *args, **kwargs):
+        values = list(args)
+        source = None
+        if values and isinstance(values[0], str):
+            source = values[0]
+            values[0] = translate_text(source)
+        elif len(values) > 1 and isinstance(values[1], str):
+            source = values[1]
+            values[1] = translate_text(source)
+        self._i18n_item_sources.append(source)
+        super().addItem(*values, **kwargs)
+
+    def addItems(self, values):
+        sources = [str(value) for value in values]
+        self._i18n_item_sources.extend(sources)
+        super().addItems([translate_text(value) for value in sources])
+
+    def insertItem(self, index, *args, **kwargs):
+        values = list(args)
+        source = None
+        if values and isinstance(values[0], str):
+            source = values[0]
+            values[0] = translate_text(source)
+        elif len(values) > 1 and isinstance(values[1], str):
+            source = values[1]
+            values[1] = translate_text(source)
+        self._i18n_item_sources.insert(index, source)
+        super().insertItem(index, *values, **kwargs)
+
+    def setItemText(self, index, value):
+        source = str(value or "")
+        while len(self._i18n_item_sources) <= index:
+            self._i18n_item_sources.append(None)
+        self._i18n_item_sources[index] = source
+        super().setItemText(index, translate_text(source))
+
+    def currentText(self):
+        index = self.currentIndex()
+        if 0 <= index < len(self._i18n_item_sources):
+            source = self._i18n_item_sources[index]
+            if source is not None:
+                return source
+        return super().currentText()
+
+    def findText(self, value, *args, **kwargs):
+        return super().findText(translate_text(str(value or "")), *args, **kwargs)
+
+    def setCurrentText(self, value):
+        super().setCurrentText(translate_text(str(value or "")))
+
+    def clear(self):
+        self._i18n_item_sources.clear()
+        super().clear()
+
+    def setToolTip(self, value):
+        self._i18n_source_tooltip = str(value or "")
+        QtComboBox.setToolTip(self, translate_text(self._i18n_source_tooltip))
 
 
 def acquire_single_instance():
@@ -231,6 +334,10 @@ def _svg_icon_pixmap(name, color, size, device_pixel_ratio=1.0):
 class QPushButton(QtPushButton):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._i18n_source_text = None
+        if args and isinstance(args[0], str):
+            self._i18n_source_text = args[0]
+            QtPushButton.setText(self, translate_text(args[0]))
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._svg_icon_name = ""
         self._svg_icon_size = 16
@@ -241,6 +348,14 @@ class QPushButton(QtPushButton):
         self._icon_animation_started = 0.0
         self._icon_animation_duration = 0.28
         self._ripple_waves = []
+
+    def setText(self, value):
+        self._i18n_source_text = str(value or "")
+        QtPushButton.setText(self, translate_text(self._i18n_source_text))
+
+    def setToolTip(self, value):
+        self._i18n_source_tooltip = str(value or "")
+        QtPushButton.setToolTip(self, translate_text(self._i18n_source_tooltip))
 
     def setObjectName(self, name):
         super().setObjectName(name)
@@ -686,6 +801,7 @@ class TitleBar(QFrame):
     maximizeRequested = Signal()
     closeRequested = Signal()
     searchChanged = Signal(str)
+    languageChanged = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -732,6 +848,13 @@ class TitleBar(QFrame):
         self.timer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.timer.setFixedHeight(24)
         row.addWidget(self.timer)
+        self.language_combo = QComboBox()
+        self.language_combo.addItem("RU", "ru")
+        self.language_combo.addItem("EN", "en")
+        self.language_combo.setFixedSize(54, 27)
+        self.language_combo.setToolTip("Язык интерфейса / Interface language")
+        self.language_combo.currentIndexChanged.connect(lambda index: self.languageChanged.emit(str(self.language_combo.itemData(index) or "ru")))
+        row.addWidget(self.language_combo)
         for icon_name, signal in (("minimize", self.minimizeRequested), ("maximize", self.maximizeRequested), ("close", self.closeRequested)):
             button = QPushButton()
             button.setObjectName("windowControl")
@@ -793,10 +916,15 @@ class TitleBar(QFrame):
 
 class SwitchCheckBox(QCheckBox):
     def __init__(self, text="", parent=None):
-        super().__init__(text, parent)
+        self._i18n_source_text = str(text or "")
+        super().__init__(translate_text(self._i18n_source_text), parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setMinimumHeight(28)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    def setText(self, value):
+        self._i18n_source_text = str(value or "")
+        super().setText(translate_text(self._i18n_source_text))
 
     def sizeHint(self):
         return QSize(self.fontMetrics().horizontalAdvance(self.text()) + 54, 30)
@@ -1235,8 +1363,8 @@ def format_duration(seconds):
     hours, remainder = divmod(seconds, 3600)
     minutes = remainder // 60
     if hours:
-        return f"{hours} ч {minutes} мин"
-    return f"{minutes} мин"
+        return translate_text("{hours} ч {minutes} мин").format(hours=hours, minutes=minutes)
+    return translate_text("{minutes} мин").format(minutes=minutes)
 
 
 def _log_entry_severity(line, fallback="INFO"):
@@ -1280,7 +1408,8 @@ def _format_campaign_date(campaign):
     if date_value is None:
         return "Дата окончания не указана"
     months = ("янв.", "фев.", "мар.", "апр.", "мая", "июн.", "июл.", "авг.", "сен.", "окт.", "ноя.", "дек.")
-    return f"Кампания до {date_value.day} {months[date_value.month - 1]} {date_value.year} г."
+    date_text = f"{date_value.day} {translate_text(months[date_value.month - 1])} {date_value.year}"
+    return translate_text("Кампания до {date}").format(date=date_text)
 
 
 def _campaign_game_art_url(campaign):
@@ -1703,6 +1832,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        set_language(get_language(), persist=False)
         self.setObjectName("mainWindow")
         self.setWindowTitle(APP_TITLE)
         if APP_ICON_FILE.is_file():
@@ -1754,6 +1884,7 @@ class MainWindow(QMainWindow):
                 self.nav_icons[name] = QIcon(self.ui_icon_atlas.copy((index % 3) * 48, (index // 3) * 48, 48, 48))
         self._build_ui()
         self._load_settings_defaults()
+        self._sync_language_selectors()
         self._setup_timers()
         self._setup_tray()
         self._run_task("startup", self.api._startup_tasks, (), self._startup_finished)
@@ -1775,6 +1906,7 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(1, 1, 1, 1)
         outer.setSpacing(0)
         self.title_bar = TitleBar()
+        self.title_bar.languageChanged.connect(self._change_language)
         self.title_bar.searchChanged.connect(self._search_channels)
         self.title_bar.minimizeRequested.connect(self.showMinimized)
         self.title_bar.maximizeRequested.connect(self._toggle_maximize)
@@ -2443,7 +2575,7 @@ class MainWindow(QMainWindow):
         self.update_check_button.setObjectName("primaryButton")
         self.update_check_button.clicked.connect(lambda: self._call("check_for_updates", message="Проверка GitHub Releases запущена."))
         update_actions.addWidget(self.update_check_button)
-        self.update_download_button = QPushButton("Скачать и обновить")
+        self.update_download_button = QPushButton("Установить")
         self.update_download_button.setSvgIcon("download", 15)
         self.update_download_button.setObjectName("primaryButton")
         self.update_download_button.setVisible(False)
@@ -2474,6 +2606,17 @@ class MainWindow(QMainWindow):
         options.layout().addLayout(checks_grid)
         grid.addWidget(options, 1, 0)
         app_settings = self._setting_panel("ПРИЛОЖЕНИЕ", "Поведение окна и локальный кэш.")
+        language_row = QHBoxLayout()
+        language_label = QLabel("Язык интерфейса")
+        language_label.setObjectName("statusHint")
+        language_row.addWidget(language_label, 1)
+        self.settings_language_combo = QComboBox()
+        self.settings_language_combo.addItem("Русский", "ru")
+        self.settings_language_combo.addItem("English", "en")
+        self.settings_language_combo.currentIndexChanged.connect(lambda index: self._change_language(str(self.settings_language_combo.itemData(index) or "ru")))
+        self.settings_language_combo.setMinimumWidth(110)
+        language_row.addWidget(self.settings_language_combo)
+        app_settings.layout().addLayout(language_row)
         self.app_setting_checks = {}
         app_labels = {
             "minimize_to_tray": "Сворачивать в трей",
@@ -2543,7 +2686,7 @@ class MainWindow(QMainWindow):
         self.bet_preset.setMinimumHeight(30)
         self.bet_preset.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self.bet_preset.addItem("Оптимальный")
-        self.bet_preset.currentTextChanged.connect(self._select_bet_preset)
+        self.bet_preset.currentIndexChanged.connect(lambda index: self._select_bet_preset(self.bet_preset.currentText()))
         preset_row.addWidget(self.bet_preset, 1)
         self.bet_preset_name = QLineEdit()
         self.bet_preset_name.setPlaceholderText("Название пресета")
@@ -2706,6 +2849,46 @@ class MainWindow(QMainWindow):
         panel.layout().addWidget(repository)
         layout.addWidget(panel)
         layout.addStretch()
+
+    def _sync_language_selectors(self):
+        language = get_language()
+        for combo in (getattr(self, "settings_language_combo", None), getattr(self.title_bar, "language_combo", None)):
+            if combo is None:
+                continue
+            combo.blockSignals(True)
+            index = combo.findData(language)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            combo.blockSignals(False)
+
+    def _change_language(self, language):
+        selected = set_language(language)
+        for widget in self.findChildren(QWidget):
+            source = getattr(widget, "_i18n_source_text", None)
+            if source is not None and isinstance(widget, (QLabel, QPushButton, SwitchCheckBox, QLineEdit)):
+                widget.setText(source)
+            tooltip = getattr(widget, "_i18n_source_tooltip", None)
+            if tooltip is not None and isinstance(widget, (QLabel, QPushButton, QLineEdit, QComboBox)):
+                widget.setToolTip(tooltip)
+            placeholder = getattr(widget, "_i18n_source_placeholder", None)
+            if placeholder is not None and isinstance(widget, QLineEdit):
+                widget.setPlaceholderText(placeholder)
+            if isinstance(widget, QComboBox):
+                for index, item_source in enumerate(widget._i18n_item_sources):
+                    if item_source is not None and index < widget.count():
+                        widget.setItemText(index, item_source)
+        self._sync_language_selectors()
+        self._last_channel_signature = None
+        self._last_campaign_signature = None
+        self._last_slot_signature = None
+        self._last_followed_signature = None
+        self._last_log_html = None
+        self._last_events_signature = None
+        self._last_reward_signature = None
+        self._last_preset_signature = None
+        if self.latest_state:
+            self._render_state()
+        self._notify(translate_text("Язык интерфейса изменён: {language}").format(language=translate_text("Русский") if selected == "ru" else "English"))
 
     def _load_settings_defaults(self):
         for key, check in self.option_checks.items():
@@ -3389,7 +3572,13 @@ class MainWindow(QMainWindow):
 
     def _channel_mutation_blocked(self, action):
         if bool(self.latest_state.get("session_running")):
-            self._notify("Нельзя " + str(action) + " канал во время фарма. Сначала останови фарм.")
+            messages = {
+                "перемещать": "Нельзя перемещать канал во время фарма. Сначала останови фарм.",
+                "удалять": "Нельзя удалять канал во время фарма. Сначала останови фарм.",
+                "редактировать": "Нельзя редактировать канал во время фарма. Сначала останови фарм.",
+                "добавлять": "Нельзя добавлять каналы во время фарма. Сначала останови фарм."
+            }
+            self._notify(messages.get(str(action), "Останови фарм перед изменением каналов."))
             return True
         return False
 
@@ -3439,8 +3628,7 @@ class MainWindow(QMainWindow):
         )
 
     def _add_channels(self):
-        if self.latest_state.get("session_running"):
-            self._notify("Останови фарм перед изменением каналов.")
+        if self._channel_mutation_blocked("добавлять"):
             return
         self._show_dialog(
             "Добавить каналы",
@@ -3808,9 +3996,9 @@ class MainWindow(QMainWindow):
             add.setObjectName("followerAddedButton" if added else "followerAddButton")
             add.setFixedWidth(82)
             add.setFixedHeight(27)
-            add.setEnabled(not session_running and not added)
-            add.setToolTip("Канал уже находится в списке." if added else ("Остановите фарм, чтобы изменить каналы." if session_running else "Добавить канал в список фарма"))
-            add.clicked.connect(lambda checked=False, value=login: self._call("add_followed_channel", value, message="Канал добавлен."))
+            add.setEnabled(not added)
+            add.setToolTip("Канал уже находится в списке." if added else ("Остановите фарм, чтобы добавить канал." if session_running else "Добавить канал в список фарма"))
+            add.clicked.connect(lambda checked=False, value=login: self._add_followed_channel(value))
             row.addWidget(add)
             self.followers_grid.addWidget(frame, index // 3, index % 3)
             self.image_cache.request(avatar, item.get("avatar_url", ""), True)
@@ -3831,10 +4019,17 @@ class MainWindow(QMainWindow):
             self._notify(str((result or {}).get("message") or "Кэш изображений очищен."))
         self._run_task(method, getattr(self.api, method), (), completed)
 
+    def _add_followed_channel(self, login):
+        if self._channel_mutation_blocked("добавлять"):
+            return
+        self._call("add_followed_channel", login, message="Канал добавлен.")
+
     def _add_followed(self):
         login = self.followed_input.text().strip()
         if login:
-            self._call("add_followed_channel", login, message="Канал добавлен.")
+            if self._channel_mutation_blocked("добавлять"):
+                return
+            self._add_followed_channel(login)
             self.followed_input.clear()
 
     def _render_update(self):
@@ -3842,12 +4037,15 @@ class MainWindow(QMainWindow):
             return
         state = self.update_state or {}
         phase = str(state.get("phase") or "idle")
-        self.update_version.setText("Текущая версия: v" + str(state.get("current_version") or APP_VERSION))
+        self.update_version.setText(translate_text("Текущая версия: v{version}").format(version=str(state.get("current_version") or APP_VERSION)))
         self.update_status.setText(str(state.get("status") or "Нажмите кнопку, чтобы проверить наличие новой версии на GitHub."))
-        self.update_check_button.setEnabled(phase not in ("checking", "downloading", "extracting", "installing"))
-        self.update_download_button.setVisible(bool(state.get("update_available")))
-        self.update_download_button.setEnabled(phase == "available")
-        progress_visible = phase in ("downloading", "extracting", "installing")
+        busy = phase in ("checking", "downloading", "extracting", "installing")
+        self.update_check_button.setEnabled(not busy and phase != "downloaded")
+        action_visible = phase in ("available", "downloading", "extracting", "downloaded", "installing")
+        self.update_download_button.setVisible(action_visible)
+        self.update_download_button.setText("Обновить" if phase == "downloaded" else "Установить")
+        self.update_download_button.setEnabled(phase in ("available", "downloaded"))
+        progress_visible = busy
         self.update_progress.setVisible(progress_visible)
         self.update_progress.setValue(max(0, min(100, int(float(state.get("percent") or 0)))))
         downloaded = int(state.get("downloaded_bytes") or 0) / (1024 * 1024)
@@ -3863,6 +4061,7 @@ class MainWindow(QMainWindow):
             "extracting": ("РАСПАКОВКА ОБНОВЛЕНИЯ", "#B596FF"),
             "installing": ("УСТАНОВКА ОБНОВЛЕНИЯ", "#B596FF"),
             "available": ("ЕСТЬ ОБНОВЛЕНИЕ", "#75D5A6"),
+            "downloaded": ("ОБНОВЛЕНИЕ ГОТОВО К ПРИМЕНЕНИЮ", "#75D5A6"),
             "error": ("ОШИБКА ОБНОВЛЕНИЯ", "#FF8294"),
         }
         if phase in status_labels:
@@ -3870,10 +4069,15 @@ class MainWindow(QMainWindow):
             self._set_header_status_notice(label, color, 2.0)
 
     def _download_update(self):
-        if self.latest_state.get("session_running"):
-            self._set_header_status_notice("ОСТАНОВИТЕ ФАРМ", "#F0C36B", 5.0)
+        phase = str((self.update_state or {}).get("phase") or "")
+        if phase == "downloaded":
+            if self.latest_state.get("session_running"):
+                self._notify("Остановите фарм, чтобы применить обновление.")
+                return
+            self._call("install_update", message="Применение обновления запущено.")
             return
-        self._call("download_update", message="Скачивание обновления запущено.")
+        if phase == "available":
+            self._call("download_update", message="Загрузка обновления запущена. Фарм можно не останавливать.")
 
     def _clear_logs(self):
         def completed(result, error):
@@ -3931,7 +4135,7 @@ class MainWindow(QMainWindow):
         minutes, seconds = divmod(remainder, 60)
         value = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
         self.title_bar.set_timer(value)
-        self.session_label.setText("Сессия: " + value)
+        self.session_label.setText(translate_text("Сессия: {clock}").format(clock=value))
 
     def _refresh_drops_inventory_if_stale(self):
         if not self.latest_state.get("authenticated") or self.drops_state.get("loading"):

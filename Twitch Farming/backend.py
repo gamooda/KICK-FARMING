@@ -1197,6 +1197,10 @@ class TwitchFarmingApi:
         self.pending_startup_debug = []
         self.update_lock = threading.RLock()
         self.update_worker = None
+        self.update_staging_dir = None
+        self.update_executable = None
+        self.update_install_dir = None
+        self.update_backup_dir = None
         self.update_install_callback = None
         self.update_state = {
             "phase": "idle",
@@ -2460,6 +2464,8 @@ class TwitchFarmingApi:
         if not login:
             return {"ok": False, "message": "Некорректный логин Twitch."}
         with self.lock:
+            if self.session_running:
+                return {"ok": False, "message": "Остановите фарм, чтобы добавить канал из фолловеров."}
             if login in self.channels:
                 return {"ok": True, "message": "Канал уже добавлен.", "unchanged": True}
             item = next((dict(row) for row in self.followed_channels if row.get("login") == login), None)
@@ -3391,9 +3397,6 @@ class TwitchFarmingApi:
             asset_url = str(self.update_state.get("asset_url") or "")
             if not self.update_state.get("update_available") or not asset_url:
                 return {"ok": False, "message": "Сначала проверь наличие новой версии."}
-        with self.lock:
-            if self.session_running or (self.engine_worker is not None and self.engine_worker.is_alive()):
-                return {"ok": False, "message": "Остановите фарм перед установкой обновления."}
         if not getattr(sys, "frozen", False):
             return {"ok": False, "message": "Автоматическое обновление доступно в собранной версии приложения."}
         worker = threading.Thread(
@@ -3417,7 +3420,6 @@ class TwitchFarmingApi:
 
     def _download_update_worker(self, asset_url):
         import shutil
-        import subprocess
         import tempfile
         import urllib.request
         import zipfile
@@ -3501,6 +3503,84 @@ class TwitchFarmingApi:
                 raise RuntimeError("В архиве не найден " + executable.name + ".")
             if not (staging_dir / "_internal").is_dir():
                 raise RuntimeError("В архиве отсутствует папка зависимостей _internal.")
+            with self.update_lock:
+                self.update_staging_dir = staging_dir
+                self.update_executable = executable
+                self.update_install_dir = install_dir
+                self.update_backup_dir = backup_dir
+            self._set_update_state(
+                phase="downloaded",
+                update_available=True,
+                percent=100.0,
+                downloaded_bytes=downloaded,
+                status="Обновление загружено и подготовлено. Нажмите «Обновить», чтобы применить его.",
+                error="",
+            )
+        except Exception as error:
+            if staging_dir is not None:
+                shutil.rmtree(staging_dir, ignore_errors=True)
+            self._set_update_state(
+                phase="error",
+                error=str(error) or error.__class__.__name__,
+                status="Не удалось установить обновление.",
+            )
+        finally:
+            try:
+                if archive_path is not None:
+                    archive_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def install_update(self):
+        with self.lock:
+            if self.session_running or (self.engine_worker is not None and self.engine_worker.is_alive()):
+                return {"ok": False, "message": "Остановите фарм и дождитесь его завершения перед применением обновления."}
+        with self.update_lock:
+            if self.update_worker is not None and self.update_worker.is_alive():
+                return {"ok": False, "message": "Операция обновления уже выполняется."}
+            staging_dir = self.update_staging_dir
+            executable = self.update_executable
+            install_dir = self.update_install_dir
+            backup_dir = self.update_backup_dir
+            if not staging_dir or not executable or not install_dir or not backup_dir:
+                return {"ok": False, "message": "Сначала нажмите «Установить» и дождитесь подготовки обновления."}
+            if not Path(staging_dir).is_dir() or not (Path(staging_dir) / "_internal").is_dir():
+                return {"ok": False, "message": "Подготовленные файлы обновления не найдены. Скачайте обновление повторно."}
+            worker = threading.Thread(
+                target=self._install_update_worker,
+                args=(str(staging_dir), str(executable), str(install_dir), str(backup_dir)),
+                name="GitHubUpdateInstall",
+                daemon=True,
+            )
+            self.update_worker = worker
+        self._set_update_state(
+            phase="installing",
+            percent=100.0,
+            status="Подготовка применения обновления…",
+            error="",
+        )
+        try:
+            worker.start()
+        except Exception as error:
+            self._set_update_state(
+                phase="downloaded",
+                error=str(error) or error.__class__.__name__,
+                status="Не удалось запустить применение обновления. Повторите попытку.",
+            )
+            return {"ok": False, "message": str(error)}
+        return {"ok": True, "installing": True}
+
+    def _install_update_worker(self, staging_dir, executable, install_dir, backup_dir):
+        import subprocess
+        import tempfile
+
+        executable = Path(executable)
+        install_dir = Path(install_dir)
+        install_parent = install_dir.parent
+        staging_dir = Path(staging_dir)
+        backup_dir = Path(backup_dir)
+        process_id = os.getpid()
+        try:
             quote_path = lambda value: str(value).replace('"', "")
             target_value = quote_path(install_dir)
             stage_value = quote_path(staging_dir)
@@ -3555,19 +3635,12 @@ class TwitchFarmingApi:
             if callable(callback):
                 callback()
         except Exception as error:
-            if staging_dir is not None:
-                shutil.rmtree(staging_dir, ignore_errors=True)
             self._set_update_state(
-                phase="error",
+                phase="downloaded",
                 error=str(error) or error.__class__.__name__,
-                status="Не удалось установить обновление.",
+                status="Не удалось запустить применение обновления. Файлы сохранены, можно повторить.",
             )
-        finally:
-            try:
-                if archive_path is not None:
-                    archive_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+
 
     def open_url(self, url):
         value = str(url or "")
