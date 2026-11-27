@@ -849,9 +849,11 @@ class TitleBar(QFrame):
         self.timer.setFixedHeight(24)
         row.addWidget(self.timer)
         self.language_combo = QComboBox()
+        self.language_combo.setObjectName("languageCombo")
         self.language_combo.addItem("RU", "ru")
         self.language_combo.addItem("EN", "en")
-        self.language_combo.setFixedSize(54, 27)
+        self.language_combo.setFixedSize(74, 28)
+        self.language_combo.setMinimumContentsLength(2)
         self.language_combo.setToolTip("Язык интерфейса / Interface language")
         self.language_combo.currentIndexChanged.connect(lambda index: self.languageChanged.emit(str(self.language_combo.itemData(index) or "ru")))
         row.addWidget(self.language_combo)
@@ -1827,6 +1829,48 @@ class ModalOverlay(QWidget):
         super().keyPressEvent(event)
 
 
+class TutorialOverlay(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.spotlights = []
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+    def set_spotlights(self, rects):
+        self.spotlights = [QRect(rect) for rect in rects if isinstance(rect, QRect)]
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRect(QRectF(self.rect()))
+        for rect in self.spotlights:
+            path.addRoundedRect(QRectF(rect), 12, 12)
+        path.setFillRule(Qt.FillRule.OddEvenFill)
+        painter.fillPath(path, QColor(5, 5, 12, 218))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for rect in self.spotlights:
+            painter.setPen(QPen(QColor("#B77CFF"), 3))
+            painter.drawRoundedRect(QRectF(rect), 12, 12)
+            inner = QRectF(rect).adjusted(3, 3, -3, -3)
+            painter.setPen(QPen(QColor(220, 196, 255, 115), 1))
+            painter.drawRoundedRect(inner, 9, 9)
+        painter.end()
+
+    def mousePressEvent(self, event):
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        event.accept()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class MainWindow(QMainWindow):
     installRequested = Signal()
 
@@ -1874,6 +1918,10 @@ class MainWindow(QMainWindow):
         self._modal_overlay = None
         self._startup_restore_requested = False
         self._account_profile_request_user = ""
+        self._tutorial_active = False
+        self._tutorial_step = -1
+        self._tutorial_finish_pending = False
+        self._welcome_login_pending = False
         self._header_status_notice = None
         self.api.update_install_callback = self.installRequested.emit
         self.installRequested.connect(self._install_ready)
@@ -1989,6 +2037,9 @@ class MainWindow(QMainWindow):
         self._build_about_page()
         self._navigate(0)
         self._build_initialization_overlay(shell)
+        self._build_welcome_overlay(shell)
+        self._build_tutorial_overlay(shell)
+        QApplication.instance().installEventFilter(self)
         for widget_type in (QScrollBar, QLineEdit, QTextEdit, QComboBox):
             for widget in self.findChildren(widget_type):
                 widget.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
@@ -2043,6 +2094,300 @@ class MainWindow(QMainWindow):
         self.initialization_overlay.setGeometry(parent.rect())
         self.initialization_overlay.show()
         self.initialization_overlay.raise_()
+
+    def _build_welcome_overlay(self, parent):
+        self.welcome_overlay = QFrame(parent)
+        self.welcome_overlay.setObjectName("firstRunOverlay")
+        self.welcome_overlay.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        outer = QVBoxLayout(self.welcome_overlay)
+        outer.setContentsMargins(24, 24, 24, 24)
+        outer.addStretch()
+        row = QHBoxLayout()
+        row.addStretch()
+        card = QFrame()
+        card.setObjectName("firstRunCard")
+        card.setMinimumWidth(360)
+        card.setMaximumWidth(470)
+        box = QVBoxLayout(card)
+        box.setContentsMargins(28, 25, 28, 24)
+        box.setSpacing(13)
+        logo = TwitchLogo()
+        box.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
+        title = QLabel("Добро пожаловать в Twitch Farming")
+        title.setObjectName("firstRunTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setWordWrap(True)
+        box.addWidget(title)
+        description = QLabel("Подключи аккаунт Twitch, чтобы собирать Channel Points, Drops и автоматически следить за нужными стримерами.")
+        description.setObjectName("firstRunDescription")
+        description.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        description.setWordWrap(True)
+        box.addWidget(description)
+        language_row = QHBoxLayout()
+        language_label = QLabel("Язык интерфейса")
+        language_label.setObjectName("statusHint")
+        language_row.addWidget(language_label, 1)
+        self.welcome_language_combo = QComboBox()
+        self.welcome_language_combo.setObjectName("welcomeLanguage")
+        self.welcome_language_combo.addItem("Русский", "ru")
+        self.welcome_language_combo.addItem("English", "en")
+        self.welcome_language_combo.setMinimumWidth(130)
+        self.welcome_language_combo.currentIndexChanged.connect(
+            lambda index: self._change_language(str(self.welcome_language_combo.itemData(index) or "ru"))
+        )
+        language_row.addWidget(self.welcome_language_combo)
+        box.addLayout(language_row)
+        self.welcome_username = QLineEdit()
+        self.welcome_username.setObjectName("welcomeUsername")
+        self.welcome_username.setPlaceholderText("Логин Twitch")
+        self.welcome_username.setFixedHeight(38)
+        box.addWidget(self.welcome_username)
+        self.welcome_login_button = QPushButton("Войти через Twitch")
+        self.welcome_login_button.setObjectName("primaryButton")
+        self.welcome_login_button.setSvgIcon("login", 16)
+        self.welcome_login_button.setFixedHeight(40)
+        self.welcome_login_button.clicked.connect(self._welcome_login)
+        box.addWidget(self.welcome_login_button)
+        self.welcome_status = QLabel("После нажатия откроется окно подтверждения входа на сайте Twitch.")
+        self.welcome_status.setObjectName("firstRunStatus")
+        self.welcome_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.welcome_status.setWordWrap(True)
+        box.addWidget(self.welcome_status)
+        row.addWidget(card, 0, Qt.AlignmentFlag.AlignCenter)
+        row.addStretch()
+        outer.addLayout(row)
+        outer.addStretch()
+        self.welcome_overlay.setGeometry(parent.rect())
+        self.welcome_overlay.hide()
+
+    def _build_tutorial_overlay(self, parent):
+        self.tutorial_overlay = TutorialOverlay(parent)
+        self.tutorial_overlay.setObjectName("tutorialOverlay")
+        outer = QVBoxLayout(self.tutorial_overlay)
+        outer.setContentsMargins(20, 20, 20, 18)
+        outer.addStretch()
+        row = QHBoxLayout()
+        row.addStretch()
+        self.tutorial_card = QFrame()
+        self.tutorial_card.setObjectName("tutorialCard")
+        self.tutorial_card.setMaximumWidth(570)
+        card_layout = QVBoxLayout(self.tutorial_card)
+        card_layout.setContentsMargins(20, 16, 20, 16)
+        card_layout.setSpacing(7)
+        header = QHBoxLayout()
+        eyebrow = QLabel("ИНТЕРАКТИВНОЕ ОБУЧЕНИЕ")
+        eyebrow.setObjectName("tutorialEyebrow")
+        header.addWidget(eyebrow)
+        header.addStretch()
+        self.tutorial_progress = QLabel("")
+        self.tutorial_progress.setObjectName("tutorialProgress")
+        header.addWidget(self.tutorial_progress)
+        card_layout.addLayout(header)
+        self.tutorial_title = QLabel("")
+        self.tutorial_title.setObjectName("tutorialTitle")
+        self.tutorial_title.setWordWrap(True)
+        card_layout.addWidget(self.tutorial_title)
+        self.tutorial_description = QLabel("")
+        self.tutorial_description.setObjectName("tutorialDescription")
+        self.tutorial_description.setWordWrap(True)
+        card_layout.addWidget(self.tutorial_description)
+        footer = QHBoxLayout()
+        footer.addStretch()
+        self.tutorial_next_button = QPushButton("Далее")
+        self.tutorial_next_button.setObjectName("primaryButton")
+        self.tutorial_next_button.setMinimumWidth(145)
+        self.tutorial_next_button.setFixedHeight(36)
+        self.tutorial_next_button.setSvgIcon("arrow-right", 14)
+        self.tutorial_next_button.clicked.connect(self._advance_tutorial)
+        footer.addWidget(self.tutorial_next_button)
+        card_layout.addLayout(footer)
+        row.addWidget(self.tutorial_card)
+        row.addStretch()
+        outer.addLayout(row)
+        self.tutorial_overlay.setGeometry(parent.rect())
+        self.tutorial_overlay.hide()
+
+    def _welcome_login(self):
+        username = self.welcome_username.text().strip()
+        if not username:
+            self.welcome_status.setText(translate_text("Сначала укажи Twitch-логин."))
+            self.welcome_username.setFocus()
+            return
+        if self._welcome_login_pending:
+            return
+        self._welcome_login_pending = True
+        self.welcome_login_button.setEnabled(False)
+        self.welcome_login_button.setText("Ожидаем подтверждения Twitch...")
+        self.welcome_status.setText("Открой окно браузера и подтверди вход в Twitch.")
+        def completed(result, error):
+            if error or not isinstance(result, dict) or not result.get("ok"):
+                self._welcome_login_pending = False
+                self.welcome_login_button.setEnabled(True)
+                self.welcome_login_button.setText("Войти через Twitch")
+                self.welcome_status.setText(str(error or (result or {}).get("message") or "Не удалось начать вход. Попробуй ещё раз."))
+            else:
+                self.welcome_status.setText("Открой окно браузера и подтверди вход в Twitch.")
+        self._run_task("welcome-login", self.api.login, (username,), completed)
+
+    def _update_welcome_status(self, auth):
+        worker_state = str(auth.get("worker_state") or "").lower()
+        waiting = bool(auth.get("worker_alive") or auth.get("restore_pending") or worker_state in ("restoring", "running"))
+        if waiting:
+            self._welcome_login_pending = True
+            self.welcome_login_button.setEnabled(False)
+            self.welcome_login_button.setText("Ожидаем подтверждения Twitch...")
+            self.welcome_status.setText(str(auth.get("auth_status") or "Подтверди вход в открывшемся окне браузера."))
+        else:
+            self._welcome_login_pending = False
+            self.welcome_login_button.setEnabled(True)
+            self.welcome_login_button.setText("Войти через Twitch")
+            error = str(auth.get("auth_error") or "")
+            self.welcome_status.setText(error if worker_state == "failed" and error else "После нажатия откроется окно подтверждения входа на сайте Twitch.")
+
+    def _update_first_run_gate(self, auth):
+        if not self._startup_restore_requested or not self._startup_snapshot_received:
+            return
+        auth = auth if isinstance(auth, dict) else {}
+        worker_state = str(auth.get("worker_state") or "").lower()
+        waiting = bool(auth.get("worker_alive") or auth.get("restore_pending") or worker_state in ("restoring", "running"))
+        if waiting:
+            return
+        self.initialization_overlay.hide()
+        if auth.get("authenticated"):
+            self.welcome_overlay.hide()
+            if not self.latest_state.get("tutorial_done"):
+                self._render_active_slots()
+                self._start_tutorial()
+            elif self._tutorial_active:
+                self._tutorial_active = False
+                self.tutorial_overlay.hide()
+        else:
+            if self._tutorial_active:
+                self._tutorial_active = False
+                self.tutorial_overlay.hide()
+            username = str(self.latest_state.get("username") or "")
+            if username and not self.welcome_username.text():
+                self.welcome_username.setText(username)
+            self._update_welcome_status(auth)
+            self.welcome_overlay.show()
+            self.welcome_overlay.raise_()
+
+    def _start_tutorial(self):
+        if self._tutorial_active or self.latest_state.get("tutorial_done"):
+            return
+        self._tutorial_active = True
+        self._tutorial_step = 0
+        self.welcome_overlay.hide()
+        self._show_tutorial_step()
+
+    def _show_tutorial_step(self):
+        steps = (
+            (0, "Добавление каналов", "Добавляй стримеров кнопкой «Добавить канал» или открой «Фолловеры» и добавляй каналы прямо из списка подписок."),
+            (0, "Два активных слота и ротация", "Одновременно приложение смотрит до двух стримеров. Когда наступает время смены, каналы автоматически ротируются по кругу на следующие доступные эфиры."),
+            (1, "Целевой фарм Drops", "Выбери кампанию и нажми «Фармить кампанию». Приложение будет подбирать подходящие эфиры и собирать награды именно этой кампании."),
+            (3, "Настройки автоматизации", "Включи автосбор Twitch Drops и моментов, переход по рейдам, а также настрой сворачивание в трей и автозапуск фарма."),
+            (4, "Автоставки на прогнозах", "Выбери стратегию автоставок, настрой лимиты и фильтры участников. Эти параметры будут использоваться при автоматическом участии в прогнозах."),
+            (0, "Готово к запуску", "Теперь ты знаешь основные разделы. Нажми «Запустить фарм» на вкладке «Каналы», чтобы начать сбор наград.")
+        )
+        if not 0 <= self._tutorial_step < len(steps):
+            return
+        page, title, description = steps[self._tutorial_step]
+        self._navigate(page)
+        self.tutorial_title.setText(title)
+        self.tutorial_description.setText(description)
+        self.tutorial_progress.setText(
+            translate_text("Шаг {current} из {total}").format(current=self._tutorial_step + 1, total=len(steps))
+        )
+        final_step = self._tutorial_step == len(steps) - 1
+        self.tutorial_next_button.setText("Начать работу" if final_step else "Далее")
+        self.tutorial_next_button.setSvgIcon("check" if final_step else "arrow-right", 14)
+        self.tutorial_overlay.setGeometry(self.centralWidget().rect())
+        self.tutorial_overlay.show()
+        self.tutorial_overlay.raise_()
+        self.tutorial_overlay.setFocus()
+        if self._tutorial_step == 3 and hasattr(self, "settings_scroll"):
+            target = self.app_setting_checks.get("auto_start_farm")
+            if target:
+                QTimer.singleShot(100, lambda widget=target: self.settings_scroll.ensureWidgetVisible(widget, 24, 24))
+        if self._tutorial_step == 4 and hasattr(self, "bets_scroll"):
+            QTimer.singleShot(100, lambda: self.bets_scroll.ensureWidgetVisible(self.bet_strategy, 24, 24))
+        QTimer.singleShot(180, self._update_tutorial_spotlights)
+        QTimer.singleShot(420, self._update_tutorial_spotlights)
+
+    def _tutorial_widget_rect(self, widget):
+        if widget is None:
+            return None
+        try:
+            if not widget.isVisible():
+                return None
+            point = widget.mapTo(self.tutorial_overlay, QPoint(0, 0))
+            rect = QRect(point, widget.size()).adjusted(-8, -8, 8, 8)
+            rect = rect.intersected(self.tutorial_overlay.rect())
+            return rect if rect.width() > 0 and rect.height() > 0 else None
+        except RuntimeError:
+            return None
+
+    def _update_tutorial_spotlights(self):
+        if not self._tutorial_active or not self.tutorial_overlay.isVisible():
+            return
+        targets = []
+        if self._tutorial_step == 0:
+            targets.extend((self.add_channel_button, self.nav_buttons[2]))
+        elif self._tutorial_step == 1:
+            targets.append(self.active_panel)
+        elif self._tutorial_step == 2:
+            cards = [
+                self.drops_grid.itemAt(index).widget()
+                for index in range(self.drops_grid.count())
+                if isinstance(self.drops_grid.itemAt(index).widget(), CampaignCard)
+            ]
+            if cards:
+                targets.append(cards[0])
+                focus_button = cards[0].findChild(QPushButton, "dropsFocusButton") or cards[0].findChild(QPushButton, "dropsFocusActiveButton")
+                if focus_button:
+                    targets.append(focus_button)
+            else:
+                targets.append(self.drops_scroll)
+        elif self._tutorial_step == 3:
+            for key in ("claim_drops", "claim_moments", "follow_raid"):
+                if key in self.option_checks:
+                    targets.append(self.option_checks[key])
+            for key in ("minimize_to_tray", "auto_start_farm"):
+                if key in self.app_setting_checks:
+                    targets.append(self.app_setting_checks[key])
+        elif self._tutorial_step == 4:
+            targets.append(self.bet_strategy.parentWidget())
+            targets.append(self.bet_strategy)
+        elif self._tutorial_step == 5:
+            targets.append(self.farm_button)
+        rects = [rect for rect in (self._tutorial_widget_rect(widget) for widget in targets) if rect is not None]
+        if not rects:
+            rect = self._tutorial_widget_rect(self.stack)
+            if rect is not None:
+                rects.append(rect)
+        self.tutorial_overlay.set_spotlights(rects)
+
+    def _advance_tutorial(self):
+        if not self._tutorial_active or self._tutorial_finish_pending:
+            return
+        if self._tutorial_step < 5:
+            self._tutorial_step += 1
+            self._show_tutorial_step()
+            return
+        self._tutorial_finish_pending = True
+        self.tutorial_next_button.setEnabled(False)
+        def completed(result, error):
+            self._tutorial_finish_pending = False
+            if error or not isinstance(result, dict) or not result.get("ok"):
+                self.tutorial_next_button.setEnabled(True)
+                self._notify(str(error or (result or {}).get("message") or "Не удалось сохранить завершение обучения."))
+                return
+            self.latest_state["tutorial_done"] = True
+            self._tutorial_active = False
+            self.tutorial_overlay.hide()
+            self._navigate(0)
+            self._poll_state()
+        self._run_task("finish-tutorial", self.api.finish_tutorial, (), completed)
 
     def _show_initialization_error(self, message):
         self.initialization_title.setText("Не удалось запустить приложение")
@@ -2178,6 +2523,20 @@ class MainWindow(QMainWindow):
         QPushButton#dangerButton { background:#3A202B; border:1px solid #673343; color:#FF9BA7; padding:6px 10px; border-radius:7px; font-size:10px; }
         QPushButton:focus { outline:none; border:none; }
         QLineEdit, QTextEdit, QComboBox { background:#11111A; border:1px solid #343143; border-radius:7px; padding:6px 8px; color:#F4F1F9; selection-background-color:#7142B7; font-size:11px; }
+        QComboBox#languageCombo { color:#E9E0F7; padding:4px 20px 4px 8px; font-size:10px; font-weight:900; }
+        QComboBox#languageCombo::drop-down { width:18px; }
+        QFrame#firstRunOverlay { background:rgba(8,8,14,248); border:0; }
+        QFrame#firstRunCard { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #211B31,stop:1 #151420); border:1px solid #6D4B9D; border-radius:18px; }
+        QLabel#firstRunTitle { color:#F7F2FF; font-size:21px; font-weight:900; }
+        QLabel#firstRunDescription { color:#C2B9D1; font-size:12px; }
+        QLabel#firstRunStatus { color:#A79DB7; font-size:10px; }
+        QComboBox#welcomeLanguage { min-height:32px; }
+        QFrame#tutorialCard { background:qlineargradient(x1:0,y1:0,x2:1,y2:1,stop:0 #241B35,stop:1 #15131F); border:1px solid #9467D4; border-radius:14px; }
+        QLabel#tutorialEyebrow { color:#B992FF; font-size:9px; font-weight:900; letter-spacing:1px; }
+        QLabel#tutorialProgress { color:#A99EB9; font-size:10px; font-weight:800; }
+        QLabel#tutorialTitle { color:#F8F3FF; font-size:17px; font-weight:900; }
+        QLabel#tutorialDescription { color:#C9C1D5; font-size:11px; }
+        QWidget#tutorialOverlay { background:transparent; }
         QLineEdit:focus, QTextEdit:focus, QComboBox:focus { border-color:#8750D9; background:#171522; }
         QComboBox { padding-right:24px; }
         QComboBox::drop-down { subcontrol-origin:padding; subcontrol-position:top right; width:22px; border:0; border-left:1px solid #302B40; }
@@ -2241,6 +2600,10 @@ class MainWindow(QMainWindow):
         page_layout.addWidget(scroll, 1)
         if title == "Инвентарь Drops":
             self.drops_scroll = scroll
+        elif title == "Настройки":
+            self.settings_scroll = scroll
+        elif title == "Настройки прогнозов":
+            self.bets_scroll = scroll
         self.stack.addWidget(page)
         return scroll_layout
 
@@ -2852,7 +3215,7 @@ class MainWindow(QMainWindow):
 
     def _sync_language_selectors(self):
         language = get_language()
-        for combo in (getattr(self, "settings_language_combo", None), getattr(self.title_bar, "language_combo", None)):
+        for combo in (getattr(self, "settings_language_combo", None), getattr(self.title_bar, "language_combo", None), getattr(self, "welcome_language_combo", None)):
             if combo is None:
                 continue
             combo.blockSignals(True)
@@ -2864,6 +3227,8 @@ class MainWindow(QMainWindow):
     def _change_language(self, language):
         selected = set_language(language)
         for widget in self.findChildren(QWidget):
+            if isinstance(widget, QLabel) and (widget.property("avatarUrl") or widget.property("imageUrl")):
+                continue
             source = getattr(widget, "_i18n_source_text", None)
             if source is not None and isinstance(widget, (QLabel, QPushButton, SwitchCheckBox, QLineEdit)):
                 widget.setText(source)
@@ -2888,6 +3253,8 @@ class MainWindow(QMainWindow):
         self._last_preset_signature = None
         if self.latest_state:
             self._render_state()
+        if self._tutorial_active:
+            QTimer.singleShot(80, self._update_tutorial_spotlights)
         self._notify(translate_text("Язык интерфейса изменён: {language}").format(language=translate_text("Русский") if selected == "ru" else "English"))
 
     def _load_settings_defaults(self):
@@ -3054,11 +3421,13 @@ class MainWindow(QMainWindow):
             self._call("refresh_drops_inventory", True)
         self._safe_ui_call("обновление аккаунта", self._update_account_identity, state.get("account_profile") or {}, auth)
         self._safe_ui_call("запрос профиля аккаунта", self._request_account_profile, state.get("account_profile") or {}, auth)
-        self._safe_ui_call("обновление состояния инициализации", self._update_initialization_state, auth)
+        self._safe_ui_call("контроль первого запуска", self._update_first_run_gate, auth)
         self._safe_ui_call("отрисовка основного состояния", self._render_state)
         self._safe_ui_call("отрисовка инвентаря Drops", self._render_drops)
         self._safe_ui_call("отрисовка подписок", self._render_followers)
         self._safe_ui_call("отрисовка обновления", self._render_update)
+        if self._tutorial_active:
+            QTimer.singleShot(60, self._update_tutorial_spotlights)
         self._safe_ui_call("обновление статуса аккаунта", self.account_status.setText, str(auth.get("auth_status") or ""))
         if auth.get("auth_error"):
             self.account_status.setToolTip(str(auth.get("auth_error")))
@@ -4225,6 +4594,9 @@ class MainWindow(QMainWindow):
         self.activateWindow()
 
     def _exit_from_tray(self):
+        if self._tutorial_active or (hasattr(self, "welcome_overlay") and self.welcome_overlay.isVisible()):
+            self._notify("Заверши вход и обязательное обучение, чтобы продолжить.")
+            return
         self._shutdown_and_exit()
 
     def _shutdown_and_exit(self):
@@ -4243,13 +4615,31 @@ class MainWindow(QMainWindow):
         if self._modal_overlay is not None:
             self._modal_overlay.setGeometry(parent.rect())
             self._modal_overlay.raise_()
+        if hasattr(self, "welcome_overlay"):
+            self.welcome_overlay.setGeometry(parent.rect())
+            if self.welcome_overlay.isVisible():
+                self.welcome_overlay.raise_()
+        if hasattr(self, "tutorial_overlay"):
+            self.tutorial_overlay.setGeometry(parent.rect())
+            if self.tutorial_overlay.isVisible():
+                self.tutorial_overlay.raise_()
         self._position_toast()
         if hasattr(self, "channels_grid"):
             QTimer.singleShot(0, self._update_channel_grid_columns)
         if hasattr(self, "drops_grid"):
             QTimer.singleShot(0, self._update_drops_card_widths)
 
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape:
+            if self._tutorial_active or (hasattr(self, "welcome_overlay") and self.welcome_overlay.isVisible()):
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
     def closeEvent(self, event):
+        if self._tutorial_active or (hasattr(self, "welcome_overlay") and self.welcome_overlay.isVisible()):
+            event.ignore()
+            return
         if self.latest_state.get("app_settings", {}).get("minimize_to_tray") and self.tray and self.tray.isVisible():
             self.hide()
             event.ignore()

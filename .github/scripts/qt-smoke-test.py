@@ -162,6 +162,16 @@ check("def _change_language(self, language):" in qt and "self.title_bar.language
 check("add.setEnabled(not session_running and not added)" not in qt, "Follower add buttons must not be disabled solely during farming.")
 check("def log_entry_matches_level" in qt and "INFO / Важные" in qt, "Log filters must parse severity markers and default to INFO / Important.")
 check("def _set_header_status_notice" in qt and '_show_dialog("Обновление"' not in qt, "Update status must stay in the main titlebar.")
+check("class TutorialOverlay(QWidget)" in qt and "def _build_tutorial_overlay(self, parent):" in qt, "The interactive spotlight tutorial overlay is required.")
+check("def _build_welcome_overlay(self, parent):" in qt and "Войти через Twitch" in qt, "Unauthenticated users must receive a Twitch welcome/login screen.")
+check("def _update_first_run_gate(self, auth):" in qt and "self._start_tutorial()" in qt, "Successful authentication must start the mandatory tutorial.")
+check("def _advance_tutorial(self):" in qt and "self.api.finish_tutorial" in qt, "Tutorial completion must use the existing persistent completion flag.")
+check("def eventFilter(self, watched, event):" in qt and "self._tutorial_active" in qt and "event.ignore()" in qt, "Escape and window closing must be blocked during onboarding.")
+check("QComboBox#languageCombo" in qt and "setFixedSize(74, 28)" in qt, "The RU/EN selector must be wide enough to show its value.")
+check('widget.property("avatarUrl") or widget.property("imageUrl")' in qt, "Language changes must preserve downloaded avatar images.")
+check("self.active_panel" in qt and "self.bet_strategy" in qt and "self.farm_button" in qt and "campaignFocusButton" in qt or "dropsFocusButton" in qt, "Tutorial must highlight the main farm, Drops, settings, and prediction targets.")
+check("Пропустить обучение" not in qt and "Пропустить" not in qt, "The mandatory tutorial must not expose a skip action.")
+
 check("def install_update(self):" in backend and 'phase="downloaded"' in backend and 'phase == "downloaded"' in qt, "Updater must split download preparation from applying the update.")
 check('Остановите фарм, чтобы применить обновление.' in qt and 'phase="downloaded"' in backend, "Applying the update must require a stopped farm while downloading can proceed.")
 
