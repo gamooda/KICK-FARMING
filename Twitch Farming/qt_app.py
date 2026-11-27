@@ -879,7 +879,7 @@ class TitleBar(QFrame):
             if marker in value.upper():
                 value = label
                 break
-        self.status.setText("● " + value[:18])
+        self.status.setText(translate_text("● {status}").format(status=value[:18]))
         self.status.setStyleSheet("color:" + str(color or "#A9A2B4"))
 
     def set_timer(self, value):
@@ -894,7 +894,7 @@ class TitleBar(QFrame):
             amount = max(0, int(value or 0))
         except (TypeError, ValueError):
             amount = 0
-        self.points.setText("+" + f"{amount:,}".replace(",", " ") + " очков")
+        self.points.setText(translate_text("+{points} очков").format(points=f"{amount:,}".replace(",", " ")))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -3282,7 +3282,7 @@ class MainWindow(QMainWindow):
         if self._rotation_mode == "rotating":
             remaining = max(0, int(math.ceil(self._rotation_deadline - time.monotonic())))
             minutes, seconds = divmod(remaining, 60)
-            text = f"До следующего круга: {minutes:02d}:{seconds:02d}"
+            text = translate_text("До следующего круга: {timer}").format(timer=f"{minutes:02d}:{seconds:02d}")
         elif self._rotation_mode == "all":
             text = "Все онлайн-каналы в слотах"
         elif self._rotation_mode == "pinned":
@@ -3426,7 +3426,7 @@ class MainWindow(QMainWindow):
         order.remove(login)
         position = max(0, min(int(slot_number) - 1, len(order)))
         order.insert(position, login)
-        self._call("reorder_channels", order, message="Приоритет слота " + str(slot_number) + " обновлён.")
+        self._call("reorder_channels", order, message=translate_text("Приоритет слота {number} обновлён.").format(number=slot_number))
 
     def _clear_slot_priority(self, slot_number, login):
         if self.latest_state.get("session_running"):
@@ -3437,7 +3437,7 @@ class MainWindow(QMainWindow):
             return
         order.remove(login)
         order.append(login)
-        self._call("reorder_channels", order, message="@" + login + " перемещён в конец очереди каналов.")
+        self._call("reorder_channels", order, message=translate_text("@{login} перемещён в конец очереди каналов.").format(login=login))
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -3587,7 +3587,7 @@ class MainWindow(QMainWindow):
             return
         if not self.selected_channel:
             self.selected_channel = login
-            self.selection_hint.setText("Выбран @" + login + ". Теперь выбери вторую карточку.")
+            self.selection_hint.setText(translate_text("Выбран @{login}. Теперь выбери вторую карточку.").format(login=login))
             self._render_channels()
             return
         if self.selected_channel == login:
@@ -3610,7 +3610,7 @@ class MainWindow(QMainWindow):
             return
         self._show_dialog(
             "Удалить канал",
-            "Удалить @" + login + " из списка?",
+            translate_text("Удалить @{login} из списка?").format(login=login),
             buttons=[("Отмена", False), ("Удалить", True)],
             danger=True,
             callback=lambda accepted, value: self._call("remove_channel", login, message="Канал удалён.") if accepted else None
@@ -3621,7 +3621,7 @@ class MainWindow(QMainWindow):
             return
         self._show_dialog(
             "Редактировать канал",
-            "Укажи новый Twitch-логин или ссылку для @" + login + ":",
+            translate_text("Укажи новый Twitch-логин или ссылку для @{login}:").format(login=login),
             input_mode="single",
             initial_value=login,
             callback=lambda accepted, value: self._call("save_channel_editor", "edit", login, value, [], message="Канал сохранён.") if accepted and value.strip() else None
@@ -3895,7 +3895,7 @@ class MainWindow(QMainWindow):
         elif self.drops_state.get("error"):
             self.drops_status.setText("Ошибка загрузки: " + str(self.drops_state.get("error")))
         else:
-            self.drops_status.setText(f"Найдено кампаний с наградами за просмотр: {len(campaigns)}")
+            self.drops_status.setText(translate_text("Найдено кампаний с наградами за просмотр: {count}").format(count=len(campaigns)))
 
         if not campaigns:
             empty = QLabel("Начатых кампаний с незабранными наградами пока нет.")

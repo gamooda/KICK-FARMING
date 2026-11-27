@@ -1,5 +1,6 @@
 import ast
 import sys
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -130,6 +131,9 @@ for required in (
 check("webview" not in backend.lower() and "pystray" not in backend.lower() and "clr_loader" not in backend.lower(), "The native backend still contains a legacy WebView or PyStray reference.")
 check("pyside6-essentials" in requirements, "PySide6-Essentials dependency is missing.")
 check((APP / "i18n.py").is_file() and (APP / "locales" / "ru.json").is_file() and (APP / "locales" / "en.json").is_file(), "External Russian and English locale files are required.")
+ru_locale = json.loads((APP / "locales" / "ru.json").read_text(encoding="utf-8"))
+en_locale = json.loads((APP / "locales" / "en.json").read_text(encoding="utf-8"))
+check(set(ru_locale.get("translations", {})) == set(en_locale.get("translations", {})), "Every Russian UI string must have an English translation entry.")
 check("QMessageBox" not in qt and "QInputDialog" not in qt, "Native system dialogs must be replaced with in-window overlays.")
 check("events_output" not in qt, "The duplicate event-log text area must be removed.")
 check("followers_list" not in qt, "Follower cards must use the compact grid layout.")
