@@ -1919,9 +1919,14 @@ class TwitchFarmingApi:
         game_id = str(campaign.get("game_id") or "")
         game_slug = str(campaign.get("game_slug") or "").strip().lower()
         if not game_id or not game_slug:
-            game_info = client.get_game_info(game_id, str(campaign.get("game") or ""))
-            game_id = str(game_info.get("id") or game_id)
-            game_slug = str(game_info.get("slug") or game_slug)
+            try:
+                game_info = client.get_game_info(game_id, str(campaign.get("game") or ""))
+                game_id = str(game_info.get("id") or game_id)
+                game_slug = str(game_info.get("slug") or game_slug)
+            except Exception:
+                return None
+        if not game_slug:
+            return None
         try:
             stream = client.get_stream_by_login(login)
         except Exception:
@@ -2089,10 +2094,11 @@ class TwitchFarmingApi:
                 self.channels.append(login)
             if not already_configured:
                 temp_info = dict(self.temporary_channels.get(login) or {})
+                was_temporary = bool(temp_info)
                 temp_info.update({
                     "campaign_id": str(campaign_id),
                     "created_at": float(temp_info.get("created_at") or time.time()),
-                    "drops_focus": True,
+                    "drops_focus": bool(temp_info.get("drops_focus")) or not was_temporary,
                 })
                 self.temporary_channels[login] = temp_info
             self.channel_profiles[login] = {
@@ -2120,6 +2126,9 @@ class TwitchFarmingApi:
                     self.online_channels.discard(login)
                     self.channel_profiles.pop(login, None)
             return result
+        if not session_running:
+            with self.lock:
+                engine = self.engine_worker
         with self.lock:
             if self.drops_focus_campaign_id != str(campaign_id or ""):
                 rollback = True
