@@ -1395,6 +1395,8 @@ class CampaignCard(QFrame):
         watch_badge = QLabel("WATCH DROP")
         watch_badge.setObjectName("watchDropBadge")
         header.addWidget(watch_badge, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(header)
+
         campaign_id = str(campaign.get("id") or "")
         focused = bool(campaign_id and campaign_id == str(focused_campaign_id or ""))
         focus_button = QPushButton("Фармится · Снять фокус" if focused else "Фармить кампанию")
@@ -1404,8 +1406,11 @@ class CampaignCard(QFrame):
         focus_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         focus_button.setEnabled(callable(focus_callback))
         focus_button.clicked.connect(lambda checked=False, value=campaign_id: focus_callback(value) if callable(focus_callback) else None)
-        header.addWidget(focus_button, 0, Qt.AlignmentFlag.AlignTop)
-        layout.addLayout(header)
+        focus_row = QHBoxLayout()
+        focus_row.setContentsMargins(0, -4, 0, 0)
+        focus_row.addStretch()
+        focus_row.addWidget(focus_button)
+        layout.addLayout(focus_row)
 
         if image_cache and game_image_url:
             image_cache.request(game_image, game_image_url, False, "game_art")
