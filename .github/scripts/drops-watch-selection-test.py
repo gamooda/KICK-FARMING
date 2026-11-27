@@ -15,6 +15,8 @@ from TwitchChannelPointsMiner.classes.Twitch import Twitch
 from TwitchChannelPointsMiner.classes.entities.Stream import Stream
 from TwitchChannelPointsMiner.classes.Settings import Settings
 from TwitchChannelPointsMiner.TwitchChannelPointsMiner import TwitchChannelPointsMiner
+from TwitchChannelPointsMiner.classes.WebSocketsPool import WebSocketsPool
+from TwitchChannelPointsMiner.classes.entities.PubsubTopic import PubsubTopic
 import threading
 from TwitchChannelPointsMiner.constants import GQLOperations
 
@@ -256,6 +258,23 @@ assert [
     for streamer in priority_watcher._select_minute_watched_streamers(priority_channels, 761)
 ] == ["first", "second"]
 
+
+
+unlisten_topic = PubsubTopic("video-playback-by-id", streamer=SimpleNamespace(channel_id="topic-channel"))
+unlisten_socket = SimpleNamespace(
+    topics=[unlisten_topic],
+    pending_topics=[],
+    is_opened=True,
+    send=lambda payload: unlisten_messages.append(payload),
+)
+unlisten_messages = []
+unlisten_pool = WebSocketsPool.__new__(WebSocketsPool)
+unlisten_pool.ws = [unlisten_socket]
+unlisten_pool.stop_event = threading.Event()
+unlisten_pool.unsubscribe(unlisten_topic)
+assert unlisten_socket.topics == [] and len(unlisten_messages) == 1
+assert unlisten_messages[0].get("type") == "UNLISTEN"
+assert unlisten_messages[0].get("data", {}).get("topics") == ["video-playback-by-id.topic-channel"]
 
 class FakeChat:
     def __init__(self):

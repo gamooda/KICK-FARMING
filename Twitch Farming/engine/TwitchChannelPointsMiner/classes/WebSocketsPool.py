@@ -65,10 +65,10 @@ class WebSocketsPool:
     def unsubscribe(self, topic):
         topic_name = str(topic)
         for ws in list(self.ws):
-            if topic_name not in ws.topics and topic_name not in ws.pending_topics:
+            if not any(str(item) == topic_name for item in ws.topics) and not any(str(item) == topic_name for item in ws.pending_topics):
                 continue
-            ws.topics = [item for item in ws.topics if item != topic_name]
-            ws.pending_topics = [item for item in ws.pending_topics if item != topic_name]
+            ws.topics = [item for item in ws.topics if str(item) != topic_name]
+            ws.pending_topics = [item for item in ws.pending_topics if str(item) != topic_name]
             if ws.is_opened and not self.stop_event.is_set():
                 ws.send({
                     "type": "UNLISTEN",

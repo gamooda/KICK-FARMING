@@ -2279,6 +2279,10 @@ class TwitchFarmingApi:
         with self.lock:
             if self.session_running:
                 return {"ok": False, "message": "Сначала останови фарм."}
+            focus_active = bool(self.drops_focus_campaign_id)
+        if focus_active:
+            self.clear_drops_campaign_focus()
+        with self.lock:
             username = self.authenticated_username or self.username
             client = self.api_client
         if username:
