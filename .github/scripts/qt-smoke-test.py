@@ -218,7 +218,8 @@ for marker in (
     "Signal",
     "QPropertyAnimation",
     "image_cache",
-    "Скачать и обновить",
+    "Установить",
+    "Обновить",
     "channelSlotBadge",
 ):
     check(marker in qt, "Native Qt interface feature is missing: " + marker)

@@ -2922,10 +2922,10 @@ class MainWindow(QMainWindow):
             return
         self.tray = QSystemTrayIcon(QIcon(str(ICON_FILE)), self)
         menu = QMenu()
-        show_action = QAction("Открыть Twitch Farming", self)
+        show_action = QAction(translate_text("Открыть Twitch Farming"), self)
         show_action.triggered.connect(self._restore_from_tray)
         menu.addAction(show_action)
-        exit_action = QAction("Выход", self)
+        exit_action = QAction(translate_text("Выход"), self)
         exit_action.triggered.connect(self._exit_from_tray)
         menu.addAction(exit_action)
         self.tray.setContextMenu(menu)
@@ -4052,7 +4052,7 @@ class MainWindow(QMainWindow):
         total = int(state.get("total_bytes") or 0) / (1024 * 1024)
         speed = float(state.get("speed_bps") or 0) / (1024 * 1024)
         if phase == "downloading":
-            self.update_speed.setText(f"Скачивание: {self.update_progress.value()}% · {downloaded:.1f} / {total:.1f} МБ · {speed:.2f} МБ/с")
+            self.update_speed.setText(translate_text("Скачивание: {percent}% · {downloaded} / {total} МБ · {speed} МБ/с").format(percent=self.update_progress.value(), downloaded=f"{downloaded:.1f}", total=f"{total:.1f}", speed=f"{speed:.2f}"))
         else:
             self.update_speed.setText(str(state.get("error") or state.get("latest_version") or ""))
         status_labels = {
