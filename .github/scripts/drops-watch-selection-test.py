@@ -21,7 +21,7 @@ import threading
 from TwitchChannelPointsMiner.constants import GQLOperations
 
 sys.path.insert(0, str(ROOT / "Twitch Farming"))
-from backend import select_drops_streamers, _drops_campaign_completed, _drops_reward_received, TwitchFarmingApi
+from backend import select_drops_streamers, _drops_campaign_completed, _drops_reward_received, _drops_reward_log_identity, TwitchFarmingApi
 from qt_app import _drop_is_claimed, eligible_watch_campaigns, started_watch_campaigns
 
 Settings.logger = SimpleNamespace(less=True)
@@ -971,4 +971,113 @@ assert remove_api.channels == ["permanent"] and "drops_temp" not in remove_api.t
 assert removed_from_miner == ["drops_temp"], "A completed focus streamer must also be removed from the active miner."
 assert remove_api.engine_worker.miner.twitch.drops_focus_login == "", "The miner's target priority must be cleared with the focus."
 
-print("Drops inventory completion filtering, focus cleanup, campaign selection, GameDirectory lookup, Helix pagination and HLS tests passed.")
+
+
+rotation_status_watcher = Twitch.__new__(Twitch)
+rotation_status_watcher._watch_rotation_cursor = 0
+rotation_status_watcher._watch_rotation_started_at = 0.0
+rotation_status_watcher._watch_rotation_signature = None
+rotation_status_watcher._watch_online_signature = ()
+rotation_status_watcher._watch_online_count = 0
+rotation_status_watcher._watch_rotation_available = False
+rotation_status_watcher._watch_all_online_in_slots = False
+rotation_status_watcher.active_watch_channels = []
+rotation_status_watcher.drops_focus_login = ""
+rotation_status_watcher._select_minute_watched_streamers(rotation_channels, 700.0)
+rotation_status = rotation_status_watcher.get_watch_rotation_state()
+assert rotation_status["can_rotate"] and rotation_status["online_count"] == len(rotation_channels)
+assert rotation_status["deadline_monotonic"] == 1030.0, "The UI timer deadline must match the engine's exact 330-second rotation interval."
+rotation_status_watcher._select_minute_watched_streamers(rotation_channels[:2], 800.0)
+rotation_status = rotation_status_watcher.get_watch_rotation_state()
+assert rotation_status["all_online_in_slots"] and not rotation_status["can_rotate"], "One or two online channels must be reported as already occupying all slots."
+
+balance_streamer = SimpleNamespace(
+    username="balance_channel",
+    channel_points=0,
+    channel_points_loaded=False,
+    channel_points_name="Channel Points",
+    channel_points_image="",
+    channel_points_branding_loaded=True,
+)
+balance_api = object.__new__(TwitchFarmingApi)
+balance_api.engine_worker = SimpleNamespace(
+    miner=SimpleNamespace(streamers_lock=threading.RLock(), streamers=[balance_streamer])
+)
+balance_api.channel_profiles = {}
+balance_api.channel_balances = {"balance_channel": {"login": "balance_channel", "points": 2450}}
+balance_api.channel_points_branding_cache = {"balance_channel": {"name": "Channel Points", "icon_url": "", "points": 2450}}
+balance_api.channels = ["balance_channel"]
+balance_api.rewards = []
+balance_saves = []
+balance_api._save_config = lambda silent=False: balance_saves.append(bool(silent)) or True
+_, restored_balances, _ = balance_api._refresh_channel_balances_locked()
+assert restored_balances["balance_channel"] == 2450, "An uninitialized streamer must not overwrite the last saved balance with zero."
+assert not balance_saves, "An unknown zero balance must not be persisted."
+balance_streamer.channel_points = 2710
+balance_streamer.channel_points_loaded = True
+_, refreshed_balances, _ = balance_api._refresh_channel_balances_locked()
+assert refreshed_balances["balance_channel"] == 2710
+assert balance_api.channel_points_branding_cache["balance_channel"]["points"] == 2710
+assert balance_saves == [True], "Every confirmed Twitch balance update must be silently persisted."
+
+config_api = object.__new__(TwitchFarmingApi)
+config_api.username = "test_user"
+config_api.channels = ["balance_channel", "temporary_channel"]
+config_api.temporary_channels = {"temporary_channel": {"created_at": 1}}
+config_api.channel_points_branding_cache = {"balance_channel": {"name": "Channel Points", "icon_url": "", "points": 2710}}
+config_api.logged_drop_rewards = ["reward identity"]
+config_api.options = {}
+config_api.app_settings = {}
+config_api.bet_settings = {}
+config_api.custom_presets = {}
+config_api.selected_preset = "Оптимальный"
+config_api.tutorial_done = False
+config_payload = config_api._config_data()
+assert config_payload["channel_points_branding"]["balance_channel"]["points"] == 2710
+assert "temporary_channel" not in config_payload["channel_points_branding"]
+assert config_payload["logged_drop_rewards"] == ["reward identity"]
+
+drop_log_api = object.__new__(TwitchFarmingApi)
+drop_log_api.lock = threading.RLock()
+drop_log_api.logged_drop_rewards = []
+drop_log_api.event_total = 0
+drop_log_api.events = []
+drop_log_api.rewards = []
+drop_log_api.channel_points_branding_cache = {}
+drop_log_api.reward = {}
+drop_events = []
+drop_rewards = []
+drop_saves = []
+drop_log_api._append_event_locked = lambda message: drop_events.append(message)
+drop_log_api._append_reward_locked = lambda *args: drop_rewards.append(args)
+drop_log_api._save_config = lambda silent=False: drop_saves.append(bool(silent)) or True
+drop_message = "Twitch Drop received: Marvel Rivals Emote (Rivals Reward) 240/240 (100%)"
+drop_log_api._handle_log(drop_message, "INFO", 100.0)
+drop_log_api._handle_log(drop_message, "INFO", 200.0)
+drop_log_api._handle_log("Twitch Drop received: Marvel Rivals Emote (Rivals Reward) 240/240 (100%)", "INFO", 300.0)
+assert len(drop_events) == len(drop_rewards) == drop_log_api.event_total == 1, "The same received Drop must only enter Events and Recent Rewards once."
+assert drop_saves == [True], "The received-drop deduplication key must be saved after the first event."
+assert _drops_reward_log_identity("Marvel Rivals Emote (Rivals Reward) 240/240 (100%)") == _drops_reward_log_identity("Marvel Rivals Emote (Rivals Reward) 60/60 (100%)"), "Progress text must not change a reward's deduplication identity."
+
+already_claimed_client = Twitch.__new__(Twitch)
+already_claimed_drop = SimpleNamespace(drop_instance_id="drop-instance-1")
+already_claimed_response = {"data": {"claimDropRewards": {"status": "DROP_INSTANCE_ALREADY_CLAIMED"}}}
+with (
+    patch.object(Twitch, "post_gql_request", return_value=already_claimed_response),
+    patch("TwitchChannelPointsMiner.classes.Twitch.logger.info") as drop_logger,
+):
+    already_claimed_result = already_claimed_client.claim_drop(already_claimed_drop)
+assert already_claimed_result is True
+assert not any("Twitch Drop received:" in str(call.args[0]) for call in drop_logger.call_args_list), "An already-claimed API response must not be logged as a new reward."
+
+source_ws = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "classes" / "WebSocketsPool.py").read_text(encoding="utf-8")
+source_backend = (ROOT / "Twitch Farming" / "backend.py").read_text(encoding="utf-8")
+source_streamer = (ROOT / "Twitch Farming" / "engine" / "TwitchChannelPointsMiner" / "classes" / "entities" / "Streamer.py").read_text(encoding="utf-8")
+source_qt = (ROOT / "Twitch Farming" / "qt_app.py").read_text(encoding="utf-8")
+assert "channel_points_loaded = True" in source_ws and "BALANCE_STATUS:" in source_ws, "PubSub earned/spent updates must immediately trigger balance persistence."
+assert '"channel_points_loaded"' in source_streamer and "channel_points_loaded = False" in source_streamer, "The engine must distinguish unknown initial balance from a confirmed zero."
+assert "streamer.channel_points = max(0, int(cached_branding.get(\"points\")))" in source_backend, "The last persisted points must be restored into Streamer before the first Twitch refresh."
+assert "logged_drop_rewards" in source_backend and "historical_drop_keys" in source_backend, "Already logged Drops must be restored from config and previous log history."
+assert "rotation_deadline" in source_qt and "До следующего круга:" in source_qt and "Все онлайн-каналы в слотах" in source_qt, "The active farm panel must display a live countdown or the all-slots-full state."
+
+print("Drops completion, target cleanup, persisted balances, live rotation countdown, reward deduplication, GameDirectory and HLS tests passed.")

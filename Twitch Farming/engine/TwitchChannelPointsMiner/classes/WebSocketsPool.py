@@ -257,6 +257,9 @@ class WebSocketsPool:
                         if message.type in ["points-earned", "points-spent"]:
                             balance = message.data["balance"]["balance"]
                             ws.streamers[streamer_index].channel_points = balance
+                            ws.streamers[streamer_index].channel_points_loaded = True
+                            if message.type == "points-spent":
+                                logger.debug(f"BALANCE_STATUS:{ws.streamers[streamer_index].username}")
                             # Analytics switch
                             if Settings.enable_analytics is True:
                                 ws.streamers[streamer_index].persistent_series(

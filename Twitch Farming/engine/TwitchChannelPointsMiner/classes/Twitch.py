@@ -69,6 +69,9 @@ class Twitch(object):
         "_watch_rotation_started_at",
         "_watch_rotation_signature",
         "_watch_online_signature",
+        "_watch_online_count",
+        "_watch_rotation_available",
+        "_watch_all_online_in_slots",
         "active_watch_channels",
         "drops_focus_login",
         "streamers_lock",
@@ -91,6 +94,9 @@ class Twitch(object):
         self._watch_rotation_started_at = 0.0
         self._watch_rotation_signature = None
         self._watch_online_signature = ()
+        self._watch_online_count = 0
+        self._watch_rotation_available = False
+        self._watch_all_online_in_slots = False
         self.active_watch_channels = []
         self.drops_focus_login = ""
         self.streamers_lock = None
@@ -793,6 +799,9 @@ class Twitch(object):
             self._watch_rotation_cursor = 0
             self._watch_rotation_started_at = current_time
             self._watch_rotation_signature = None
+            self._watch_online_count = 0
+            self._watch_rotation_available = False
+            self._watch_all_online_in_slots = False
             return []
 
         focus_login = str(getattr(self, "drops_focus_login", "") or "").lower()
@@ -824,6 +833,10 @@ class Twitch(object):
             streamer for streamer in online if streamer not in fixed_priorities
         ]
         rotating_slots = max(0, self.WATCH_SLOT_COUNT - len(fixed_priorities))
+        selected_capacity = len(fixed_priorities) + min(rotating_slots, len(rotating_streamers))
+        self._watch_online_count = len(online)
+        self._watch_rotation_available = bool(rotating_slots > 0 and len(rotating_streamers) > rotating_slots)
+        self._watch_all_online_in_slots = selected_capacity >= len(online)
         signature = (
             focus_login,
             tuple(str(streamer.username).lower() for streamer in fixed_priorities),
@@ -857,6 +870,15 @@ class Twitch(object):
 
     def get_active_watch_channels(self):
         return list(self.active_watch_channels)
+
+    def get_watch_rotation_state(self):
+        can_rotate = bool(self._watch_rotation_available)
+        return {
+            "online_count": max(0, int(self._watch_online_count)),
+            "can_rotate": can_rotate,
+            "all_online_in_slots": bool(self._watch_all_online_in_slots),
+            "deadline_monotonic": self._watch_rotation_started_at + self.WATCH_ROTATION_INTERVAL if can_rotate else 0.0,
+        }
 
     def _streamer_snapshot(self, streamers):
         lock = getattr(self, "streamers_lock", None)
@@ -1021,6 +1043,7 @@ class Twitch(object):
             channel = response["data"]["community"]["channel"]
             community_points = channel["self"]["communityPoints"]
             streamer.channel_points = community_points["balance"]
+            streamer.channel_points_loaded = True
             streamer.activeMultipliers = community_points["activeMultipliers"]
             if not streamer.channel_points_branding_loaded and not streamer.channel_points_branding_loading:
                 streamer.channel_points_branding_loading = True
@@ -2062,10 +2085,13 @@ class Twitch(object):
             elif ("errors" in response["data"]) and (response["data"]["errors"] != []):
                 return False
             elif ("claimDropRewards" in response["data"]) and (
-                response["data"]["claimDropRewards"]["status"]
-                in ["ELIGIBLE_FOR_ALL", "DROP_INSTANCE_ALREADY_CLAIMED"]
+                response["data"]["claimDropRewards"]["status"] == "ELIGIBLE_FOR_ALL"
             ):
                 logger.info(f"Twitch Drop received: {drop}")
+                return True
+            elif ("claimDropRewards" in response["data"]) and (
+                response["data"]["claimDropRewards"]["status"] == "DROP_INSTANCE_ALREADY_CLAIMED"
+            ):
                 return True
             else:
                 return False
@@ -2220,3 +2246,5 @@ class Twitch(object):
                 f"Contributed {amount} channel points to community goal '{title}'"
             )
             streamer.channel_points -= amount
+            streamer.channel_points_loaded = True
+            logger.debug(f"BALANCE_STATUS:{streamer.username}")

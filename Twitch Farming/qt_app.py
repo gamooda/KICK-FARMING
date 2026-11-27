@@ -1739,6 +1739,8 @@ class MainWindow(QMainWindow):
         self._last_reward_signature = None
         self._last_preset_signature = None
         self._active_panel_target = 0
+        self._rotation_deadline = 0.0
+        self._rotation_mode = "waiting"
         self._modal_overlay = None
         self._startup_restore_requested = False
         self._account_profile_request_user = ""
@@ -1959,6 +1961,7 @@ class MainWindow(QMainWindow):
         QLabel#pageSubtitle { color:#8E879F; font-size:11px; }
         QLabel#sectionTitle { color:#F2EDFF; font-size:14px; font-weight:800; }
         QLabel#sectionEyebrow { color:#B596FF; font-size:9px; font-weight:900; letter-spacing:1px; }
+        QLabel#rotationTimer { color:#AFA2C7; font-size:9px; font-weight:700; }
         QLabel#mutedText, QLabel#smallMuted { color:#918BA2; }
         QLabel#smallMuted { font-size:10px; }
         QLabel#statusHint { color:#A49DB3; font-size:10px; }
@@ -2151,9 +2154,18 @@ class MainWindow(QMainWindow):
         panel_layout = QVBoxLayout(self.active_panel)
         panel_layout.setContentsMargins(12, 9, 12, 9)
         panel_layout.setSpacing(5)
+        heading_row = QHBoxLayout()
+        heading_row.setSpacing(10)
         heading = QLabel("АКТИВНЫЙ ФАРМ СЕЙЧАС")
         heading.setObjectName("sectionEyebrow")
-        panel_layout.addWidget(heading)
+        heading_row.addWidget(heading)
+        heading_row.addStretch(1)
+        self.active_rotation_label = QLabel("")
+        self.active_rotation_label.setObjectName("rotationTimer")
+        self.active_rotation_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.active_rotation_label.hide()
+        heading_row.addWidget(self.active_rotation_label)
+        panel_layout.addLayout(heading_row)
         slots = QHBoxLayout()
         slots.setSpacing(8)
         self.slot_layout = slots
@@ -2713,6 +2725,7 @@ class MainWindow(QMainWindow):
         self.poll_timer.start(650)
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self._update_session_clock)
+        self.clock_timer.timeout.connect(self._update_rotation_timer)
         self.clock_timer.start(1000)
         self.drops_refresh_timer = QTimer(self)
         self.drops_refresh_timer.setInterval(60000)
@@ -3075,6 +3088,26 @@ class MainWindow(QMainWindow):
         if self._active_panel_target == 0:
             self.active_panel.setVisible(False)
 
+    def _update_rotation_timer(self):
+        if not hasattr(self, "active_rotation_label"):
+            return
+        if not self.latest_state.get("session_running"):
+            self.active_rotation_label.hide()
+            return
+        self.active_rotation_label.show()
+        if self._rotation_mode == "rotating":
+            remaining = max(0, int(math.ceil(self._rotation_deadline - time.monotonic())))
+            minutes, seconds = divmod(remaining, 60)
+            text = f"До следующего круга: {minutes:02d}:{seconds:02d}"
+        elif self._rotation_mode == "all":
+            text = "Все онлайн-каналы в слотах"
+        elif self._rotation_mode == "pinned":
+            text = "Слоты закреплены за Drops"
+        else:
+            text = "Ожидание онлайна"
+        if self.active_rotation_label.text() != text:
+            self.active_rotation_label.setText(text)
+
     def _render_active_slots(self):
         state = self.latest_state if isinstance(self.latest_state, dict) else {}
         auth = self.latest_auth_state if isinstance(self.latest_auth_state, dict) else {}
@@ -3098,6 +3131,17 @@ class MainWindow(QMainWindow):
         channels = state.get("channels") or []
         channels = [str(item).strip().lower() for item in channels if str(item).strip()]
         session_running = bool(state.get("session_running"))
+        rotation = state.get("watch_rotation") if isinstance(state.get("watch_rotation"), dict) else {}
+        self._rotation_deadline = float(rotation.get("deadline_monotonic") or 0.0)
+        if rotation.get("can_rotate") and self._rotation_deadline:
+            self._rotation_mode = "rotating"
+        elif rotation.get("all_online_in_slots"):
+            self._rotation_mode = "all"
+        elif int(rotation.get("online_count") or 0) > 0:
+            self._rotation_mode = "pinned"
+        else:
+            self._rotation_mode = "waiting"
+        self._update_rotation_timer()
         watch_map = self._watch_slot_map()
         profiles = state.get("channel_profiles", {})
         balances = state.get("channel_balances", {})

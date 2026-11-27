@@ -78,6 +78,7 @@ class Streamer(object):
         "online_at",
         "offline_at",
         "channel_points",
+        "channel_points_loaded",
         "channel_points_name",
         "channel_points_image",
         "channel_points_branding_loaded",
@@ -103,6 +104,7 @@ class Streamer(object):
         self.online_at = 0
         self.offline_at = 0
         self.channel_points = 0
+        self.channel_points_loaded = False
         self.channel_points_name = ""
         self.channel_points_image = ""
         self.channel_points_branding_loaded = False

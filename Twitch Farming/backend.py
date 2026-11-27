@@ -382,6 +382,12 @@ class EngineWorker(threading.Thread):
                     streamer.channel_points_name = str(cached_branding.get("name") or "")
                     streamer.channel_points_image = str(cached_branding.get("icon_url") or "")
                     streamer.channel_points_branding_loaded = True
+                    try:
+                        if cached_branding.get("points") is not None:
+                            streamer.channel_points = max(0, int(cached_branding.get("points")))
+                            streamer.channel_points_loaded = True
+                    except (TypeError, ValueError):
+                        pass
                 prepared_streamers.append(streamer)
             if self.stop_event.is_set():
                 miner.request_stop()
@@ -394,6 +400,11 @@ class EngineWorker(threading.Thread):
             self.app.enqueue_ui_state("engine_error", message=str(error) or error.__class__.__name__)
         finally:
             if miner is not None:
+                try:
+                    with self.app.lock:
+                        self.app._refresh_channel_balances_locked()
+                except Exception:
+                    logging.getLogger("twitch_farming.points").exception("Не удалось сохранить балансы перед остановкой майнера")
                 try:
                     miner.stop()
                 except BaseException as error:
@@ -1003,6 +1014,18 @@ def _drops_campaign_completed(campaign):
     return bool(drops) and all(_drops_reward_received(item) for item in drops)
 
 
+def _drops_reward_log_identity(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    identifier = re.search(r"\\bid\\s*=\\s*['\\\"]?([^, )'\\\"]+)", text, re.IGNORECASE)
+    if identifier:
+        return "id:" + identifier.group(1).strip().casefold()
+    text = re.sub(r"\\s+\\d+\\s*/\\s*\\d+\\s*\\(\\s*\\d+(?:\\.\\d+)?%\\s*\\)\\s*$", "", text)
+    text = re.sub(r"\\s+", " ", text).strip().casefold()
+    return text
+
+
 
 
 class DropsFocusWorker(threading.Thread):
@@ -1098,6 +1121,7 @@ class TwitchFarmingApi:
         self.channel_balances = {}
         self.channel_points_branding_cache = {}
         self.channel_points_branding_worker = None
+        self.logged_drop_rewards = []
         self.rewards = []
         self.online_channels = set()
         self.watch_status = {}
@@ -1318,6 +1342,11 @@ class TwitchFarmingApi:
         if isinstance(channels, str):
             channels = re.split(r"[\n,;]+", channels)
         self.channels = list(dict.fromkeys(self.normalize_channel(x) for x in channels if self.normalize_channel(x)))
+        stored_logged_drops = data.get("logged_drop_rewards", [])
+        self.logged_drop_rewards = list(dict.fromkeys(
+            str(item).strip() for item in stored_logged_drops
+            if str(item).strip()
+        ))[-1000:] if isinstance(stored_logged_drops, list) else []
         stored_branding = data.get("channel_points_branding", {})
         self.channel_points_branding_cache = {}
         if isinstance(stored_branding, dict):
@@ -1369,6 +1398,7 @@ class TwitchFarmingApi:
             "username": self.username,
             "channels": permanent_channels,
             "channel_points_branding": {key: dict(value) for key, value in self.channel_points_branding_cache.items() if key in permanent_channels},
+            "logged_drop_rewards": list(self.logged_drop_rewards[-1000:]),
             "settings": dict(self.options),
             "app_settings": dict(self.app_settings),
             "bet_settings": dict(self.bet_settings),
@@ -1378,11 +1408,12 @@ class TwitchFarmingApi:
             "ui_config_version": 2,
         }
 
-    def _save_config(self):
+    def _save_config(self, silent=False):
         try:
             APP_DIR.mkdir(parents=True, exist_ok=True)
             CONFIG_FILE.write_text(json.dumps(self._config_data(), ensure_ascii=False, indent=2), encoding="utf-8")
-            self._append_event("Настройки сохранены")
+            if not silent:
+                self._append_event("Настройки сохранены")
             return True
         except OSError as error:
             self._append_event("Не удалось сохранить настройки · " + str(error)[:180])
@@ -2623,6 +2654,7 @@ class TwitchFarmingApi:
             worker = self.engine_worker
             if worker is None or not worker.is_alive():
                 return {"ok": False, "message": "Сбор не запущен."}
+            self._refresh_channel_balances_locked()
             self._set_status_locked("●  ОСТАНОВКА", "#F0B65A")
             self.session_started_at = 0.0
             focus_worker = self.drops_focus_worker
@@ -2735,6 +2767,13 @@ class TwitchFarmingApi:
 
     def on_log(self, message, level, created):
         raw = str(message)
+        if raw.startswith("BALANCE_STATUS:"):
+            try:
+                with self.lock:
+                    self._refresh_channel_balances_locked()
+            except Exception:
+                logging.getLogger("twitch_farming.points").exception("Не удалось сохранить обновлённый баланс Twitch")
+            return
         self._append_log(raw, level, created)
         safe = raw if "and enter this code:" in raw else self._redact(raw)
         self._handle_log(safe, level, created)
@@ -2850,14 +2889,23 @@ class TwitchFarmingApi:
                 reward_description = "+" + str(amount) + " " + (currency_name or "Channel Points")
                 self._append_reward_locked(channel, reward_description, "gem", created, channel_login)
                 self.reward = {"text": "@" + channel + "  ·  +" + str(amount) + " очков  ·  " + label, "until": time.time() + 5}
+                self._refresh_channel_balances_locked()
             return
         if "Twitch Drop received:" in message:
             name = message.split("Twitch Drop received:", 1)[1].strip()[:100]
+            identity = _drops_reward_log_identity(name)
+            if not identity:
+                return
             with self.lock:
+                if identity in self.logged_drop_rewards:
+                    return
+                self.logged_drop_rewards.append(identity)
+                self.logged_drop_rewards = self.logged_drop_rewards[-1000:]
                 self.event_total += 1
                 self._append_event_locked("Twitch Drop · " + name)
                 self._append_reward_locked(name, "Twitch Drop", "gift", created)
                 self.reward = {"text": "Twitch Drop · " + name, "until": time.time() + 5}
+            self._save_config(silent=True)
             return
         if "Twitch Moment claimed:" in message:
             name = message.split("Twitch Moment claimed:", 1)[1].strip()[:100]
@@ -2908,7 +2956,22 @@ class TwitchFarmingApi:
                     if size > 1000000:
                         content = content.split("\n", 1)[-1]
             history_lines = content.splitlines()[-500:]
+            historical_drop_keys = []
+            for line in history_lines:
+                match = re.search(r"Twitch Drop received:\\s*(.+)", line)
+                if match:
+                    identity = _drops_reward_log_identity(match.group(1))
+                    if identity:
+                        historical_drop_keys.append(identity)
+            persist_drop_keys = False
             with self.lock:
+                existing_drop_keys = set(self.logged_drop_rewards)
+                for identity in historical_drop_keys:
+                    if identity not in existing_drop_keys:
+                        self.logged_drop_rewards.append(identity)
+                        existing_drop_keys.add(identity)
+                        persist_drop_keys = True
+                self.logged_drop_rewards = self.logged_drop_rewards[-1000:]
                 remaining = {}
                 for line in history_lines:
                     remaining[line] = remaining.get(line, 0) + 1
@@ -2925,6 +2988,8 @@ class TwitchFarmingApi:
                     for index, line in enumerate(lines)
                 ]
                 self.next_log_id = len(self.log_records) + 1
+            if persist_drop_keys:
+                self._save_config(silent=True)
         except OSError:
             return
 
@@ -2996,15 +3061,16 @@ class TwitchFarmingApi:
                     streamers = list(getattr(miner, "streamers", []) or [])
             for streamer in streamers:
                 login = str(getattr(streamer, "username", "") or "").lower()
-                if not login:
+                if not login or not bool(getattr(streamer, "channel_points_loaded", False)):
                     continue
                 try:
                     points = max(0, int(getattr(streamer, "channel_points", 0) or 0))
                 except (TypeError, ValueError):
-                    points = 0
+                    continue
                 profile = self.channel_profiles.get(login, {})
-                points_name = str(getattr(streamer, "channel_points_name", "") or "").strip()
-                points_icon_url = str(getattr(streamer, "channel_points_image", "") or "")
+                previous = dict(self.channel_points_branding_cache.get(login) or {})
+                points_name = str(getattr(streamer, "channel_points_name", "") or previous.get("name") or "").strip()
+                points_icon_url = str(getattr(streamer, "channel_points_image", "") or previous.get("icon_url") or "")
                 self.channel_balances[login] = {
                     "login": login,
                     "points": points,
@@ -3013,23 +3079,21 @@ class TwitchFarmingApi:
                     "points_name": points_name,
                     "points_icon_url": points_icon_url,
                 }
+                entry = dict(previous)
+                entry["points"] = points
                 if bool(getattr(streamer, "channel_points_branding_loaded", False)):
-                    previous = self.channel_points_branding_cache.get(login, {})
-                    entry = {
-                        "name": points_name[:80],
-                        "icon_url": points_icon_url if points_icon_url.startswith("https://") else "",
-                        "points": points,
-                    }
-                    if entry != previous:
-                        self.channel_points_branding_cache[login] = entry
-                        branding_changed = True
+                    entry["name"] = points_name[:80]
+                    entry["icon_url"] = points_icon_url if points_icon_url.startswith("https://") else str(previous.get("icon_url") or "")
+                if entry != previous:
+                    self.channel_points_branding_cache[login] = entry
+                    branding_changed = True
         valid = set(self.channels)
         self.channel_balances = {
             login: item for login, item in self.channel_balances.items()
             if login in valid
         }
         if branding_changed:
-            self._save_config()
+            self._save_config(silent=True)
         ranked = sorted(
             self.channel_balances.values(),
             key=lambda item: (int(item.get("points", 0)), item.get("login", "")),
@@ -3067,6 +3131,7 @@ class TwitchFarmingApi:
                 reward["currency_name"] = currency_name
         return ranked[:3], balances, currency
 
+
     def get_state(self, after_log_id=0):
         try:
             after = int(after_log_id)
@@ -3085,6 +3150,7 @@ class TwitchFarmingApi:
                 self.refresh_channel_profiles()
             top_channels, channel_balances, channel_currency = self._refresh_channel_balances_locked()
             watch_slots = []
+            watch_rotation = {}
             if self.session_running:
                 engine = self.engine_worker
                 miner = getattr(engine, "miner", None) if engine is not None else None
@@ -3093,6 +3159,8 @@ class TwitchFarmingApi:
                     watch_slots = twitch_client.get_active_watch_channels()
                 elif twitch_client is not None:
                     watch_slots = list(getattr(twitch_client, "active_watch_channels", []) or [])
+                if twitch_client is not None and callable(getattr(twitch_client, "get_watch_rotation_state", None)):
+                    watch_rotation = twitch_client.get_watch_rotation_state()
             logs = [dict(item) for item in self.log_records if item["id"] > after]
             avatar_cache_logins = {
                 login for login, profile in self.channel_profiles.items()
@@ -3112,6 +3180,7 @@ class TwitchFarmingApi:
                 "online_channels": sorted(self.online_channels),
                 "watch_status": {key: dict(value) for key, value in self.watch_status.items()},
                 "watch_slots": watch_slots,
+                "watch_rotation": watch_rotation,
                 "ui_events": ui_events,
                 "options": dict(self.options),
                 "app_settings": dict(self.app_settings),
