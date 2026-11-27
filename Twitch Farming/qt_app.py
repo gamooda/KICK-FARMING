@@ -1083,7 +1083,7 @@ def _flag_enabled(value):
 def _drop_is_claimed(drop):
     if not isinstance(drop, dict):
         return False
-    truthy = ("1", "true", "yes", "on", "claimed", "success", "completed", "already_claimed", "drop_instance_already_claimed")
+    truthy = ("1", "true", "yes", "on", "claimed", "received", "reward_received", "redeemed", "success", "completed", "already_claimed", "drop_instance_already_claimed")
     falsey = ("", "0", "false", "no", "off", "none", "null")
     sources = (
         drop,
@@ -1105,11 +1105,26 @@ def _drop_is_claimed(drop):
             value = str(source.get(key) or "").strip().lower()
             if value not in falsey:
                 return True
-        for key in ("claimStatus", "claim_status", "dropStatus", "drop_status", "status"):
+        for key in ("claimStatus", "claim_status", "dropStatus", "drop_status", "rewardStatus", "reward_status", "status"):
             value = str(source.get(key) or "").strip().lower()
             if value in truthy:
                 return True
+        for key in ("percentage", "watch_percentage", "watchPercentage", "progress_percentage", "progressPercentage", "percentage_complete", "percentageComplete"):
+            try:
+                if source.get(key) is not None and float(source.get(key)) >= 100:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        watched = next((source.get(key) for key in ("watched_minutes", "watchedMinutes", "current_minutes", "currentMinutes", "currentMinutesWatched", "current_minutes_watched", "minutesWatched") if source.get(key) is not None), 0)
+        required = next((source.get(key) for key in ("required_minutes", "requiredMinutes", "requiredMinutesWatched", "required_minutes_watched", "duration_minutes", "minutesRequired") if source.get(key) is not None), 0)
+        try:
+            if float(required or 0) > 0 and float(watched or 0) >= float(required or 0):
+                return True
+        except (TypeError, ValueError):
+            pass
     return False
+
+
 
 
 def _campaign_available(campaign):

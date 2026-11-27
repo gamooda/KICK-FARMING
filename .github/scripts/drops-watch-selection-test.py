@@ -21,7 +21,8 @@ import threading
 from TwitchChannelPointsMiner.constants import GQLOperations
 
 sys.path.insert(0, str(ROOT / "Twitch Farming"))
-from backend import select_drops_streamers, _drops_campaign_completed, _drops_reward_received
+from backend import select_drops_streamers, _drops_campaign_completed, _drops_reward_received, TwitchFarmingApi
+from qt_app import _drop_is_claimed, eligible_watch_campaigns, started_watch_campaigns
 
 Settings.logger = SimpleNamespace(less=True)
 
@@ -895,4 +896,79 @@ assert "def remove_streamer(self, username):" in engine_source and "drops_focus_
 qt_source = (ROOT / "Twitch Farming" / "qt_app.py").read_text(encoding="utf-8")
 assert "Фармить кампанию" in qt_source and "Фармится · Снять фокус" in qt_source and "drops_focus_banner" in qt_source, "Each Drops campaign card and the top inventory banner must expose selected campaign focus."
 
-print("Drops inventory merging, already-claimed reward filtering, GameDirectory category lookup, Helix pagination, campaign detail fallback and HLS tests passed.")
+
+completed_reward_set = {
+    "id": "marvel-rivals-completed",
+    "status": "ACTIVE",
+    "name": "Marvel Rivals",
+    "game": "Marvel Rivals",
+    "started": True,
+    "drops": [
+        {"id": "reward-100", "percentage": 100, "required_minutes": 60, "watched_minutes": 60},
+        {"id": "reward-received", "status": "RECEIVED"},
+        {"id": "reward-claimed", "isClaimed": True},
+        {"id": "reward-nested", "self": {"currentMinutesWatched": 60, "requiredMinutesWatched": 60}},
+    ],
+}
+partially_completed_campaign = {
+    "id": "still-active",
+    "status": "ACTIVE",
+    "name": "Another Game",
+    "game": "Another Game",
+    "started": True,
+    "drops": [
+        {"id": "already-finished", "percentage": 100},
+        {"id": "remaining", "percentage": 75, "required_minutes": 60, "watched_minutes": 45},
+    ],
+}
+visible_campaigns = started_watch_campaigns(
+    eligible_watch_campaigns([completed_reward_set, partially_completed_campaign])
+)
+assert [item["id"] for item in visible_campaigns] == ["still-active"], "A campaign with every reward at 100%, Received or isClaimed must be hidden."
+assert [item["id"] for item in visible_campaigns[0]["visible_drops"]] == ["remaining"], "Completed rewards must not inflate active reward counts."
+assert all(_drop_is_claimed(drop) for drop in completed_reward_set["drops"]), "The UI must detect all completed Drops response shapes."
+assert _drops_campaign_completed({"drops": completed_reward_set["drops"]}), "The backend must recognize a fully completed campaign."
+assert not _drops_campaign_completed({"drops": [{"percentage": 100}, {"percentage": 99}]}), "A campaign with one incomplete reward must remain active."
+
+finish_api = object.__new__(TwitchFarmingApi)
+finish_api.lock = threading.RLock()
+finish_worker = object()
+finish_api.drops_worker = finish_worker
+finish_api.drops_request_id = 901
+finish_api.drops_loading = True
+finish_api.drops_loaded = False
+finish_api.drops_error = ""
+finish_api.drops_followers_error = ""
+finish_api.drops_campaigns = []
+finish_api.drops_catalog_streamers = {}
+finish_api.drops_updated_at = 0
+finish_api.drops_event = threading.Event()
+finish_api.drops_focus_campaign_id = "marvel-rivals-completed"
+finished_focus = []
+finish_api._finish_drops_campaign_focus = lambda campaign_id, reason: finished_focus.append((campaign_id, reason))
+finish_api.finish_drops_worker(finish_worker, 901, [completed_reward_set], catalog_streamers={})
+assert finished_focus == [("marvel-rivals-completed", "Все награды получены")], "A successful inventory refresh must finish the selected campaign focus immediately."
+
+remove_api = object.__new__(TwitchFarmingApi)
+remove_api.lock = threading.RLock()
+remove_api.drops_focus_login = "drops_temp"
+remove_api.temporary_channels = {"drops_temp": {"drops_focus": True}}
+remove_api.channels = ["permanent", "drops_temp"]
+remove_api.online_channels = {"drops_temp"}
+remove_api.channel_profiles = {"drops_temp": {}}
+remove_api.channel_balances = {"drops_temp": {}}
+remove_api.channel_points_branding_cache = {"drops_temp": {}}
+remove_api.watch_status = {"drops_temp": {}}
+remove_api.session_running = True
+removed_from_miner = []
+remove_api.engine_worker = SimpleNamespace(
+    is_alive=lambda: True,
+    remove_streamer=lambda login: removed_from_miner.append(login) or {"ok": True},
+    miner=SimpleNamespace(twitch=SimpleNamespace(drops_focus_login="drops_temp")),
+)
+remove_api._remove_drops_focus_channel("marvel-rivals-completed", wait_for_engine=True)
+assert remove_api.channels == ["permanent"] and "drops_temp" not in remove_api.temporary_channels, "A completed focus streamer must be removed from the common channel list."
+assert removed_from_miner == ["drops_temp"], "A completed focus streamer must also be removed from the active miner."
+assert remove_api.engine_worker.miner.twitch.drops_focus_login == "", "The miner's target priority must be cleared with the focus."
+
+print("Drops inventory completion filtering, focus cleanup, campaign selection, GameDirectory lookup, Helix pagination and HLS tests passed.")

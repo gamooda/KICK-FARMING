@@ -958,31 +958,38 @@ class DropsInventoryWorker(threading.Thread):
 def _drops_reward_received(drop):
     if not isinstance(drop, dict):
         return False
-    for key in ("claimed", "is_claimed", "isClaimed", "isRewardClaimed", "rewardClaimed"):
-        value = drop.get(key)
-        if isinstance(value, str):
-            if value.strip().lower() in ("1", "true", "yes", "on", "claimed", "success", "completed"):
+    sources = (drop, drop.get("self"), drop.get("progress"), drop.get("drop"))
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key in ("claimed", "is_claimed", "isClaimed", "isRewardClaimed", "rewardClaimed"):
+            value = source.get(key)
+            if isinstance(value, str):
+                if value.strip().lower() in ("1", "true", "yes", "on", "claimed", "success", "completed", "received"):
+                    return True
+            elif bool(value):
                 return True
-        elif bool(value):
-            return True
-    for key in ("claimedAt", "claimed_at", "claimedDate", "claimed_date", "claimDate", "claim_date"):
-        if str(drop.get(key) or "").strip().lower() not in ("", "0", "false", "none", "null"):
-            return True
-    status = str(drop.get("status") or drop.get("claimStatus") or drop.get("claim_status") or "").strip().lower()
-    if status in ("claimed", "received", "success", "completed", "already_claimed"):
-        return True
-    try:
-        percentage = drop.get("percentage")
-        if percentage is not None and float(percentage) >= 100:
-            return True
-    except (TypeError, ValueError):
-        pass
-    watched = drop.get("watched_minutes", drop.get("current_minutes", drop.get("currentMinutes", 0)))
-    required = drop.get("required_minutes", drop.get("requiredMinutes", drop.get("duration_minutes", 0)))
-    try:
-        return int(float(required or 0)) > 0 and float(watched or 0) >= float(required or 0)
-    except (TypeError, ValueError):
-        return False
+        for key in ("claimedAt", "claimed_at", "claimedDate", "claimed_date", "claimDate", "claim_date"):
+            if str(source.get(key) or "").strip().lower() not in ("", "0", "false", "none", "null"):
+                return True
+        for key in ("status", "claimStatus", "claim_status", "rewardStatus", "reward_status", "dropStatus", "drop_status"):
+            status = str(source.get(key) or "").strip().lower()
+            if status in ("claimed", "received", "reward_received", "redeemed", "success", "completed", "already_claimed", "drop_instance_already_claimed"):
+                return True
+        for key in ("percentage", "watch_percentage", "watchPercentage", "progress_percentage", "progressPercentage", "percentage_complete", "percentageComplete"):
+            try:
+                if source.get(key) is not None and float(source.get(key)) >= 100:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        watched = next((source.get(key) for key in ("watched_minutes", "watchedMinutes", "current_minutes", "currentMinutes", "currentMinutesWatched", "current_minutes_watched", "minutesWatched") if source.get(key) is not None), 0)
+        required = next((source.get(key) for key in ("required_minutes", "requiredMinutes", "requiredMinutesWatched", "required_minutes_watched", "duration_minutes", "minutesRequired") if source.get(key) is not None), 0)
+        try:
+            if float(required or 0) > 0 and float(watched or 0) >= float(required or 0):
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
 
 
 def _drops_campaign_completed(campaign):
@@ -991,9 +998,11 @@ def _drops_campaign_completed(campaign):
     drops = campaign.get("drops") or campaign.get("timeBasedDrops") or []
     if isinstance(drops, dict):
         drops = drops.get("nodes") or drops.get("edges") or []
-        drops = [item.get("node", item) if isinstance(item, dict) else item for item in drops]
+    drops = [item.get("node", item) if isinstance(item, dict) else item for item in drops] if isinstance(drops, list) else []
     drops = [item for item in drops if isinstance(item, dict)]
     return bool(drops) and all(_drops_reward_received(item) for item in drops)
+
+
 
 
 class DropsFocusWorker(threading.Thread):
@@ -1800,6 +1809,7 @@ class TwitchFarmingApi:
             }
 
     def finish_drops_worker(self, worker, request_id, campaigns, error="", followers_error="", catalog_streamers=None):
+        completed_focus_id = ""
         with self.lock:
             if self.drops_worker is not worker or self.drops_request_id != request_id:
                 return
@@ -1816,7 +1826,16 @@ class TwitchFarmingApi:
                     if isinstance(profile, dict)
                 }
                 self.drops_updated_at = time.time()
+                focus_id = str(self.drops_focus_campaign_id or "")
+                focused_campaign = next(
+                    (item for item in self.drops_campaigns if str(item.get("id") or "") == focus_id),
+                    None,
+                ) if focus_id else None
+                if focused_campaign is not None and _drops_campaign_completed(focused_campaign):
+                    completed_focus_id = focus_id
             self.drops_event.set()
+        if completed_focus_id:
+            self._finish_drops_campaign_focus(completed_focus_id, "Все награды получены")
 
     def set_drops_campaign_focus(self, raw_campaign_id):
         campaign_id = str(raw_campaign_id or "").strip()
@@ -1893,10 +1912,10 @@ class TwitchFarmingApi:
             self.drops_focus_worker = None
             if worker is not None:
                 worker.stop_event.set()
-        self._remove_drops_focus_channel(campaign_id)
+        self._remove_drops_focus_channel(campaign_id, wait_for_engine=True)
         self._append_event("Целевой Drops-фокус завершён · " + str(reason))
 
-    def _remove_drops_focus_channel(self, campaign_id="", stop_if_empty=True):
+    def _remove_drops_focus_channel(self, campaign_id="", stop_if_empty=True, wait_for_engine=False):
         with self.lock:
             login = str(self.drops_focus_login or "")
             self.drops_focus_login = ""
@@ -1921,18 +1940,43 @@ class TwitchFarmingApi:
                 and engine.is_alive()
             )
         if remove_from_list and engine is not None and engine.is_alive() and login:
-            threading.Thread(
-                target=engine.remove_streamer,
-                args=(login,),
-                name="RemoveDropsFocusStreamer",
-                daemon=True,
-            ).start()
+            if wait_for_engine:
+                removed = False
+                for attempt in range(3):
+                    if not engine.is_alive():
+                        break
+                    try:
+                        result = engine.remove_streamer(login)
+                    except Exception:
+                        logging.getLogger("twitch_farming.drops").exception(
+                            "Не удалось удалить завершённый Drops-канал из активного майнера: %s",
+                            login,
+                        )
+                        result = {}
+                    if isinstance(result, dict) and result.get("ok"):
+                        removed = True
+                        break
+                    if attempt < 2 and engine.is_alive():
+                        time.sleep(0.5)
+                if not removed and engine.is_alive():
+                    logging.getLogger("twitch_farming.drops").warning(
+                        "Завершённый Drops-канал %s удалён из списка приложения, но майнер не подтвердил удаление.",
+                        login,
+                    )
+            else:
+                threading.Thread(
+                    target=engine.remove_streamer,
+                    args=(login,),
+                    name="RemoveDropsFocusStreamer",
+                    daemon=True,
+                ).start()
         miner = getattr(engine, "miner", None) if engine is not None else None
         twitch_client = getattr(miner, "twitch", None) if miner is not None else None
         if twitch_client is not None:
             twitch_client.drops_focus_login = ""
         if should_stop:
             engine.request_stop()
+
 
     def _validate_drops_focus_channel(self, campaign, login):
         with self.lock:
