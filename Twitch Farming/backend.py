@@ -1018,7 +1018,7 @@ def _drops_reward_log_identity(value):
     text = str(value or "").strip()
     if not text:
         return ""
-    identifier = re.search(r"\bid\s*=\s*['"]?([^, )'"]+)", text, re.IGNORECASE)
+    identifier = re.search(r"\bid\s*=\s*([^, )]+)", text, re.IGNORECASE)
     if identifier:
         return "id:" + identifier.group(1).strip().casefold()
     text = re.sub(r"\s+\d+\s*/\s*\d+\s*\(\s*\d+(?:\.\d+)?%\s*\)\s*$", "", text)
