@@ -181,7 +181,7 @@ check("QToolTip.hideText()" in qt, "Tutorial transitions must dismiss stray tool
 check("DROP_REWARD_CACHE_FILE = APP_DIR / \"drop_reward_cache.json\"" in qt, "A persistent per-account Twitch Drops notification cache is required.")
 check("def _sync_drop_reward_cache(self, drops_state, auth, state):" in qt and "self._drop_reward_inventory_ready = True" in qt, "The initial inventory sync must seed completed Drops without showing notifications.")
 check("self._drop_reward_fresh_ids.update(keys)" in qt and "self._drop_reward_processed_ids.update(keys)" in qt, "Only Drops that cross 100% during the current app session may reach feeds.")
-check("def _allow_drop_notification(self, reference):" in qt and "self._allow_drop_notification(item.get(\"title\" or item.get(\"description\"" in qt and "self._allow_drop_notification(match.group(1))" in qt, "Old Twitch Drop notifications must be filtered from both feeds.")
+check("def _allow_drop_notification(self, reference):" in qt and 'self._allow_drop_notification(item.get("title") or item.get("description") or "")' in qt and "self._allow_drop_notification(match.group(1))" in qt, "Old Twitch Drop notifications must be filtered from both feeds.")
 check("QGuiApplication.primaryScreen()" in qt and "screen.availableGeometry()" in qt and "def _center_on_primary_screen(self):" in qt, "The main window must be centered on the primary screen.")
 check("def showEvent(self, event):" in qt and "self._center_on_primary_screen()" in qt, "Window centering must also be enforced when the main window is shown.")
 check('QFrame#followerCard[live="true"]' in qt and "QLabel#followerLiveBadge" in qt and "● В ЭФИРЕ" in qt, "Live followers must have a bright badge and accented card.")

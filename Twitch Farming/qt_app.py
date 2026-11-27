@@ -2002,9 +2002,9 @@ class MainWindow(QMainWindow):
 
     def _drop_reward_normalize_name(self, value):
         name = str(value or "").strip()
-        name = re.sub(r"\\bid\\s*=\\s*[^, )]+", " ", name, flags=re.IGNORECASE)
-        name = re.sub(r"\\s+\\d+\\s*/\\s*\\d+\\s*\\(\\s*\\d+(?:\\.\\d+)?%\\s*\\)\\s*$", "", name)
-        name = re.sub(r"\\s+", " ", name).strip().casefold()
+        name = re.sub(r"\bid\s*=\s*[^, )]+", " ", name, flags=re.IGNORECASE)
+        name = re.sub(r"\s+\d+\s*/\s*\d+\s*\(\s*\d+(?:\.\d+)?%\s*\)\s*$", "", name)
+        name = re.sub(r"\s+", " ", name).strip().casefold()
         return name
 
     def _drop_reward_identity_keys(self, value):
@@ -2032,7 +2032,7 @@ class MainWindow(QMainWindow):
                         keys.add("name:" + name)
         elif isinstance(value, (str, int, float)):
             text_value = str(value).strip()
-            for match in re.finditer(r"\\bid\\s*=\\s*([^, )]+)", text_value, re.IGNORECASE):
+            for match in re.finditer(r"\bid\s*=\s*([^, )]+)", text_value, re.IGNORECASE):
                 keys.add("id:" + match.group(1).strip().casefold())
             name = self._drop_reward_normalize_name(text_value)
             if name:
@@ -2060,7 +2060,7 @@ class MainWindow(QMainWindow):
                 try:
                     return max(0.0, min(100.0, float(value)))
                 except (TypeError, ValueError):
-                    match = re.search(r"-?\\d+(?:\\.\\d+)?", str(value))
+                    match = re.search(r"-?\d+(?:\.\d+)?", str(value))
                     if match:
                         return max(0.0, min(100.0, float(match.group(0))))
             watched = next((source.get(field) for field in ("watched_minutes", "watchedMinutes", "current_minutes", "currentMinutes", "currentMinutesWatched", "current_minutes_watched", "minutesWatched") if source.get(field) is not None), None)
@@ -3819,7 +3819,7 @@ class MainWindow(QMainWindow):
         all_items = [str(item) for item in (events or [])]
         items = []
         for item in all_items:
-            match = re.search(r"twitch\\s+drop\\s*(?:[·:]\\s*)?(.*)$", item, re.IGNORECASE)
+            match = re.search(r"twitch\s+drop\s*(?:[·:]\s*)?(.*)$", item, re.IGNORECASE)
             if match:
                 if self._allow_drop_notification(match.group(1)):
                     items.append(item)
