@@ -5,7 +5,7 @@ Android client for the existing Twitch Farming engine.
 ## Target device
 
 - ABI: armeabi-v7a
-- Minimum Android API: 29 (Android 10)
+- Minimum Android API: 21 (Android 5.0+); tested target device: Android 10 (API 29)
 - Target Android API: 33
 - UI: Kivy, dark Twitch-inspired mobile layout
 - Engine: the existing backend.py and engine/ copied from the desktop project during the build

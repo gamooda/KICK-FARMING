@@ -99,7 +99,7 @@ jobs:
           AAPT=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
           test -x "$AAPT"
           "$AAPT" dump badging "$APK" | tee "$GITHUB_WORKSPACE/artifacts/apk-badging.txt"
-          grep -q "sdkVersion:'29'" "$GITHUB_WORKSPACE/artifacts/apk-badging.txt"
+          grep -q "sdkVersion:'21'" "$GITHUB_WORKSPACE/artifacts/apk-badging.txt"
           unzip -Z1 "$APK" | grep -q 'lib/armeabi-v7a/'
           if unzip -Z1 "$APK" | grep -q 'lib/arm64-v8a/'; then
             echo "Unexpected 64-bit native libraries in the Redmi 7A APK."
