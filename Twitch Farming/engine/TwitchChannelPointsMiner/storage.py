@@ -160,16 +160,35 @@ def save_secure_json(path, value):
     payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
     encrypted = _crypt(payload)
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(encrypted)
     try:
-        os.chmod(temporary, 0o600)
-    except OSError:
-        pass
-    temporary.replace(path)
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+        descriptor = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(encrypted)
+            output.flush()
+            os.fsync(output.fileno())
+        try:
+            os.chmod(temporary, 0o600)
+        except OSError:
+            pass
+        os.replace(str(temporary), str(path))
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        try:
+            directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            directory_fd = os.open(str(path.parent), directory_flags)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            pass
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def load_secure_json(path):
