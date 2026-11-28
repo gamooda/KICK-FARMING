@@ -417,6 +417,7 @@ class TwitchMobileApp(App):
         self.login_status_label = None
         self.login_code_label = None
         self.login_open_button = None
+        self.login_app_button = None
         self.login_copy_button = None
         self.tutorial_popup = None
         self.tutorial_title_label = None
@@ -493,6 +494,7 @@ class TwitchMobileApp(App):
         initialize_android_logging("ui-on-start")
         log_event("APP_ON_START", "preview=" + str(self.preview))
         if not self.preview:
+            Clock.schedule_once(lambda _dt: self.open_login_popup(), 0)
             try:
                 self.start_android_service()
             except BaseException as error:
@@ -529,7 +531,7 @@ class TwitchMobileApp(App):
                 raise RuntimeError("PythonActivity.mActivity is None")
             service_class = autoclass(PACKAGE_NAME + ".ServiceFarm")
             log_event("ANDROID_SERVICE_CLASS_READY", str(service_class))
-            service_class.start(activity, "ic_launcher", APP_NAME, "Фоновый сервис готов", "")
+            service_class.start(activity, "icon", APP_NAME, "", "")
             log_event("ANDROID_SERVICE_START_REQUESTED", "ServiceFarm.start returned")
         except BaseException as error:
             log_exception("ANDROID_SERVICE_START_FAILED", error)
@@ -726,8 +728,6 @@ class TwitchMobileApp(App):
         if self.login_popup is None:
             return
         if self.auth.get("authenticated"):
-            self.login_popup.dismiss()
-            self.login_popup = None
             return
         auth_error = str(self.auth.get("auth_error") or "")
         auth_status = str(self.auth.get("auth_status") or "Подготовка входа в Twitch…")
@@ -761,30 +761,35 @@ class TwitchMobileApp(App):
             self.login_popup.open()
             return
         self.login_prompt_shown = True
-        content = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(8))
-        content.add_widget(TwitchLogo(size_hint=(None, None), size=(dp(48), dp(48)), pos_hint={"center_x": 0.5}))
-        content.add_widget(AppText(text="Добро пожаловать в Twitch Farming", size=16, bold=True, align="center", size_hint_y=None, height=dp(32)))
-        content.add_widget(AppText(text="Подключи аккаунт Twitch, чтобы собирать Channel Points и Drops.", size=11, color=MUTED, align="center", size_hint_y=None, height=dp(38)))
+        content = BoxLayout(orientation="vertical", padding=[dp(26), dp(22)], spacing=dp(10))
+        content.add_widget(Widget(size_hint_y=1))
+        content.add_widget(TwitchLogo(size_hint=(None, None), size=(dp(58), dp(58)), pos_hint={"center_x": 0.5}))
+        content.add_widget(AppText(text="Добро пожаловать в Twitch Farming", size=17, bold=True, align="center", size_hint_y=None, height=dp(36)))
+        content.add_widget(AppText(text="Подключи аккаунт Twitch, чтобы собирать Channel Points и Drops. Пароль вводится только в официальном приложении или на сайте Twitch.", size=11, color=MUTED, align="center", size_hint_y=None, height=dp(52)))
         field = Field(hint="Логин Twitch", text=str(prefill or self.state.get("username") or ""))
         content.add_widget(field)
-        self.login_status_label = AppText(text="Нажми «Войти через Twitch», чтобы получить код подтверждения.", size=10, color=MUTED, align="center", size_hint_y=None, height=dp(44))
+        self.login_status_label = AppText(text="Укажи логин и нажми «Войти через Twitch». После этого появится код подтверждения.", size=10, color=MUTED, align="center", size_hint_y=None, height=dp(48))
         content.add_widget(self.login_status_label)
-        code_panel = Panel(color=SURFACE_ALT, radius=dp(12), orientation="vertical", padding=[dp(10), dp(7)], size_hint_y=None, height=dp(55))
+        code_panel = Panel(color=SURFACE_ALT, radius=dp(12), orientation="vertical", padding=[dp(10), dp(7)], size_hint_y=None, height=dp(58))
         code_panel.add_widget(AppText(text="КОД ПОДТВЕРЖДЕНИЯ", size=8, color=MUTED, bold=True, align="center"))
         self.login_code_label = AppText(text="Ожидание кода…", size=16, bold=True, align="center")
         code_panel.add_widget(self.login_code_label)
         content.add_widget(code_panel)
-        self.login_open_button = FarmButton("Открыть страницу Twitch", color=SURFACE_ALT, icon="external", size_hint_y=None, height=dp(42))
+        self.login_app_button = FarmButton("Войти в приложении Twitch", color=SURFACE_ALT, icon="external", size_hint_y=None, height=dp(44))
+        self.login_app_button.bind(on_release=lambda *_: self.open_twitch_app_login())
+        self.login_open_button = FarmButton("Открыть подтверждение в браузере", color=SURFACE_ALT, icon="external", size_hint_y=None, height=dp(44))
         self.login_open_button.disabled = True
         self.login_open_button.bind(on_release=lambda *_: self.open_twitch_activation())
         self.login_copy_button = FarmButton("Скопировать код", color=SURFACE_ALT, icon="copy", size_hint_y=None, height=dp(38))
         self.login_copy_button.disabled = True
         self.login_copy_button.bind(on_release=lambda *_: self.copy_login_code())
+        content.add_widget(self.login_app_button)
         content.add_widget(self.login_open_button)
         content.add_widget(self.login_copy_button)
         submit = FarmButton("Войти через Twitch", color=PURPLE, icon="login", size_hint_y=None, height=dp(46))
         content.add_widget(submit)
-        self.login_popup = Popup(title="", content=content, size_hint=(0.94, None), height=dp(390), auto_dismiss=False, background_color=SURFACE)
+        content.add_widget(Widget(size_hint_y=1))
+        self.login_popup = Popup(title="", content=content, size_hint=(1, 1), auto_dismiss=False, background_color=BG, separator_color=BG)
 
         def begin_login():
             username = field.text.strip()
@@ -809,6 +814,24 @@ class TwitchMobileApp(App):
         if self.auth_flow.get("code"):
             self._update_login_popup()
 
+    def open_twitch_app_login(self):
+        if platform != "android":
+            self.open_external("https://www.twitch.tv/login")
+            return
+        try:
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            Uri = autoclass("android.net.Uri")
+            activity = autoclass("org.kivy.android.PythonActivity").mActivity
+            if activity is None:
+                raise RuntimeError("Android activity is unavailable")
+            intent = Intent(Intent.ACTION_VIEW, Uri.parse("twitch://login"))
+            activity.startActivity(intent)
+            log_event("TWITCH_APP_LOGIN_OPENED", "target=twitch://login")
+        except BaseException as error:
+            log_exception("TWITCH_APP_LOGIN_FAILED", error)
+            self.open_external("https://www.twitch.tv/login")
+
     def open_twitch_activation(self):
         url = self._auth_activation_url()
         if platform != "android":
@@ -821,32 +844,14 @@ class TwitchMobileApp(App):
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
             if activity is None:
                 raise RuntimeError("Android activity is unavailable")
-            package_manager = activity.getPackageManager()
-            twitch_package = "tv.twitch.android.app"
-            chrome_package = "com.android.chrome"
-            try:
-                package_manager.getPackageInfo(twitch_package, 0)
-                twitch_intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                twitch_intent.setPackage(twitch_package)
-                activity.startActivity(twitch_intent)
-                log_event("TWITCH_ACTIVATION_OPENED", "target=installed_twitch_app")
-                return
-            except BaseException as twitch_error:
-                log_event("TWITCH_APP_NOT_OPENED", str(twitch_error))
-            try:
-                package_manager.getPackageInfo(chrome_package, 0)
-                browser_intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                browser_intent.setPackage(chrome_package)
-                activity.startActivity(browser_intent)
-                log_event("TWITCH_ACTIVATION_OPENED", "target=google_chrome")
-                return
-            except BaseException as chrome_error:
-                log_event("CHROME_NOT_OPENED", str(chrome_error))
-            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            log_event("TWITCH_ACTIVATION_OPENED", "target=default_browser")
+            intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            intent.addCategory(Intent.CATEGORY_BROWSABLE)
+            chooser = Intent.createChooser(intent, "Открыть подтверждение Twitch")
+            activity.startActivity(chooser)
+            log_event("TWITCH_ACTIVATION_OPENED", "target=android_app_chooser")
         except BaseException as error:
             log_exception("TWITCH_ACTIVATION_OPEN_FAILED", error)
-            self.show_toast("Не удалось открыть страницу Twitch: " + str(error)[:100])
+            self.show_toast("Не удалось открыть подтверждение Twitch: " + str(error)[:100])
 
     def copy_login_code(self):
         code = str(self.auth_flow.get("code") or self.auth.get("auth_code") or "").strip()
