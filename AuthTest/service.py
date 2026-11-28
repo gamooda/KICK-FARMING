@@ -307,6 +307,7 @@ def run_device_authorization():
     log("STEP 1 BEGIN: POST " + DEVICE_URL)
     log("STEP 1 REQUEST client_id=" + CLIENT_ID)
     log("STEP 1 REQUEST scopes=" + SCOPES)
+    log("STEP 1 REQUEST headers=" + json.dumps(dict(session.headers), ensure_ascii=False, sort_keys=True))
     try:
         response = session.post(DEVICE_URL, data={"client_id": CLIENT_ID, "scopes": SCOPES}, timeout=20)
         log("STEP 1 HTTP status=%s reason=%s" % (response.status_code, response.reason))
@@ -351,6 +352,13 @@ def run_device_authorization():
                 "scopes": SCOPES,
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code"
             }
+            log("STEP 2 POLL attempt=%d REQUEST client_id=%s scopes=%s grant_type=%s device_code=%s" % (
+                poll_attempt,
+                CLIENT_ID,
+                SCOPES,
+                poll_data["grant_type"],
+                mask_secret(device_code)
+            ))
             response = session.post(TOKEN_URL, data=poll_data, timeout=20)
             log("STEP 2 POLL attempt=%d HTTP status=%s reason=%s" % (poll_attempt, response.status_code, response.reason))
             try:
@@ -405,6 +413,10 @@ def run_device_authorization():
             headers={"Authorization": "OAuth " + access_token},
             timeout=15
         )
+        request_headers = dict(validate_response.request.headers)
+        if "Authorization" in request_headers:
+            request_headers["Authorization"] = "OAuth " + mask_secret(access_token)
+        log("STEP 3 REQUEST HEADERS=" + json.dumps(request_headers, ensure_ascii=False, sort_keys=True))
         log("STEP 3 HTTP status=%s reason=%s" % (validate_response.status_code, validate_response.reason))
         log("STEP 3 RESPONSE HEADERS=" + json.dumps(dict(validate_response.headers), ensure_ascii=False, sort_keys=True))
         validate_payload = validate_response.json()
