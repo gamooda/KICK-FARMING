@@ -25,6 +25,9 @@ class FakeApi:
     def get_update_state(self):
         return {"phase": "idle", "current_version": "GUI-TEST"}
 
+    def _startup_tasks(self):
+        return None
+
     def check_for_updates(self):
         self.calls.append("check_for_updates")
         return {"ok": True, "message": "Проверка GitHub Releases завершена. Обновлений нет."}
