@@ -10,6 +10,7 @@ on:
       - ".github/workflows/build-twitch-exe.yml"
       - ".github/scripts/qt-smoke-test.py"
       - ".github/scripts/drops-watch-selection-test.py"
+      - ".github/scripts/gui-interaction-test.py"
 
 permissions:
   contents: write
