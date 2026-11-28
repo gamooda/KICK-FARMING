@@ -1181,20 +1181,6 @@ class TwitchMobileApp(App):
         popup.open()
         field.focus = True
 
-    def open_login_popup(self):
-        content = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(12))
-        content.add_widget(AppText(text="Подключи аккаунт Twitch", size=18, bold=True, size_hint_y=None, height=dp(34)))
-        content.add_widget(AppText(text="Введи логин, затем подтверди авторизацию на официальной странице Twitch.", size=12, color=MUTED, size_hint_y=None, height=dp(48)))
-        field = Field(hint="Логин Twitch", text=self.state.get("username") or "")
-        content.add_widget(field)
-        popup = Popup(title="Twitch Farming", content=content, size_hint=(0.9, None), height=dp(265), background_color=SURFACE)
-        row = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(46))
-        row.add_widget(FarmButton("Позже", color=SURFACE_ALT, on_release=lambda *_: popup.dismiss()))
-        row.add_widget(FarmButton("Подключить", color=PURPLE, on_release=lambda *_: (popup.dismiss(), self.rpc_async("login", [field.text.strip()]))))
-        content.add_widget(row)
-        popup.open()
-        field.focus = True
-
     def open_external(self, url):
         if platform == "android":
             try:
