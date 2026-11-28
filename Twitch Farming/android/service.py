@@ -184,6 +184,8 @@ def set_android_notification():
         resources = service.getResources()
         icon_id = 0
         for resource_type, resource_name in (
+            ("drawable", "notification"),
+            ("mipmap", "notification"),
             ("mipmap", "icon"),
             ("drawable", "icon"),
             ("mipmap", "ic_launcher"),
