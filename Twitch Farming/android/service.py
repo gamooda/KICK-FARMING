@@ -14,6 +14,7 @@ HOST = "127.0.0.1"
 PORT = 43771
 APP = None
 APP_LOCK = threading.RLock()
+FOREGROUND_NOTIFICATION_ACTIVE = False
 ALLOWED_METHODS = {
     "login", "logout", "check_for_updates", "start_farm", "stop_farm", "save_settings", "save_channel_editor",
     "remove_channel", "reorder_channels", "refresh_channel_profiles",
@@ -118,6 +119,8 @@ class RequestHandler(socketserver.StreamRequestHandler):
                 result = build_snapshot(api, kwargs.get("after_log_id", 0), str(kwargs.get("screen") or "channels"))
             elif method in ALLOWED_METHODS:
                 result = getattr(api, method)(*args, **kwargs)
+                if method in ("start_farm", "stop_farm"):
+                    set_android_notification()
                 if result is None:
                     result = {"ok": True}
             else:
@@ -139,6 +142,7 @@ class Server(socketserver.ThreadingTCPServer):
 
 
 def set_android_notification():
+    global FOREGROUND_NOTIFICATION_ACTIVE
     try:
         from jnius import autoclass
         service = autoclass("org.kivy.android.PythonService").mService
@@ -149,31 +153,41 @@ def set_android_notification():
         NotificationBuilder = autoclass("android.app.Notification$Builder")
         NotificationChannel = autoclass("android.app.NotificationChannel")
         manager = service.getSystemService(Context.NOTIFICATION_SERVICE)
+        state = APP.get_state() if APP is not None else {}
+        running = bool(state.get("session_running"))
+        if not running:
+            try:
+                service.stopForeground(True)
+            except Exception:
+                pass
+            try:
+                manager.cancel(1)
+            except Exception:
+                pass
+            if FOREGROUND_NOTIFICATION_ACTIVE:
+                log_event("ANDROID_NOTIFICATION_HIDDEN", "farm stopped; foreground notification removed")
+            FOREGROUND_NOTIFICATION_ACTIVE = False
+            return
         channel_id = "twitch_farming_service"
         if BuildVersion.SDK_INT >= 26:
             channel = NotificationChannel(channel_id, "Twitch Farming", 2)
-            channel.setDescription("Состояние фонового фарма Twitch")
+            channel.setDescription("Состояние активного фарма Twitch")
             manager.createNotificationChannel(channel)
             builder = NotificationBuilder(service, channel_id)
         else:
             builder = NotificationBuilder(service)
-        state = APP.get_state() if APP is not None else {}
-        running = bool(state.get("session_running"))
-        status = str(state.get("status_text") or "")
-        title = "Twitch Farming · " + ("ФАРМ РАБОТАЕТ" if running else "Сервис активен")
-        if running:
-            channels = state.get("online_channels") or []
-            body = "Сбор запущен · " + str(len(channels)) + " онлайн-каналов · " + status.replace("●", "").strip()
-        else:
-            body = "Фоновый сервис готов · фарм остановлен"
+        channels = state.get("online_channels") or []
+        status = str(state.get("status_text") or "ЗАПУЩЕН")
+        title = "Twitch Farming · ФАРМ РАБОТАЕТ"
+        body = "Сбор запущен · " + str(len(channels)) + " онлайн-каналов · " + status.replace("●", "").strip()
         package = service.getPackageName()
         resources = service.getResources()
         icon_id = 0
         for resource_type, resource_name in (
-            ("mipmap", "ic_launcher"),
-            ("drawable", "ic_launcher"),
             ("mipmap", "icon"),
             ("drawable", "icon"),
+            ("mipmap", "ic_launcher"),
+            ("drawable", "ic_launcher"),
         ):
             icon_id = resources.getIdentifier(resource_name, resource_type, package)
             if icon_id:
@@ -184,8 +198,8 @@ def set_android_notification():
             except Exception:
                 icon_id = 0
         if icon_id == 0:
+            log_event("ANDROID_NOTIFICATION_NO_ICON", "no launcher icon resource found")
             return
-        Intent = autoclass("android.content.Intent")
         PendingIntent = autoclass("android.app.PendingIntent")
         launch = service.getPackageManager().getLaunchIntentForPackage(package)
         pending = PendingIntent.getActivity(service, 0, launch, 0x0C000000)
@@ -201,9 +215,11 @@ def set_android_notification():
         )
         service.startForeground(1, notification)
         manager.notify(1, notification)
+        if not FOREGROUND_NOTIFICATION_ACTIVE:
+            log_event("ANDROID_NOTIFICATION_SHOWN", "farm running; branded notification enabled")
+        FOREGROUND_NOTIFICATION_ACTIVE = True
     except BaseException as error:
         log_exception("ANDROID_NOTIFICATION_FAILED", error)
-
 
 def manage_wakelock():
     lock = None
@@ -229,7 +245,7 @@ def manage_wakelock():
             set_android_notification()
         except BaseException as error:
             log_exception("ANDROID_WAKELOCK_LOOP_FAILED", error)
-        time.sleep(8)
+        time.sleep(3)
 
 
 def main():
@@ -248,6 +264,7 @@ def main():
         except BaseException as error:
             log_exception("SERVICE_JAVA_INIT_FAILED", error)
         service_api()
+        set_android_notification()
         log_event("SERVICE_API_READY", "API ready; starting wakelock thread")
         threading.Thread(target=manage_wakelock, name="AndroidNotification", daemon=True).start()
         log_event("SERVICE_WATCHDOG_STARTED", "notification and wakelock loop started")
