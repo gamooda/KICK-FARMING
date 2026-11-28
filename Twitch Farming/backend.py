@@ -252,13 +252,6 @@ class AuthWorker(threading.Thread):
                     self.client.twitch_login.session.close()
                 except Exception:
                     pass
-        finally:
-            if os.environ.get("TWITCH_FARMING_ANDROID") == "1":
-                try:
-                    from jnius import detach
-                    detach()
-                except Exception:
-                    pass
 
 
 class EngineWorker(threading.Thread):
@@ -429,12 +422,6 @@ class EngineWorker(threading.Thread):
             with self.miner_lock:
                 self.miner = None
             self.app.enqueue_ui_state("engine_finished", worker=self)
-            if os.environ.get("TWITCH_FARMING_ANDROID") == "1":
-                try:
-                    from jnius import detach
-                    detach()
-                except Exception:
-                    pass
 
 
 class ChannelProfileWorker(threading.Thread):
