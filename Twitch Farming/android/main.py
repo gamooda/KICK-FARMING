@@ -1154,43 +1154,40 @@ class TwitchMobileApp(App):
         if self.tutorial_popup is not None or self.state.get("tutorial_done") or not self.auth.get("authenticated"):
             return
         self.tutorial_step = 0
-        content = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(11))
-        content.add_widget(AppText(text="ИНТЕРАКТИВНОЕ ОБУЧЕНИЕ", size=9, color=(0.72, 0.56, 1, 1), bold=True, align="center", size_hint_y=None, height=dp(24)))
-        self.tutorial_progress_label = AppText(text="", size=9, color=MUTED, align="center", size_hint_y=None, height=dp(20))
-        content.add_widget(self.tutorial_progress_label)
-        self.tutorial_title_label = AppText(text="", size=16, bold=True, align="center", size_hint_y=None, height=dp(44))
-        content.add_widget(self.tutorial_title_label)
-        self.tutorial_description_label = AppText(text="", size=11, color=MUTED, align="center", size_hint_y=None, height=dp(104))
-        content.add_widget(self.tutorial_description_label)
-        row = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(44))
-        skip = FarmButton("Пропустить", color=SURFACE_ALT, icon="close")
-        skip.bind(on_release=lambda *_: self.finish_tutorial())
-        self.tutorial_next_button = FarmButton("Далее", color=PURPLE, icon="plus")
-        self.tutorial_next_button.bind(on_release=lambda *_: self.advance_tutorial())
-        row.add_widget(skip)
-        row.add_widget(self.tutorial_next_button)
-        content.add_widget(row)
-        self.tutorial_popup = Popup(title="Twitch Farming", content=content, size_hint=(0.94, None), height=dp(310), auto_dismiss=False, background_color=SURFACE)
+        self.tutorial_popup = TutorialOverlay(self)
+        self.root_layer.add_widget(self.tutorial_popup)
         self._show_tutorial_step()
-        self.tutorial_popup.open()
 
     def _show_tutorial_step(self):
         steps = (
-            ("channels", "Добавление каналов", "Добавляй стримеров кнопкой «Добавить канал» или открывай «Фолловеры» и добавляй каналы из списка подписок."),
-            ("channels", "Два активных слота и ротация", "Одновременно приложение смотрит до двух стримеров. Каналы автоматически ротируются по кругу на следующие доступные эфиры."),
-            ("drops", "Целевой фарм Drops", "Выбери кампанию и нажми «Фармить кампанию». Приложение будет подбирать эфиры с нужными Drops."),
-            ("settings", "Настройки автоматизации", "Включи автосбор Twitch Drops и моментов, переход по рейдам и настрой автозапуск фарма."),
-            ("predictions", "Автоставки на прогнозах", "Настрой стратегию, лимиты и фильтры участников. Эти параметры будут использоваться при автоматическом участии в прогнозах."),
-            ("channels", "Готово к запуску", "Нажми «Запустить фарм» на вкладке «Каналы», чтобы начать сбор наград.")
+            ("channels", "add_channel", "Добавление каналов", "Добавь стримера кнопкой «Добавить канал». Можно также импортировать каналы из Фолловеров."),
+            ("channels", "slots", "Два активных слота и ротация", "Одновременно просматриваются два канала. Слоты автоматически ротируются между доступными эфирами."),
+            ("drops", "drop_farm", "Целевой фарм Drops", "Выбери активную кампанию и нажми «Фармить кампанию», чтобы направить сбор на нужный Drops."),
+            ("settings", "settings_options", "Настройки автоматизации", "Здесь включаются Drops, моменты и переход по рейдам. Выбери нужные автоматические действия."),
+            ("predictions", "prediction_strategy", "Автоставки на прогнозах", "Выбери стратегию ставок и настрой фильтр участников, лимит и процент баланса."),
+            ("channels", "start_farm", "Готово к запуску", "После настройки нажми «Запустить фарм» — сервис продолжит работу в фоне.")
         )
-        page, title, description = steps[self.tutorial_step]
+        page, target_key, title, description = steps[self.tutorial_step]
         self.navigate(page)
-        self.tutorial_title_label.text = title
-        self.tutorial_description_label.text = description
-        self.tutorial_progress_label.text = f"Шаг {self.tutorial_step + 1} из {len(steps)}"
         final = self.tutorial_step == len(steps) - 1
-        self.tutorial_next_button.set_label("Начать работу" if final else "Далее")
-        self.tutorial_next_button.set_icon("check" if final else "plus")
+        if self.tutorial_popup is None:
+            return
+        self.tutorial_popup.set_step(self.tutorial_step, len(steps), title, description, final)
+
+        def position_target(_dt):
+            current_target = self.tutorial_targets.get(target_key)
+            screen = self.screens[page]
+            if current_target is not None and current_target.parent is not None:
+                try:
+                    screen.scroll.scroll_to(current_target, padding=dp(14), animate=False)
+                except BaseException as error:
+                    log_exception("TUTORIAL_SCROLL_FAILED step=" + str(self.tutorial_step + 1), error)
+            def apply_target(_next_dt):
+                if self.tutorial_popup is not None:
+                    self.tutorial_popup.set_target(current_target)
+            Clock.schedule_once(apply_target, 0.18)
+
+        Clock.schedule_once(position_target, 0.12)
 
     def advance_tutorial(self):
         if self.tutorial_step >= 5:
@@ -1201,8 +1198,12 @@ class TwitchMobileApp(App):
 
     def finish_tutorial(self):
         if self.tutorial_popup is not None:
-            self.tutorial_popup.dismiss()
+            overlay = self.tutorial_popup
             self.tutorial_popup = None
+            try:
+                self.root_layer.remove_widget(overlay)
+            except BaseException as error:
+                log_exception("TUTORIAL_OVERLAY_REMOVE_FAILED", error)
         self.tutorial_shown = True
         self.rpc_async("finish_tutorial")
 
@@ -1223,6 +1224,9 @@ class TwitchMobileApp(App):
         return card
 
     def _render_channels(self):
+        self.tutorial_targets["add_channel"] = None
+        self.tutorial_targets["slots"] = None
+        self.tutorial_targets["start_farm"] = None
         screen = self.screens["channels"]
         screen.clear()
         screen.title("Каналы", "Баллы · Drops · ротация двух слотов")
@@ -1239,13 +1243,16 @@ class TwitchMobileApp(App):
         active = bool(state.get("session_running"))
         slot_text = "   ·   ".join(("@"+item) for item in slot_logins if item) or "Ожидают запуска фарма"
         slots_card = self._card(screen, "АКТИВНЫЙ ФАРМ СЕЙЧАС", slot_text)
+        self.tutorial_targets["slots"] = slots_card
         summary = AppText(text=f"{len(state.get('channels') or [])} каналов    ·    +{int(state.get('gained_total') or 0):,} баллов".replace(",", " "), size=11, color=GREEN if active else MUTED, size_hint_y=None, height=dp(22))
         slots_card.add_widget(summary)
         start = FarmButton("ОСТАНОВИТЬ ФАРМ" if active else "ЗАПУСТИТЬ ФАРМ", color=RED if active else PURPLE, icon="stop" if active else "play", size_hint_y=None, height=dp(48))
+        self.tutorial_targets["start_farm"] = start
         start.bind(on_release=lambda *_: self._toggle_farm())
         slots_card.add_widget(start)
         buttons = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(42))
         add = FarmButton("Добавить канал", color=SURFACE_ALT, icon="plus")
+        self.tutorial_targets["add_channel"] = add
         add.bind(on_release=lambda *_: self.open_add_channel())
         refresh = FarmButton("Обновить", color=SURFACE_ALT, icon="refresh")
         refresh.bind(on_release=lambda *_: self.rpc_async("refresh_channel_profiles"))
@@ -1284,6 +1291,7 @@ class TwitchMobileApp(App):
         self.rpc_async("start_farm", [payload])
 
     def _render_drops(self):
+        self.tutorial_targets["drop_farm"] = None
         screen = self.screens["drops"]
         screen.clear()
         focus = self.drops.get("focus") or {}
@@ -1291,6 +1299,7 @@ class TwitchMobileApp(App):
         refresh = FarmButton("Обновить инвентарь", color=SURFACE_ALT, icon="refresh", size_hint_y=None, height=dp(42))
         refresh.bind(on_release=lambda *_: self.rpc_async("refresh_drops_inventory", kwargs={"force": True}))
         screen.items.add_widget(refresh)
+        self.tutorial_targets["drop_farm"] = refresh
         if focus:
             card = self._card(screen, "ЦЕЛЕВОЙ ФАРМ", str(focus.get("campaign_name") or "") + " · " + str(focus.get("status") or ""))
             card.add_widget(FarmButton("Снять фокус", color=RED, icon="close", size_hint_y=None, height=dp(38), on_release=lambda *_: self.rpc_async("clear_drops_campaign_focus")))
@@ -1321,6 +1330,8 @@ class TwitchMobileApp(App):
             button = FarmButton(button_text, color=color, icon="gift" if focus.get("campaign_id") != campaign_id else "check", size_hint_y=None, height=dp(42))
             button.bind(on_release=lambda _b, cid=campaign_id: self.rpc_async("set_drops_campaign_focus", [cid]))
             card.add_widget(button)
+            if self.tutorial_targets.get("drop_farm") is refresh:
+                self.tutorial_targets["drop_farm"] = button
 
     def _render_followers(self):
         screen = self.screens["followers"]
@@ -1355,11 +1366,13 @@ class TwitchMobileApp(App):
         self._render_screen("followers", force=True)
 
     def _render_predictions(self):
+        self.tutorial_targets["prediction_strategy"] = None
         screen = self.screens["predictions"]
         screen.clear()
         screen.title("Настройки прогнозов", "Стратегия автоставок Twitch")
         settings = self.state.get("bet_settings") or {}
         card = self._card(screen, "Стратегия и лимиты", "Параметры будут применены при следующем запуске.")
+        self.tutorial_targets["prediction_strategy"] = card
         strategy = Field(hint="Стратегия (SMART, MOST_VOTED…)", text=str(settings.get("strategy") or "SMART"))
         card.add_widget(strategy)
         percentage = Field(hint="Процент от баланса", text=str(settings.get("percentage", 5)), input_filter="int")
@@ -1413,6 +1426,7 @@ class TwitchMobileApp(App):
         card.add_widget(label)
 
     def _render_settings(self):
+        self.tutorial_targets["settings_options"] = None
         screen = self.screens["settings"]
         screen.clear()
         screen.title("Настройки", "Управление сбором и приложением")
@@ -1422,6 +1436,7 @@ class TwitchMobileApp(App):
         account.add_widget(FarmButton("Выйти из аккаунта" if authenticated else "Войти через Twitch", color=RED if authenticated else PURPLE, icon="logout" if authenticated else "login", size_hint_y=None, height=dp(44), on_release=lambda *_: self.confirm_logout() if authenticated else self.open_login_popup(self.state.get("username") or "")))
         options = self.state.get("options") or {}
         card = self._card(screen, "Действия фарма", "Включённые возможности будут обрабатываться движком.")
+        self.tutorial_targets["settings_options"] = card
         names = [
             ("claim_drops", "Twitch Drops"),
             ("watch_streak", "Серии просмотров"),
