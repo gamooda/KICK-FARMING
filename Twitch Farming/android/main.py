@@ -91,11 +91,12 @@ class FarmButton(Button):
     def __init__(self, text="", color=PURPLE, text_color=TEXT, radius=dp(12), icon=None, **kwargs):
         self._icon_name = ""
         self._icon_widget = None
-        super().__init__(text=text, **kwargs)
+        self._plain_text = translate_text(str(text))
+        super().__init__(text=self._plain_text, **kwargs)
         self.background_normal = ""
         self.background_down = ""
         self.background_color = (0, 0, 0, 0)
-        self.text = translate_text(str(text))
+        self.text = self._plain_text
         self.color = text_color
         self.bold = True
         self.font_size = sp(13)
@@ -120,6 +121,7 @@ class FarmButton(Button):
             self.remove_widget(self._icon_widget)
             self._icon_widget = None
         self._icon_name = name
+        self.text = ("        " if name else "") + self._plain_text
         path = ICON_DIR / (name + ".png") if name else None
         if path is not None and path.is_file():
             self._icon_widget = KivyImage(
@@ -134,6 +136,10 @@ class FarmButton(Button):
         else:
             self.padding = [dp(8), dp(4)]
         self._draw_bg()
+
+    def set_label(self, value):
+        self._plain_text = translate_text(str(value or ""))
+        self.text = ("        " if self._icon_name else "") + self._plain_text
 
     def _draw_bg(self, *_):
         self._button_bg.pos = self.pos
@@ -432,7 +438,7 @@ class TwitchMobileApp(App):
         self.header_user = AppText(text="Не подключён", size=9, color=MUTED)
         brand.add_widget(self.header_user)
         header.add_widget(brand)
-        self.header_auth_button = FarmButton("Войти", color=SURFACE_ALT, icon="login", font_size=sp(9), size_hint=(None, None), size=(dp(67), dp(36)))
+        self.header_auth_button = FarmButton("Войти", color=SURFACE_ALT, icon="login", font_size=sp(9), size_hint=(None, None), size=(dp(82), dp(36)))
         self.header_auth_button.bind(on_release=lambda *_: self._header_auth_action())
         header.add_widget(self.header_auth_button)
         self.header_status = AppText(text="● ПОДКЛЮЧЕНИЕ...", size=8, color=MUTED, bold=True, align="right", size_hint_x=0.8)
@@ -463,6 +469,10 @@ class TwitchMobileApp(App):
         for key, button in self.nav_buttons.items():
             button.set_active(key == name)
         self._render_screen(name, force=True)
+        if self.auth.get("authenticated") and name == "followers" and not self.followers.get("loaded") and not self.followers.get("loading"):
+            self.rpc_async("refresh_followed_channels")
+        elif self.auth.get("authenticated") and name == "drops" and not self.drops.get("loaded") and not self.drops.get("loading"):
+            self.rpc_async("refresh_drops_inventory")
         self.poll_state()
 
     def on_start(self):
@@ -579,7 +589,7 @@ class TwitchMobileApp(App):
         self.header_status.text = status.replace("●  ", "● ")
         self.header_status.color = self._hex_color(self.state.get("status_color", "#A9B2C3"))
         authenticated = bool(self.auth.get("authenticated"))
-        self.header_auth_button.text = "Выйти" if authenticated else "Войти"
+        self.header_auth_button.set_label("Выйти" if authenticated else "Войти")
         self.header_auth_button.set_icon("logout" if authenticated else "login")
         self._render_screen(self.screen_manager.current)
         self._update_login_popup()
@@ -815,7 +825,7 @@ class TwitchMobileApp(App):
         self.tutorial_description_label.text = description
         self.tutorial_progress_label.text = f"Шаг {self.tutorial_step + 1} из {len(steps)}"
         final = self.tutorial_step == len(steps) - 1
-        self.tutorial_next_button.text = "Начать работу" if final else "Далее"
+        self.tutorial_next_button.set_label("Начать работу" if final else "Далее")
         self.tutorial_next_button.set_icon("check" if final else "plus")
 
     def advance_tutorial(self):
@@ -886,7 +896,7 @@ class TwitchMobileApp(App):
         channels = state.get("channels") or []
         if not channels:
             empty = self._card(screen, "Список каналов пуст", "Добавь стримеров, чтобы начать собирать баллы.")
-            empty.add_widget(FarmButton("Добавить канал", color=PURPLE, size_hint_y=None, height=dp(44), on_release=lambda *_: self.open_add_channel()))
+            empty.add_widget(FarmButton("Добавить канал", color=PURPLE, icon="plus", size_hint_y=None, height=dp(44), on_release=lambda *_: self.open_add_channel()))
         for login in channels:
             profile = channel_profiles.get(login, {})
             balance = balances.get(login, {})
@@ -919,7 +929,7 @@ class TwitchMobileApp(App):
         screen.items.add_widget(refresh)
         if focus:
             card = self._card(screen, "ЦЕЛЕВОЙ ФАРМ", str(focus.get("campaign_name") or "") + " · " + str(focus.get("status") or ""))
-            card.add_widget(FarmButton("Снять фокус", color=RED, size_hint_y=None, height=dp(38), on_release=lambda *_: self.rpc_async("clear_drops_campaign_focus")))
+            card.add_widget(FarmButton("Снять фокус", color=RED, icon="close", size_hint_y=None, height=dp(38), on_release=lambda *_: self.rpc_async("clear_drops_campaign_focus")))
         if self.drops.get("loading"):
             screen.items.add_widget(AppText(text="Синхронизация Twitch Drops…", size=12, color=MUTED, size_hint_y=None, height=dp(38)))
         campaigns = self.drops.get("campaigns") or []
@@ -996,9 +1006,15 @@ class TwitchMobileApp(App):
         card.add_widget(minimum)
         delay = Field(hint="Задержка", text=str(settings.get("delay", 6)), input_filter="int")
         card.add_widget(delay)
-        filter_enabled = FarmButton("Фильтр участников: " + ("ВКЛ" if settings.get("filter_enabled") else "ВЫКЛ"), color=GREEN if settings.get("filter_enabled") else SURFACE_ALT, size_hint_y=None, height=dp(42))
+        filter_enabled = FarmButton("Фильтр участников: " + ("ВКЛ" if settings.get("filter_enabled") else "ВЫКЛ"), color=GREEN if settings.get("filter_enabled") else SURFACE_ALT, icon="check" if settings.get("filter_enabled") else "power", size_hint_y=None, height=dp(42))
         card.add_widget(filter_enabled)
-        filter_enabled.bind(on_release=lambda *_: setattr(filter_enabled, "text", "Фильтр участников: " + ("ВЫКЛ" if filter_enabled.text.endswith("ВКЛ") else "ВКЛ")))
+
+        def toggle_filter():
+            enabled = not filter_enabled.text.endswith("ВКЛ")
+            filter_enabled.set_label("Фильтр участников: " + ("ВКЛ" if enabled else "ВЫКЛ"))
+            filter_enabled.set_icon("check" if enabled else "power")
+
+        filter_enabled.bind(on_release=lambda *_: toggle_filter())
 
         def save():
             values = dict(settings)
@@ -1012,7 +1028,7 @@ class TwitchMobileApp(App):
             })
             self.rpc_async("apply_bet_settings", [values, self.state.get("selected_preset") or "Оптимальный"])
 
-        card.add_widget(FarmButton("Применить параметры", color=PURPLE, size_hint_y=None, height=dp(46), on_release=lambda *_: save()))
+        card.add_widget(FarmButton("Применить параметры", color=PURPLE, icon="save", size_hint_y=None, height=dp(46), on_release=lambda *_: save()))
 
     def _render_events(self):
         screen = self.screens["events"]
