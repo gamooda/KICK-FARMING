@@ -140,7 +140,23 @@ def main():
         ]
     }
     available_fonts = set(QFontDatabase.families())
-    font_family = "Segoe UI" if "Segoe UI" in available_fonts else ("Arial" if "Arial" in available_fonts else app.font().family())
+    font_family = "Segoe UI" if "Segoe UI" in available_fonts else ""
+    if not font_family:
+        for font_path in (
+            Path("C:/Windows/Fonts/segoeui.ttf"),
+            Path("C:/Windows/Fonts/arial.ttf"),
+            Path("C:/Windows/Fonts/tahoma.ttf")
+        ):
+            if font_path.is_file():
+                font_id = QFontDatabase.addApplicationFont(str(font_path))
+                families = QFontDatabase.applicationFontFamilies(font_id) if font_id >= 0 else []
+                if families:
+                    font_family = families[0]
+                    break
+    if not font_family:
+        font_family = app.font().family()
+    app.setFont(app.font().__class__(font_family, 10))
+    print("GUI screenshot font:", font_family, "available font families:", len(QFontDatabase.families()))
     window.setStyleSheet(window.styleSheet() + " QWidget { font-family: \"" + font_family + "\"; }")
     window.show()
     process(app)
