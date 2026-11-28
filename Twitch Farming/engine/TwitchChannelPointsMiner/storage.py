@@ -105,38 +105,45 @@ def _android_keystore_key():
 
 
 def _crypt_android(data, decrypt=False):
-    from jnius import autoclass
+    from jnius import autoclass, detach
 
-    with _ANDROID_LOCK:
-        key = _android_keystore_key()
-        Cipher = autoclass("javax.crypto.Cipher")
-        if decrypt:
-            if not data.startswith(_ANDROID_MAGIC):
-                raise OSError("Файл сессии Twitch не имеет формата Android Keystore.")
-            header_offset = len(_ANDROID_MAGIC)
-            if len(data) < header_offset + 2:
-                raise OSError("Файл сессии Twitch повреждён.")
-            iv_length = struct.unpack(">H", data[header_offset:header_offset + 2])[0]
-            iv_start = header_offset + 2
-            iv_end = iv_start + iv_length
-            if iv_length < 12 or len(data) <= iv_end:
-                raise OSError("Файл сессии Twitch повреждён.")
-            iv = data[iv_start:iv_end]
-            encrypted = data[iv_end:]
+    try:
+        with _ANDROID_LOCK:
+            key = _android_keystore_key()
+            Cipher = autoclass("javax.crypto.Cipher")
+            if decrypt:
+                if not data.startswith(_ANDROID_MAGIC):
+                    raise OSError("Файл сессии Twitch не имеет формата Android Keystore.")
+                header_offset = len(_ANDROID_MAGIC)
+                if len(data) < header_offset + 2:
+                    raise OSError("Файл сессии Twitch повреждён.")
+                iv_length = struct.unpack(">H", data[header_offset:header_offset + 2])[0]
+                iv_start = header_offset + 2
+                iv_end = iv_start + iv_length
+                if iv_length < 12 or len(data) <= iv_end:
+                    raise OSError("Файл сессии Twitch повреждён.")
+                iv = data[iv_start:iv_end]
+                encrypted = data[iv_end:]
+                cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                GCMParameterSpec = autoclass("javax.crypto.spec.GCMParameterSpec")
+                params = GCMParameterSpec(128, _java_bytes(iv))
+                cipher.init(Cipher.DECRYPT_MODE, key, params)
+                try:
+                    return _python_bytes(cipher.doFinal(_java_bytes(encrypted)))
+                except Exception as error:
+                    raise OSError("Не удалось расшифровать сессию Twitch в Android Keystore.") from error
+
             cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            GCMParameterSpec = autoclass("javax.crypto.spec.GCMParameterSpec")
-            params = GCMParameterSpec(128, _java_bytes(iv))
-            cipher.init(Cipher.DECRYPT_MODE, key, params)
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+            iv = _python_bytes(cipher.getIV())
+            encrypted = _python_bytes(cipher.doFinal(_java_bytes(data)))
+            return _ANDROID_MAGIC + struct.pack(">H", len(iv)) + iv + encrypted
+    finally:
+        if threading.current_thread() is not threading.main_thread():
             try:
-                return _python_bytes(cipher.doFinal(_java_bytes(encrypted)))
-            except Exception as error:
-                raise OSError("Не удалось расшифровать сессию Twitch в Android Keystore.") from error
-
-        cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key)
-        iv = _python_bytes(cipher.getIV())
-        encrypted = _python_bytes(cipher.doFinal(_java_bytes(data)))
-        return _ANDROID_MAGIC + struct.pack(">H", len(iv)) + iv + encrypted
+                detach()
+            except Exception:
+                pass
 
 
 def _crypt(data, decrypt=False):
