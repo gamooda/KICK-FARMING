@@ -21,6 +21,20 @@ from kivy.uix.textinput import TextInput
 from kivy.graphics import Color, RoundedRectangle, Line
 from kivy.utils import platform
 
+if platform == "android":
+    try:
+        from android.storage import app_storage_path
+        os.environ.setdefault("APPDATA", app_storage_path())
+    except Exception:
+        pass
+
+try:
+    from i18n import get_language, set_language, translate_text
+except Exception:
+    get_language = lambda: "ru"
+    set_language = lambda value: value
+    translate_text = lambda value: str(value or "")
+
 APP_NAME = "Twitch Farming"
 RPC_HOST = "127.0.0.1"
 RPC_PORT = 43771
@@ -70,6 +84,7 @@ class ActionButton(Button):
         self.background_normal = ""
         self.background_down = ""
         self.background_color = (0, 0, 0, 0)
+        self.text = translate_text(str(text))
         self.color = text_color
         self.bold = True
         self.font_size = sp(13)
@@ -91,6 +106,7 @@ class ActionButton(Button):
 class AppText(Label):
     def __init__(self, text="", size=14, color=TEXT, bold=False, align="left", **kwargs):
         super().__init__(text=str(text), **kwargs)
+        self.text = translate_text(str(text))
         self.font_size = sp(size)
         self.color = color
         self.bold = bold
@@ -103,7 +119,7 @@ class AppText(Label):
 class Field(TextInput):
     def __init__(self, hint="", text="", password=False, **kwargs):
         super().__init__(**kwargs)
-        self.hint_text = hint
+        self.hint_text = translate_text(hint)
         self.text = text
         self.password = password
         self.multiline = False
@@ -217,6 +233,9 @@ class TwitchMobileApp(App):
     def build(self):
         Window.clearcolor = BG
         Window.softinput_mode = "below_target"
+        if "--preview" in sys.argv:
+            Window.size = (420, 900)
+        self.language = get_language()
         self.rpc = RPCClient()
         self.snapshot = {}
         self.state = {}
@@ -503,14 +522,14 @@ class TwitchMobileApp(App):
         for campaign in campaigns:
             title = campaign.get("name") or campaign.get("game") or "Twitch Drops"
             game = campaign.get("game") or "Общая кампания"
-            rewards = campaign.get("rewards") or campaign.get("time_based_drops") or []
+            rewards = campaign.get("drops") or campaign.get("rewards") or campaign.get("time_based_drops") or []
             card = self._card(screen, str(title), str(game))
             for reward in rewards[:8]:
                 if not isinstance(reward, dict):
                     continue
                 reward_name = reward.get("name") or reward.get("title") or "Награда"
-                progress = reward.get("progress") or reward.get("current_progress") or 0
-                total = reward.get("required_minutes") or reward.get("required_progress") or reward.get("total") or 0
+                progress = reward.get("watched_minutes") or reward.get("current_minutes") or reward.get("progress") or reward.get("percentage") or 0
+                total = reward.get("required_minutes") or reward.get("requiredMinutes") or reward.get("required_progress") or reward.get("total") or 0
                 try:
                     pct = min(100, max(0, int(float(progress) * 100 / float(total)))) if float(total) > 0 else 0
                 except (TypeError, ValueError, ZeroDivisionError):
@@ -613,8 +632,15 @@ class TwitchMobileApp(App):
             card.add_widget(button)
         app_card = self._card(screen, "Приложение", "Фоновый сервис держит фарм активным при сворачивании.")
         app_card.add_widget(AppText(text="Для MIUI включи автозапуск и режим батареи «Без ограничений».", size=11, color=MUTED, size_hint_y=None, height=dp(44)))
+        app_card.add_widget(ActionButton("Язык: " + ("Русский" if self.language == "ru" else "English"), color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.toggle_language()))
         app_card.add_widget(ActionButton("Открыть GitHub Releases", color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_external(GITHUB_RELEASES)))
         app_card.add_widget(ActionButton("Настройки батареи MIUI", color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_battery_settings()))
+
+    def toggle_language(self):
+        self.language = "en" if self.language == "ru" else "ru"
+        set_language(self.language)
+        self.refresh_screen_content()
+        self.show_toast("Language: English" if self.language == "en" else "Язык: Русский")
 
     def _toggle_local_option(self, key):
         options = dict(self.state.get("options") or {})
@@ -742,10 +768,15 @@ class TwitchMobileApp(App):
     def capture_preview(self, _dt):
         output = Path(os.environ.get("TWITCH_MOBILE_SCREENSHOT_DIR", "screenshots"))
         output.mkdir(parents=True, exist_ok=True)
-        for index, name in enumerate(("channels", "drops", "followers", "predictions", "events", "settings")):
+        names = ("channels", "drops", "followers", "predictions", "events", "settings")
+
+        def capture(name):
             self.navigate(name)
-            Clock.schedule_once(lambda dt, screen=name: Window.screenshot(name=str(output / (screen + ".png"))), 0.2 + index * 0.65)
-        Clock.schedule_once(lambda _dt: self.stop(), 5.5)
+            Clock.schedule_once(lambda _event: Window.screenshot(name=str(output / (name + ".png"))), 0.28)
+
+        for index, name in enumerate(names):
+            Clock.schedule_once(lambda _event, screen=name: capture(screen), 0.25 + index * 0.85)
+        Clock.schedule_once(lambda _event: self.stop(), 0.25 + len(names) * 0.85 + 0.75)
 
 
 if __name__ == "__main__":

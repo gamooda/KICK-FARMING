@@ -50,6 +50,34 @@ jobs:
         working-directory: Twitch Farming/android
         run: bash prepare.sh
 
+      - name: Install desktop Kivy for phone-size screenshots
+        run: |
+          sudo apt-get install -y xvfb libgl1-mesa-dri
+          python -m pip install "kivy==2.3.1" Pillow
+
+      - name: Generate Android app icons
+        working-directory: Twitch Farming/android
+        run: python generate_assets.py
+
+      - name: Capture phone-size UI screenshots
+        working-directory: Twitch Farming/android
+        env:
+          KIVY_NO_ARGS: "1"
+          SDL_AUDIODRIVER: dummy
+          TWITCH_MOBILE_SCREENSHOT_DIR: screenshots
+        run: |
+          mkdir -p ../../artifacts
+          xvfb-run -a python main.py --preview
+          python -c "from pathlib import Path; files=list(Path('screenshots').glob('*.png')); assert len(files)==6, f'Expected 6 screen captures, got {len(files)}'; print('\n'.join(str(p) for p in files))"
+          python -c "import zipfile; from pathlib import Path; z=zipfile.ZipFile('../../artifacts/Twitch-Farming-Android-Screenshots.zip','w',zipfile.ZIP_DEFLATED); [z.write(p,p.name) for p in Path('screenshots').glob('*.png')]; z.close()"
+
+      - name: Upload phone UI screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: Twitch-Farming-Android-Screenshots
+          path: artifacts/Twitch-Farming-Android-Screenshots.zip
+          if-no-files-found: error
+
       - name: Build ARMv7 APK
         working-directory: Twitch Farming/android
         env:
@@ -63,7 +91,9 @@ jobs:
           test -n "$APK"
           mkdir -p ../../artifacts
           cp "$APK" ../../artifacts/Twitch-Farming-Android-armeabi-v7a.apk
-          $ANDROID_HOME/build-tools/33.0.2/aapt dump badging "$APK" | tee ../../artifacts/apk-badging.txt
+          AAPT=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          test -x "$AAPT"
+          "$AAPT" dump badging "$APK" | tee ../../artifacts/apk-badging.txt
           grep -q "sdkVersion:'29'" ../../artifacts/apk-badging.txt
           unzip -Z1 "$APK" | grep -q 'lib/armeabi-v7a/'
           if unzip -Z1 "$APK" | grep -q 'lib/arm64-v8a/'; then
@@ -88,6 +118,7 @@ jobs:
           prerelease: true
           files: |
             artifacts/Twitch-Farming-Android-armeabi-v7a.apk
+            artifacts/Twitch-Farming-Android-Screenshots.zip
             artifacts/SHA256SUMS.txt
           body: |
             Android APK for Xiaomi Redmi 7A (Android 10, armeabi-v7a / 32-bit).

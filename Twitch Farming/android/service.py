@@ -132,9 +132,9 @@ def set_android_notification():
         else:
             body = "Фоновый сервис готов · фарм остановлен"
         package = service.getPackageName()
-        icon_id = service.getResources().getIdentifier("icon", "drawable", package)
+        icon_id = service.getResources().getIdentifier("ic_launcher", "mipmap", package)
         if icon_id == 0:
-            icon_id = service.getResources().getIdentifier("ic_launcher", "mipmap", package)
+            icon_id = service.getResources().getIdentifier("icon", "drawable", package)
         if icon_id == 0:
             return
         Intent = autoclass("android.content.Intent")
