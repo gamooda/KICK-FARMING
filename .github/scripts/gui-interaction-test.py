@@ -32,6 +32,10 @@ class FakeApi:
         self.calls.append("check_for_updates")
         return {"ok": True, "message": "Проверка GitHub Releases завершена. Обновлений нет."}
 
+    def save_settings(self, payload):
+        self.calls.append("save_settings")
+        return {"ok": True, "message": "Тестовые настройки сохранены."}
+
     def start_farm(self, payload):
         self.calls.append("start_farm")
         return {"ok": True, "message": "Тестовый запуск фарма выполнен."}
@@ -127,7 +131,13 @@ def main():
         "options": {}
     }
     window.drops_state = {"loaded": True, "campaigns": []}
-    window.followed_state = {"loaded": True, "channels": []}
+    window.followed_state = {
+        "loaded": True,
+        "channels": [
+            {"login": "live_follower", "display_name": "Live follower", "is_live": True, "viewer_count": 1200, "followed_at": "2025-01-01T00:00:00Z"},
+            {"login": "offline_follower", "display_name": "Offline follower", "is_live": False, "viewer_count": 0}
+        ]
+    }
     window.show()
     process(app)
     window._render_channels()
@@ -156,15 +166,27 @@ def main():
     refresh_button = next((button for button in window.stack.widget(2).findChildren(QPushButton) if button.text() == "Обновить"), None)
     click(refresh_button)
     check("refresh_followed_channels" in window.api.calls, "The Followers refresh button did not invoke its action.")
+    window._render_followers()
     screenshot(window, "03-followers.png")
 
+    click(window.nav_buttons[1])
+    window._render_drops()
+    screenshot(window, "04-drops.png")
+
     click(window.nav_buttons[3])
-    screenshot(window, "04-settings.png")
+    screenshot(window, "05-settings.png")
+    window.toast_timer.stop()
+    window.toast.hide()
+    window._toast_queue.clear()
+    window._toast_current_text = ""
     click(window.update_check_button)
     check("check_for_updates" in window.api.calls, "The update-check button did not invoke its action.")
     expected = "Проверка GitHub Releases завершена. Обновлений нет."
     check(window.toast.isVisible() and window.toast.text() == expected, "The update result notification was not shown in full.")
     check(window.toast.textFormat() == Qt.TextFormat.PlainText, "Notifications must be rendered as plain text.")
+    save_settings_button = next((button for button in window.stack.widget(3).findChildren(QPushButton) if button.text() == "Сохранить настройки"), None)
+    click(save_settings_button)
+    check("save_settings" in window.api.calls and window.toast.text() == "Тестовые настройки сохранены.", "The settings save button did not complete and show its notification.")
 
     first = "Первое уведомление должно остаться полностью видимым."
     second = "Второе уведомление содержит символы <tag> & кавычки и не должно обрезаться."
@@ -192,7 +214,7 @@ def main():
     expected_x = (parent.width() - window.toast.width()) // 2
     expected_y = parent.height() - window.toast.height() - 20
     check(abs(window.toast.x() - expected_x) <= 2 and abs(window.toast.y() - expected_y) <= 2, "The notification is not centered at the bottom of the window.")
-    screenshot(window, "05-long-notification.png")
+    screenshot(window, "06-long-notification.png")
 
     window.toast_timer.stop()
     window.toast.hide()
@@ -202,10 +224,15 @@ def main():
     click(window.farm_button)
     check("start_farm" in window.api.calls, "The Start Farm button did not invoke its action.")
     check(window.toast.text() == "Тестовый запуск фарма выполнен.", "Farm feedback was not shown as a complete notification.")
-    screenshot(window, "06-farm-feedback.png")
+    screenshot(window, "07-farm-feedback.png")
 
+    click(window.nav_buttons[4])
+    screenshot(window, "08-predictions.png")
     click(window.nav_buttons[5])
-    screenshot(window, "07-events.png")
+    screenshot(window, "09-events.png")
+    click(window.nav_buttons[6])
+    screenshot(window, "10-about.png")
+    click(window.nav_buttons[5])
     clear_button = next((button for button in window.stack.widget(5).findChildren(QPushButton) if button.text() == "Очистить журнал"), None)
     click(clear_button)
     check("clear_logs" in window.api.calls, "The Clear Log button did not invoke its action.")
