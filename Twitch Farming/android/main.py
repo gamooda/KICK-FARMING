@@ -1232,9 +1232,14 @@ class TwitchMobileApp(App):
         steps = self._tutorial_steps()
         if self.tutorial_popup is None:
             return
-        if not isinstance(self.tutorial_step, int) or self.tutorial_step < 0 or self.tutorial_step >= len(steps):
+        try:
+            step_index = int(self.tutorial_step)
+        except (TypeError, ValueError):
+            step_index = 0
+        if step_index < 0 or step_index >= len(steps):
             log_event("TUTORIAL_INVALID_STEP", "step=" + str(self.tutorial_step))
-            self.tutorial_step = min(max(int(self.tutorial_step or 0), 0), len(steps) - 1)
+            step_index = min(max(step_index, 0), len(steps) - 1)
+        self.tutorial_step = step_index
         page, target_key, title, description = steps[self.tutorial_step]
         overlay = self.tutorial_popup
         self.tutorial_generation += 1
@@ -1279,7 +1284,13 @@ class TwitchMobileApp(App):
             if not valid:
                 children = list(screen.items.children)
                 fallback = children[-1] if children else None
-                if isinstance(fallback, Widget) and fallback.parent is not None:
+                fallback_valid = isinstance(fallback, Widget) and fallback.parent is not None
+                if fallback_valid:
+                    try:
+                        fallback_valid = fallback.get_root_window() is not None
+                    except BaseException:
+                        fallback_valid = False
+                if fallback_valid:
                     log_event("TUTORIAL_TARGET_FALLBACK", "step=" + str(self.tutorial_step + 1) + " target=" + target_key)
                     target = fallback
                 else:
@@ -1290,14 +1301,6 @@ class TwitchMobileApp(App):
         def finish_positioning(_dt):
             if self.tutorial_popup is not overlay or self.tutorial_generation != generation:
                 return
-            layout_screen()
-            target = resolve_target()
-            if target is not None:
-                try:
-                    screen.scroll.scroll_to(target, padding=dp(16), animate=False)
-                except BaseException as error:
-                    log_exception("TUTORIAL_SCROLL_FAILED step=" + str(self.tutorial_step + 1), error)
-            layout_screen()
 
             def after_draw(_next_dt):
                 if self.tutorial_popup is not overlay or self.tutorial_generation != generation:
@@ -1317,7 +1320,27 @@ class TwitchMobileApp(App):
                     overlay.set_busy(False)
                     self.tutorial_transitioning = False
 
-            Clock.schedule_once(after_draw, 0.18)
+            try:
+                layout_screen()
+                target = resolve_target()
+                if target is not None:
+                    try:
+                        screen.scroll.scroll_to(target, padding=dp(16), animate=False)
+                    except BaseException as error:
+                        log_exception("TUTORIAL_SCROLL_FAILED step=" + str(self.tutorial_step + 1), error)
+                layout_screen()
+            except BaseException as error:
+                log_exception("TUTORIAL_STEP_POSITION_FAILED step=" + str(self.tutorial_step + 1), error)
+                try:
+                    overlay.set_target(None)
+                except BaseException as overlay_error:
+                    log_exception("TUTORIAL_STEP_RECOVERY_FAILED", overlay_error)
+            try:
+                Clock.schedule_once(after_draw, 0.18)
+            except BaseException as error:
+                log_exception("TUTORIAL_STEP_SCHEDULE_FAILED step=" + str(self.tutorial_step + 1), error)
+                overlay.set_busy(False)
+                self.tutorial_transitioning = False
 
         Clock.schedule_once(finish_positioning, 0)
 
