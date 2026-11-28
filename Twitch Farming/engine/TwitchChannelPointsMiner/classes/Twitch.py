@@ -132,12 +132,34 @@ class Twitch(object):
     def login(self, force_reauth=False):
         if not force_reauth and self.restore_session():
             return True
-        if self.twitch_login.login_flow():
-            self.twitch_login.validate_token()
+        if not self.twitch_login.login_flow():
+            return False
+        if not self.twitch_login.login_check_result and not self.twitch_login.check_login():
+            logger.error("Twitch device authorization completed without a validated account.")
+            return False
+        android_runtime = (
+            os.environ.get("TWITCH_FARMING_ANDROID") == "1"
+            or "ANDROID_ARGUMENT" in os.environ
+            or "ANDROID_PRIVATE" in os.environ
+        )
+        if android_runtime:
+            def persist_session():
+                started = time.monotonic()
+                try:
+                    self.twitch_login.save_cookies(self.cookies_file)
+                    logger.info("Android Twitch session saved securely in %.2f sec.", time.monotonic() - started)
+                except BaseException:
+                    logger.exception("Could not save Android Twitch session securely")
+            threading.Thread(
+                target=persist_session,
+                name="TwitchSessionStorage",
+                daemon=True,
+            ).start()
+            logger.info("Twitch account validated; secure Android session storage is running separately.")
+        else:
             self.twitch_login.save_cookies(self.cookies_file)
             logger.info("Twitch session saved securely.")
-            return True
-        return False
+        return True
 
     def _reauthenticate_after_expiry(self, expired_token):
         if getattr(self, "stop_requested", False):
