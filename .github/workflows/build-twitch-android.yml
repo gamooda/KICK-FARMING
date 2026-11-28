@@ -69,9 +69,9 @@ jobs:
             ~/.gradle/wrapper
             ~/.cache/pip
             ${{ runner.temp }}/twitch-farming-android/.buildozer
-          key: buildozer-${{ runner.os }}-py311-${{ hashFiles('Twitch Farming/android/buildozer.spec') }}
+          key: buildozer-v2-${{ runner.os }}-py311-${{ hashFiles('Twitch Farming/android/buildozer.spec', 'Twitch Farming/android/prepare.sh') }}
           restore-keys: |
-            buildozer-${{ runner.os }}-py311-
+            buildozer-v2-${{ runner.os }}-py311-
 
       - name: Match Android version to Windows release
         working-directory: Twitch Farming
@@ -96,8 +96,8 @@ jobs:
       - name: Install Android build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git zip unzip openjdk-17-jdk \
-            python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev \
+          sudo apt-get install -y build-essential git zip unzip \
+            autoconf libtool pkg-config zlib1g-dev libncurses5-dev \
             libncursesw5-dev libtinfo6 cmake libffi-dev libssl-dev \
             libltdl-dev libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev \
             libsdl2-ttf-dev libmtdev-dev libgles2-mesa-dev xclip xsel
