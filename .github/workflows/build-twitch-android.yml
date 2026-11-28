@@ -14,6 +14,7 @@ on:
       - ".github/workflows/build-twitch-android.yml"
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -114,18 +115,53 @@ jobs:
           path: artifacts/Twitch-Farming-Android-armeabi-v7a.apk
           if-no-files-found: error
 
-      - name: Publish Android release
+      - name: Find matching Windows release
+        id: desktop_release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const workflowId = "build-twitch-exe.yml"
+            let desktopRun = null
+
+            for (let attempt = 0; attempt < 40; attempt += 1) {
+              const response = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflowId,
+                head_sha: context.sha,
+                per_page: 10,
+              })
+              desktopRun = response.data.workflow_runs.find(run => run.head_sha === context.sha) || null
+
+              if (desktopRun && desktopRun.status === "completed") {
+                if (desktopRun.conclusion !== "success") {
+                  throw new Error(`Matching Windows build failed: ${desktopRun.html_url}`)
+                }
+                break
+              }
+
+              await new Promise(resolve => setTimeout(resolve, 15000))
+            }
+
+            if (!desktopRun || desktopRun.status !== "completed" || desktopRun.conclusion !== "success") {
+              throw new Error("No successful Windows build was found for this exact source commit.")
+            }
+
+            const tag = `twitch-farming-build-${desktopRun.run_number}`
+            await github.rest.repos.getReleaseByTag({ owner, repo, tag })
+            core.setOutput("tag", tag)
+            core.setOutput("run_number", String(desktopRun.run_number))
+
+      - name: Publish Android APK alongside Windows ZIP
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: twitch-farming-android-\${{ github.run_number }}
-          name: Twitch Farming Android build \${{ github.run_number }}
+          tag_name: ${{ steps.desktop_release.outputs.tag }}
+          name: Twitch Farming build ${{ steps.desktop_release.outputs.run_number }}
           draft: false
-          prerelease: true
+          prerelease: false
           files: |
             artifacts/Twitch-Farming-Android-armeabi-v7a.apk
             artifacts/Twitch-Farming-Android-Screenshots.zip
             artifacts/SHA256SUMS.txt
-          body: |
-            Android APK for Xiaomi Redmi 7A (Android 10, armeabi-v7a / 32-bit).
-            This is a separate Android port that shares the existing Twitch backend and miner engine.
-            Install the APK, sign in with Twitch, and allow the ongoing foreground-service notification.

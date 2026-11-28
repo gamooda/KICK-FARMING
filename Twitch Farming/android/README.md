@@ -36,3 +36,7 @@ MIUI may still restrict background processes. On Redmi 7A, enable Autostart for 
 
 - The Windows auto-updater is intentionally not exposed in Android; it handles Windows EXE/ZIP replacement. Android builds must be installed as APK updates.
 - The mobile UI is a responsive native-style port, not a byte-for-byte rendering of the desktop window. The Twitch farming backend and miner engine are shared with the desktop app.
+
+## Release downloads
+
+The `Twitch-Farming-Android-armeabi-v7a.apk` and phone UI screenshots are attached to the same GitHub Release as the matching Windows `Twitch.Farming.zip`. The Android workflow waits for the successful Windows build for the exact same source commit before uploading the Android files.
