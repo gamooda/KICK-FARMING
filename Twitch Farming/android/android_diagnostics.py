@@ -15,6 +15,7 @@ _HANDLERS = {}
 _LOG_DIRS = []
 _FAULT_HANDLE = None
 _INSTALLED = False
+_INITIALIZING = False
 _LOGGER = logging.getLogger("twitch_farming.android")
 _LOGGER.setLevel(logging.DEBUG)
 _LOGGER.propagate = True
@@ -69,8 +70,9 @@ def _candidate_directories():
     custom = os.environ.get("TWITCH_FARMING_LOG_DIR", "").strip()
     if custom:
         candidates.append(Path(custom))
-    if not candidates:
-        candidates.append(Path.home() / ".twitch_farming_android" / "logs")
+    fallback = Path.home() / ".twitch_farming_android" / "logs"
+    if fallback not in candidates:
+        candidates.append(fallback)
     unique = []
     seen = set()
     for candidate in candidates:
@@ -85,89 +87,101 @@ def _candidate_directories():
 
 
 def initialize_android_logging(component="app"):
-    global _FAULT_HANDLE, _INSTALLED
+    global _FAULT_HANDLE, _INSTALLED, _INITIALIZING
     with _LOCK:
-        candidates = _candidate_directories()
-        for index, directory in enumerate(candidates):
-            try:
-                directory.mkdir(parents=True, exist_ok=True)
-                log_file = directory / "twitch-farming-android.log"
-                if log_file.exists() and log_file.stat().st_size > 4 * 1024 * 1024:
-                    backup = directory / "twitch-farming-android.log.1"
-                    try:
-                        backup.unlink(missing_ok=True)
-                    except Exception:
-                        pass
-                    log_file.replace(backup)
-                key = str(log_file)
-                if key not in _HANDLERS:
-                    handler = logging.FileHandler(log_file, mode="a", encoding="utf-8", delay=False)
-                    handler.setLevel(logging.DEBUG)
-                    handler.addFilter(_RedactingFilter())
-                    handler.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d [%(levelname)s] [%(process)d:%(threadName)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
-                    logging.getLogger().addHandler(handler)
-                    _HANDLERS[key] = handler
-                if directory in _LOG_DIRS:
-                    _LOG_DIRS.remove(directory)
-                if index == 0:
-                    _LOG_DIRS.insert(0, directory)
-                else:
-                    _LOG_DIRS.append(directory)
-                if _FAULT_HANDLE is None or str(directory) == str(_LOG_DIRS[0]):
-                    try:
-                        faulthandler.disable()
-                        if _FAULT_HANDLE is not None:
-                            _FAULT_HANDLE.close()
-                    except Exception:
-                        pass
-                    _FAULT_HANDLE = log_file.open("a", encoding="utf-8")
-                    try:
-                        faulthandler.enable(file=_FAULT_HANDLE, all_threads=True)
-                    except Exception:
-                        pass
-            except Exception:
-                continue
-        root = logging.getLogger()
-        if root.level > logging.DEBUG:
-            root.setLevel(logging.DEBUG)
-        if not _INSTALLED:
-            original_sys_hook = sys.excepthook
-            original_thread_hook = getattr(threading, "excepthook", None)
-            original_unraisable_hook = getattr(sys, "unraisablehook", None)
-
-            def sys_hook(exc_type, exc_value, exc_tb):
-                log_exception("UNHANDLED_MAIN_EXCEPTION", exc_value, exc_tb)
+        if _INITIALIZING:
+            return get_log_path()
+        _INITIALIZING = True
+        try:
+            candidates = _candidate_directories()
+            for index, directory in enumerate(candidates):
                 try:
-                    original_sys_hook(exc_type, exc_value, exc_tb)
+                    directory.mkdir(parents=True, exist_ok=True)
+                    log_file = directory / "twitch-farming-android.log"
+                    if log_file.exists() and log_file.stat().st_size > 4 * 1024 * 1024:
+                        backup = directory / "twitch-farming-android.log.1"
+                        try:
+                            backup.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        log_file.replace(backup)
+                    key = str(log_file)
+                    if key not in _HANDLERS:
+                        handler = logging.FileHandler(log_file, mode="a", encoding="utf-8", delay=False)
+                        handler.setLevel(logging.DEBUG)
+                        handler.addFilter(_RedactingFilter())
+                        handler.setFormatter(logging.Formatter("%(asctime)s.%(msecs)03d [%(levelname)s] [%(process)d:%(threadName)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+                        logging.getLogger().addHandler(handler)
+                        _HANDLERS[key] = handler
+                    if directory in _LOG_DIRS:
+                        _LOG_DIRS.remove(directory)
+                    if index == 0:
+                        _LOG_DIRS.insert(0, directory)
+                    else:
+                        _LOG_DIRS.append(directory)
+                    if _FAULT_HANDLE is None or str(directory) == str(_LOG_DIRS[0]):
+                        try:
+                            faulthandler.disable()
+                            if _FAULT_HANDLE is not None:
+                                _FAULT_HANDLE.close()
+                        except Exception:
+                            pass
+                        _FAULT_HANDLE = log_file.open("a", encoding="utf-8")
+                        try:
+                            faulthandler.enable(file=_FAULT_HANDLE, all_threads=True)
+                        except Exception:
+                            pass
                 except Exception:
-                    pass
+                    continue
+            root = logging.getLogger()
+            if root.level > logging.DEBUG:
+                root.setLevel(logging.DEBUG)
+            if not _INSTALLED:
+                original_sys_hook = sys.excepthook
+                original_thread_hook = getattr(threading, "excepthook", None)
+                original_unraisable_hook = getattr(sys, "unraisablehook", None)
 
-            def thread_hook(args):
-                log_exception("UNHANDLED_THREAD_EXCEPTION " + str(args.thread.name if args.thread else "unknown"), args.exc_value, args.exc_traceback)
+                def sys_hook(exc_type, exc_value, exc_tb):
+                    log_exception("UNHANDLED_MAIN_EXCEPTION", exc_value, exc_tb)
+                    try:
+                        original_sys_hook(exc_type, exc_value, exc_tb)
+                    except Exception:
+                        pass
+
+                def thread_hook(args):
+                    log_exception("UNHANDLED_THREAD_EXCEPTION " + str(args.thread.name if args.thread else "unknown"), args.exc_value, args.exc_traceback)
+                    if original_thread_hook:
+                        try:
+                            original_thread_hook(args)
+                        except Exception:
+                            pass
+
+                def unraisable_hook(args):
+                    log_exception("UNRAISABLE_EXCEPTION " + str(args.err_msg or ""), args.exc_value, args.exc_traceback)
+                    if original_unraisable_hook:
+                        try:
+                            original_unraisable_hook(args)
+                        except Exception:
+                            pass
+
+                sys.excepthook = sys_hook
                 if original_thread_hook:
-                    try:
-                        original_thread_hook(args)
-                    except Exception:
-                        pass
-
-            def unraisable_hook(args):
-                log_exception("UNRAISABLE_EXCEPTION " + str(args.err_msg or ""), args.exc_value, args.exc_traceback)
+                    threading.excepthook = thread_hook
                 if original_unraisable_hook:
+                    sys.unraisablehook = unraisable_hook
+                atexit.register(lambda: log_event("PROCESS_EXIT", "Python shutdown hook reached"))
+                _INSTALLED = True
+            os.environ["TWITCH_FARMING_LOG_PATH"] = get_log_path()
+            if _HANDLERS:
+                _LOGGER.info("DIAGNOSTICS_READY | component=%s log_path=%s", _redact(component), get_log_path())
+                for handler in tuple(_HANDLERS.values()):
                     try:
-                        original_unraisable_hook(args)
+                        handler.flush()
                     except Exception:
                         pass
-
-            sys.excepthook = sys_hook
-            if original_thread_hook:
-                threading.excepthook = thread_hook
-            if original_unraisable_hook:
-                sys.unraisablehook = unraisable_hook
-            atexit.register(lambda: log_event("PROCESS_EXIT", "Python shutdown hook reached"))
-            _INSTALLED = True
-        os.environ["TWITCH_FARMING_LOG_PATH"] = get_log_path()
-        log_event("DIAGNOSTICS_READY", "component=" + str(component) + " log_path=" + get_log_path())
-        return get_log_path()
+            return get_log_path()
+        finally:
+            _INITIALIZING = False
 
 
 def get_log_paths():
@@ -197,7 +211,7 @@ def log_event(event, message=""):
 
 
 def initialize_if_needed():
-    if not _HANDLERS:
+    if not _HANDLERS and not _INITIALIZING:
         initialize_android_logging("lazy-init")
 
 
