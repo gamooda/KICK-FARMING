@@ -291,10 +291,12 @@ class TutorialOverlay(FloatLayout):
     def __init__(self, app, **kwargs):
         super().__init__(**kwargs)
         self.app = app
-        self.target = None
+        self.targets = []
+        self.clip_widget = None
         self.hole = None
         self.card_height = dp(180)
         self._target_update_callback = self._queue_spotlight_update
+        self._clip_update_callback = self._queue_spotlight_update
         self.card = Panel(
             color=(0.105, 0.095, 0.16, 1),
             radius=dp(17),
@@ -329,36 +331,78 @@ class TutorialOverlay(FloatLayout):
     def set_busy(self, busy):
         self.next_button.disabled = bool(busy)
 
-    def set_target(self, target):
-        previous = self.target
-        if previous is not None and previous is not target:
-            for prop in ("pos", "size", "parent"):
-                previous.unbind(**{prop: self._target_update_callback})
-        self.target = target
-        if target is not None and previous is not target:
-            for prop in ("pos", "size", "parent"):
-                target.bind(**{prop: self._target_update_callback})
+    def set_target(self, target, clip=None):
+        if target is None:
+            targets = []
+        elif isinstance(target, (list, tuple)):
+            targets = [item for item in target if item is not None]
+        else:
+            targets = [target]
+        previous_targets = list(self.targets)
+        for previous in previous_targets:
+            if previous not in targets:
+                for prop in ("pos", "size", "parent"):
+                    previous.unbind(**{prop: self._target_update_callback})
+        for item in targets:
+            if item not in previous_targets:
+                for prop in ("pos", "size", "parent"):
+                    item.bind(**{prop: self._target_update_callback})
+        previous_clip = self.clip_widget
+        if previous_clip is not None and previous_clip is not clip:
+            for prop in ("pos", "size", "scroll_x", "scroll_y"):
+                previous_clip.unbind(**{prop: self._clip_update_callback})
+        if clip is not None and previous_clip is not clip:
+            for prop in ("pos", "size", "scroll_x", "scroll_y"):
+                clip.bind(**{prop: self._clip_update_callback})
+        self.targets = targets
+        self.clip_widget = clip
         self._queue_spotlight_update()
 
     def _queue_spotlight_update(self, *_):
         Clock.schedule_once(self._update_spotlight, 0)
 
-    def _target_bounds(self, target):
-        if target is None or target.parent is None or target.get_root_window() is None:
+    def _widget_bounds(self, widget):
+        if widget is None or widget.parent is None or widget.get_root_window() is None:
             return None
-        first = target.to_window(0, 0)
-        second = target.to_window(target.width, target.height)
-        first_x, first_y = self.to_widget(*first)
-        second_x, second_y = self.to_widget(*second)
-        left = min(first_x, second_x)
-        bottom = min(first_y, second_y)
-        right = max(first_x, second_x)
-        top = max(first_y, second_y)
-        pad = dp(6)
-        left = max(0, left - pad)
-        bottom = max(0, bottom - pad)
-        right = min(self.width, right + pad)
-        top = min(self.height, top + pad)
+        window_first = widget.to_window(0, 0)
+        window_second = widget.to_window(widget.width, widget.height)
+        first_x, first_y = self.to_widget(*window_first)
+        second_x, second_y = self.to_widget(*window_second)
+        return (
+            min(first_x, second_x),
+            min(first_y, second_y),
+            max(first_x, second_x),
+            max(first_y, second_y)
+        )
+
+    def _target_bounds(self):
+        clip_bounds = self._widget_bounds(self.clip_widget) if self.clip_widget is not None else None
+        rectangles = []
+        for target in self.targets:
+            bounds = self._widget_bounds(target)
+            if bounds is None:
+                continue
+            left, bottom, right, top = bounds
+            if clip_bounds is not None:
+                clip_left, clip_bottom, clip_right, clip_top = clip_bounds
+                left = max(left, clip_left)
+                bottom = max(bottom, clip_bottom)
+                right = min(right, clip_right)
+                top = min(top, clip_top)
+            if right <= left or top <= bottom:
+                continue
+            pad = dp(6)
+            left = max(clip_bounds[0] if clip_bounds else 0, left - pad)
+            bottom = max(clip_bounds[1] if clip_bounds else 0, bottom - pad)
+            right = min(clip_bounds[2] if clip_bounds else self.width, right + pad)
+            top = min(clip_bounds[3] if clip_bounds else self.height, top + pad)
+            rectangles.append((left, bottom, right, top))
+        if not rectangles:
+            return None
+        left = max(0, min(rect[0] for rect in rectangles))
+        bottom = max(0, min(rect[1] for rect in rectangles))
+        right = min(self.width, max(rect[2] for rect in rectangles))
+        top = min(self.height, max(rect[3] for rect in rectangles))
         if right <= left or top <= bottom:
             return None
         return left, bottom, right - left, top - bottom
@@ -367,7 +411,7 @@ class TutorialOverlay(FloatLayout):
         if self.width <= 0 or self.height <= 0:
             return
         try:
-            hole = self._target_bounds(self.target)
+            hole = self._target_bounds()
         except BaseException as error:
             log_exception("TUTORIAL_SPOTLIGHT_TARGET_FAILED", error)
             hole = None
@@ -457,7 +501,7 @@ class TutorialOverlay(FloatLayout):
         x, y = self.to_widget(*touch.pos)
         if self.hole is not None:
             hx, hy, hw, hh = self.hole
-            if hx <= x <= hx + hw and hy <= y <= hy + hh:
+            if hx <= x <= hx + hw and hy <= hy + hh:
                 return False
         return True
 
@@ -641,6 +685,9 @@ class TwitchMobileApp(App):
         self.tutorial_transitioning = False
         self.tutorial_page = None
         self.tutorial_target_key = None
+        self.auth_confirmed_at = 0.0
+        self.auth_false_snapshot_since = 0.0
+        self.auth_logout_requested = False
         self.last_service_start_at = 0.0
         self.root_box = BoxLayout(orientation="vertical", spacing=0)
         self.header = self._build_header()
@@ -666,15 +713,12 @@ class TwitchMobileApp(App):
     def _build_header(self):
         header = Panel(color=(0.075, 0.075, 0.115, 1), radius=0, orientation="horizontal", size_hint_y=None, height=dp(62), padding=[dp(12), dp(7)], spacing=dp(8))
         header.add_widget(TwitchLogo(size=(dp(42), dp(42))))
-        brand = BoxLayout(orientation="vertical", spacing=0)
+        brand = BoxLayout(orientation="vertical", spacing=0, size_hint_x=1)
         brand.add_widget(AppText(text="TWITCH FARMING", size=12, bold=True))
         self.header_user = AppText(text="Не подключён", size=9, color=MUTED)
         brand.add_widget(self.header_user)
         header.add_widget(brand)
-        self.header_auth_button = FarmButton("Войти", color=SURFACE_ALT, icon="login", font_size=sp(9), size_hint=(None, None), size=(dp(82), dp(36)))
-        self.header_auth_button.bind(on_release=lambda *_: self._header_auth_action())
-        header.add_widget(self.header_auth_button)
-        self.header_status = AppText(text="● ПОДКЛЮЧЕНИЕ...", size=8, color=MUTED, bold=True, align="right", size_hint_x=0.8)
+        self.header_status = AppText(text="● ПОДКЛЮЧЕНИЕ...", size=8, color=MUTED, bold=True, align="right", size_hint_x=None, width=dp(116))
         header.add_widget(self.header_status)
         return header
 
@@ -786,6 +830,8 @@ class TwitchMobileApp(App):
                 if method != "snapshot":
                     self.busy = False
                 if error:
+                    if method == "logout":
+                        self.auth_logout_requested = False
                     self.show_toast(error)
                 else:
                     if method == "clear_logs":
@@ -842,7 +888,47 @@ class TwitchMobileApp(App):
 
     def apply_snapshot(self, snapshot):
         self.snapshot = snapshot or {}
-        self.state = self.snapshot.get("state") or {}
+        previous_state = self.state if isinstance(self.state, dict) else {}
+        previous_auth = self.auth if isinstance(self.auth, dict) else {}
+        incoming_state = self.snapshot.get("state") or {}
+        incoming_auth = self.snapshot.get("auth") or {}
+        incoming_startup = self.snapshot.get("startup") or {}
+        now = time.monotonic()
+        preserve_auth = False
+        if previous_auth.get("authenticated") and not incoming_auth.get("authenticated") and not self.auth_logout_requested:
+            worker_state = str(incoming_auth.get("worker_state") or "").lower()
+            transitional = (
+                not incoming_startup.get("ready")
+                or bool(incoming_auth.get("worker_alive"))
+                or bool(incoming_auth.get("restore_pending"))
+                or worker_state in ("running", "restoring")
+            )
+            within_grace = bool(self.auth_confirmed_at and now - self.auth_confirmed_at < 20.0)
+            if transitional or within_grace:
+                preserve_auth = True
+            else:
+                if not self.auth_false_snapshot_since:
+                    self.auth_false_snapshot_since = now
+                preserve_auth = now - self.auth_false_snapshot_since < 8.0
+        elif incoming_auth.get("authenticated"):
+            self.auth_confirmed_at = now
+            self.auth_false_snapshot_since = 0.0
+            self.auth_logout_requested = False
+        elif self.auth_logout_requested:
+            self.auth_logout_requested = False
+            self.auth_confirmed_at = 0.0
+            self.auth_false_snapshot_since = 0.0
+        elif not previous_auth.get("authenticated"):
+            self.auth_false_snapshot_since = 0.0
+
+        self.state = incoming_state
+        self.auth = dict(previous_auth) if preserve_auth else incoming_auth
+        self.startup = incoming_startup
+        if preserve_auth:
+            for key in ("username", "authenticated_username", "status_text", "status_color"):
+                if key in previous_state:
+                    self.state[key] = previous_state[key]
+            log_event("AUTH_SNAPSHOT_STALE_IGNORED", "temporary unauthenticated snapshot ignored; current authenticated session retained")
         incoming_logs = self.state.get("logs") or []
         known_log_ids = {int(item.get("id") or 0) for item in self.log_cache if isinstance(item, dict)}
         for item in incoming_logs:
@@ -853,8 +939,6 @@ class TwitchMobileApp(App):
                     known_log_ids.add(log_id)
         self.log_cache = self.log_cache[-80:]
         self.state["logs"] = list(self.log_cache)
-        self.auth = self.snapshot.get("auth") or {}
-        self.startup = self.snapshot.get("startup") or {}
         self.auth_flow = self.snapshot.get("auth_flow") or {}
         self.update_state = self.snapshot.get("update") or {}
         if isinstance(self.snapshot.get("followers"), dict):
@@ -869,12 +953,6 @@ class TwitchMobileApp(App):
         status = self.state.get("status_text") or self.auth.get("auth_status") or "● НЕ ЗАПУЩЕН"
         self.header_status.text = status.replace("●  ", "● ")
         self.header_status.color = self._hex_color(self.state.get("status_color", "#A9B2C3"))
-        authenticated = bool(self.auth.get("authenticated"))
-        self.header_auth_button.set_label("Войти")
-        self.header_auth_button.set_icon("login")
-        self.header_auth_button.disabled = authenticated
-        self.header_auth_button.opacity = 0 if authenticated else 1
-        self.header_auth_button.size = (0, 0) if authenticated else (dp(82), dp(36))
         self._render_screen(self.screen_manager.current)
         self._update_login_popup()
         self._update_auth_gate()
@@ -930,8 +1008,9 @@ class TwitchMobileApp(App):
                 if self.tutorial_popup is not overlay or self.tutorial_generation != generation or self.tutorial_transitioning:
                     return
                 target = self.tutorial_targets.get(target_key)
-                if isinstance(target, Widget) and target.parent is not None and target.get_root_window() is not None:
-                    overlay.set_target(target)
+                targets = list(target) if isinstance(target, (list, tuple)) else [target]
+                if targets and all(isinstance(item, Widget) and item.parent is not None and item.get_root_window() is not None for item in targets):
+                    overlay.set_target(target, clip=self.screens[name].scroll)
 
             Clock.schedule_once(refresh_tutorial_target, 0.12)
 
@@ -1200,22 +1279,24 @@ class TwitchMobileApp(App):
         row = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(44))
         row.add_widget(FarmButton("Отмена", color=SURFACE_ALT, icon="close", on_release=lambda *_: popup.dismiss()))
 
-        def logout():
+        def confirm_logout_action():
             popup.dismiss()
-            self.rpc_async("logout", callback=lambda result: self.show_toast(str((result or {}).get("message") or "Сеанс завершён.")))
+            self.auth_logout_requested = True
+            self.auth_false_snapshot_since = 0.0
+            self.rpc_async("logout", callback=lambda result: self._logout_completed(result))
 
-        row.add_widget(FarmButton("Выйти", color=RED, icon="logout", on_release=lambda *_: logout()))
+        row.add_widget(FarmButton("Выйти", color=RED, icon="logout", on_release=lambda *_: confirm_logout_action()))
         content.add_widget(row)
         popup.open()
 
     def _tutorial_steps(self):
         return (
             ("channels", "add_channel", "Добавление каналов", "Добавь стримера кнопкой «Добавить канал». Можно также импортировать каналы из Фолловеров."),
-            ("channels", "slots", "Два активных слота и ротация", "Одновременно просматриваются два канала. Слоты автоматически ротируются между доступными эфирами."),
-            ("drops", "drop_farm", "Целевой фарм Drops", "Выбери активную кампанию и нажми «Фармить кампанию», чтобы направить сбор на нужный Drops."),
-            ("settings", "settings_options", "Настройки автоматизации", "Здесь включаются Drops, моменты и переход по рейдам. Выбери нужные автоматические действия."),
-            ("predictions", "prediction_strategy", "Автоставки на прогнозах", "Выбери стратегию ставок и настрой фильтр участников, лимит и процент баланса."),
-            ("channels", "start_farm", "Готово к запуску", "После настройки нажми «Запустить фарм» — сервис продолжит работу в фоне.")
+            ("channels", "slots", "Два активных слота и ротация", "Здесь отображаются два канала, которые сейчас находятся в активном просмотре."),
+            ("drops", "drop_refresh", "Инвентарь Drops", "Обнови сводку Drops здесь. Ниже отображаются активные кампании и кнопки целевого фарма."),
+            ("settings", "settings_options", "Настройки автоматизации", "Здесь включаются Twitch Drops и серии просмотров, а также моменты и переход по рейдам."),
+            ("predictions", "prediction_strategy", "Автоставки на прогнозах", "Карточка «Стратегия и лимиты» содержит параметры стратегии и фильтра участников."),
+            ("channels", "start_farm", "Готово к запуску", "На этой кнопке запускается фарм. После старта сервис продолжит работу в фоне.")
         )
 
     def show_tutorial(self):
@@ -1275,28 +1356,23 @@ class TwitchMobileApp(App):
 
         def resolve_target():
             target = self.tutorial_targets.get(target_key)
-            valid = isinstance(target, Widget) and target.parent is not None
-            if valid:
-                try:
-                    valid = target.get_root_window() is not None
-                except BaseException:
-                    valid = False
-            if not valid:
-                children = list(screen.items.children)
-                fallback = children[-1] if children else None
-                fallback_valid = isinstance(fallback, Widget) and fallback.parent is not None
-                if fallback_valid:
-                    try:
-                        fallback_valid = fallback.get_root_window() is not None
-                    except BaseException:
-                        fallback_valid = False
-                if fallback_valid:
-                    log_event("TUTORIAL_TARGET_FALLBACK", "step=" + str(self.tutorial_step + 1) + " target=" + target_key)
-                    target = fallback
-                else:
-                    target = None
-                    log_event("TUTORIAL_TARGET_MISSING", "step=" + str(self.tutorial_step + 1) + " target=" + target_key)
+            targets = list(target) if isinstance(target, (list, tuple)) else [target]
+            if not targets or any(
+                not isinstance(item, Widget)
+                or item.parent is None
+                or item.get_root_window() is None
+                for item in targets
+            ):
+                log_event("TUTORIAL_TARGET_MISSING", "step=" + str(self.tutorial_step + 1) + " target=" + target_key)
+                return None
             return target
+
+        def scroll_to_target(target):
+            if target_key in ("add_channel", "slots", "drop_refresh", "prediction_strategy", "start_farm"):
+                screen.scroll.scroll_y = 1.0
+                return
+            first_target = target[0] if isinstance(target, (list, tuple)) else target
+            screen.scroll.scroll_to(first_target, padding=dp(16), animate=False)
 
         def finish_positioning(_dt):
             if self.tutorial_popup is not overlay or self.tutorial_generation != generation:
@@ -1308,12 +1384,12 @@ class TwitchMobileApp(App):
                 try:
                     layout_screen()
                     fresh_target = resolve_target()
-                    overlay.set_target(fresh_target)
+                    overlay.set_target(fresh_target, clip=screen.scroll)
                     log_event("TUTORIAL_STEP_READY", "step=" + str(self.tutorial_step + 1) + " target=" + target_key + " found=" + str(fresh_target is not None))
                 except BaseException as error:
                     log_exception("TUTORIAL_STEP_LAYOUT_FAILED step=" + str(self.tutorial_step + 1), error)
                     try:
-                        overlay.set_target(None)
+                        overlay.set_target(None, clip=screen.scroll)
                     except BaseException as overlay_error:
                         log_exception("TUTORIAL_STEP_RECOVERY_FAILED", overlay_error)
                 finally:
@@ -1325,14 +1401,14 @@ class TwitchMobileApp(App):
                 target = resolve_target()
                 if target is not None:
                     try:
-                        screen.scroll.scroll_to(target, padding=dp(16), animate=False)
+                        scroll_to_target(target)
                     except BaseException as error:
                         log_exception("TUTORIAL_SCROLL_FAILED step=" + str(self.tutorial_step + 1), error)
                 layout_screen()
             except BaseException as error:
                 log_exception("TUTORIAL_STEP_POSITION_FAILED step=" + str(self.tutorial_step + 1), error)
                 try:
-                    overlay.set_target(None)
+                    overlay.set_target(None, clip=screen.scroll)
                 except BaseException as overlay_error:
                     log_exception("TUTORIAL_STEP_RECOVERY_FAILED", overlay_error)
             try:
@@ -1381,6 +1457,14 @@ class TwitchMobileApp(App):
         self.tutorial_shown = True
         log_event("TUTORIAL_FINISHED", "all six steps completed")
         self.rpc_async("finish_tutorial")
+
+    def _logout_completed(self, result):
+        ok = isinstance(result, dict) and bool(result.get("ok"))
+        self.auth_logout_requested = False
+        if ok:
+            self.auth_confirmed_at = 0.0
+            self.auth_false_snapshot_since = 0.0
+        self.show_toast(str((result or {}).get("message") or ("Сеанс завершён." if ok else "Не удалось отключить аккаунт.")))
 
     def _hex_color(self, value):
         try:
@@ -1466,7 +1550,7 @@ class TwitchMobileApp(App):
         self.rpc_async("start_farm", [payload])
 
     def _render_drops(self):
-        self.tutorial_targets["drop_farm"] = None
+        self.tutorial_targets["drop_refresh"] = None
         screen = self.screens["drops"]
         screen.clear()
         focus = self.drops.get("focus") or {}
@@ -1474,7 +1558,7 @@ class TwitchMobileApp(App):
         refresh = FarmButton("Обновить инвентарь", color=SURFACE_ALT, icon="refresh", size_hint_y=None, height=dp(42))
         refresh.bind(on_release=lambda *_: self.rpc_async("refresh_drops_inventory", kwargs={"force": True}))
         screen.items.add_widget(refresh)
-        self.tutorial_targets["drop_farm"] = refresh
+        self.tutorial_targets["drop_refresh"] = refresh
         if focus:
             card = self._card(screen, "ЦЕЛЕВОЙ ФАРМ", str(focus.get("campaign_name") or "") + " · " + str(focus.get("status") or ""))
             card.add_widget(FarmButton("Снять фокус", color=RED, icon="close", size_hint_y=None, height=dp(38), on_release=lambda *_: self.rpc_async("clear_drops_campaign_focus")))
@@ -1505,8 +1589,7 @@ class TwitchMobileApp(App):
             button = FarmButton(button_text, color=color, icon="gift" if focus.get("campaign_id") != campaign_id else "check", size_hint_y=None, height=dp(42))
             button.bind(on_release=lambda _b, cid=campaign_id: self.rpc_async("set_drops_campaign_focus", [cid]))
             card.add_widget(button)
-            if self.tutorial_targets.get("drop_farm") is refresh:
-                self.tutorial_targets["drop_farm"] = button
+
 
     def _render_followers(self):
         screen = self.screens["followers"]
@@ -1547,9 +1630,8 @@ class TwitchMobileApp(App):
         screen.title("Настройки прогнозов", "Стратегия автоставок Twitch")
         settings = self.state.get("bet_settings") or {}
         card = self._card(screen, "Стратегия и лимиты", "Параметры будут применены при следующем запуске.")
-        self.tutorial_targets["prediction_strategy"] = None
+        self.tutorial_targets["prediction_strategy"] = card
         strategy = Field(hint="Стратегия (SMART, MOST_VOTED…)", text=str(settings.get("strategy") or "SMART"))
-        self.tutorial_targets["prediction_strategy"] = strategy
         card.add_widget(strategy)
         percentage = Field(hint="Процент от баланса", text=str(settings.get("percentage", 5)), input_filter="int")
         card.add_widget(percentage)
@@ -1592,8 +1674,16 @@ class TwitchMobileApp(App):
         screen.items.add_widget(clear)
         events = list(self.state.get("events") or [])
         logs = list(self.log_cache)
-        rows = [str(item.get("message") or "") if isinstance(item, dict) else str(item) for item in events[-20:]]
-        rows.extend(str(item.get("line") or item.get("message") or "") if isinstance(item, dict) else str(item) for item in logs[-25:])
+
+        def visible_log(item):
+            message = str(item.get("line") or item.get("message") or "") if isinstance(item, dict) else str(item)
+            level = str(item.get("level") or "").upper() if isinstance(item, dict) else ""
+            return level != "DEBUG" and not message.lstrip().startswith("[DEBUG]")
+
+        visible_events = [item for item in events if visible_log(item)]
+        visible_logs = [item for item in logs if visible_log(item)]
+        rows = [str(item.get("message") or "") if isinstance(item, dict) else str(item) for item in visible_events[-20:]]
+        rows.extend(str(item.get("line") or item.get("message") or "") if isinstance(item, dict) else str(item) for item in visible_logs[-25:])
         text_value = "\n\n".join(reversed(rows[-35:])) or "Пока нет событий."
         card = self._card(screen, "Журнал", str(len(rows)) + " последних записей")
         label = AppText(text=text_value, size=10, color=MUTED, size_hint_y=None)
@@ -1612,7 +1702,8 @@ class TwitchMobileApp(App):
         account.add_widget(FarmButton("Выйти из аккаунта" if authenticated else "Войти через Twitch", color=RED if authenticated else PURPLE, icon="logout" if authenticated else "login", size_hint_y=None, height=dp(44), on_release=lambda *_: self.confirm_logout() if authenticated else self.open_login_popup(self.state.get("username") or "")))
         options = self.state.get("options") or {}
         card = self._card(screen, "Действия фарма", "Включённые возможности будут обрабатываться движком.")
-        self.tutorial_targets["settings_options"] = None
+        tutorial_switches = []
+        self.tutorial_targets["settings_options"] = tutorial_switches
         names = [
             ("claim_drops", "Twitch Drops"),
             ("watch_streak", "Серии просмотров"),
@@ -1626,8 +1717,8 @@ class TwitchMobileApp(App):
             button = FarmButton(title + ("  ВКЛ" if enabled else "  ВЫКЛ"), color=PURPLE_SOFT if enabled else SURFACE_ALT, icon="check" if enabled else "power", size_hint_y=None, height=dp(40))
             button.bind(on_release=lambda _b, k=key: self._toggle_local_option(k))
             card.add_widget(button)
-            if key == "claim_drops":
-                self.tutorial_targets["settings_options"] = button
+            if key in ("claim_drops", "watch_streak"):
+                tutorial_switches.append(button)
         app_card = self._card(screen, "Приложение", "Фоновый сервис держит фарм активным при сворачивании.")
         app_card.add_widget(AppText(text="Для MIUI включи автозапуск и режим батареи «Без ограничений».", size=11, color=MUTED, size_hint_y=None, height=dp(44)))
         app_settings = self.state.get("app_settings") or {}
@@ -1697,12 +1788,32 @@ class TwitchMobileApp(App):
         self._save_full_settings(app_settings=settings)
 
     def open_add_channel(self):
-        content = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
+        content = Panel(
+            color=(0.086, 0.086, 0.122, 1),
+            radius=dp(16),
+            border=(0.15, 0.15, 0.21, 1),
+            orientation="vertical",
+            padding=[dp(20), dp(20)],
+            spacing=dp(12),
+            size_hint_y=None,
+            height=dp(254)
+        )
+        content.add_widget(AppText(text="Добавить каналы", size=17, bold=True, align="center", size_hint_y=None, height=dp(28)))
+        content.add_widget(AppText(text="Введи логины или ссылки Twitch. Несколько каналов можно разделить запятыми.", size=11, color=MUTED, align="center", size_hint_y=None, height=dp(42)))
         field = Field(hint="Логины или ссылки Twitch (через запятую)")
+        field.background_color = (0.12, 0.12, 0.17, 1)
+        field.hint_text_color = (0.62, 0.62, 0.70, 1)
         content.add_widget(field)
-        row = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(46))
-        popup = Popup(title="Добавить каналы", content=content, size_hint=(0.92, None), height=dp(220), background_color=SURFACE)
-        row.add_widget(FarmButton("Отмена", color=SURFACE_ALT, icon="close", on_release=lambda *_: popup.dismiss()))
+        row = BoxLayout(orientation="horizontal", spacing=dp(10), size_hint_y=None, height=dp(44))
+        popup = Popup(
+            title="",
+            content=content,
+            size_hint=(0.92, None),
+            height=dp(270),
+            background="",
+            background_color=(0, 0, 0, 0),
+            separator_height=0
+        )
 
         def add():
             value = field.text.strip()
@@ -1710,7 +1821,8 @@ class TwitchMobileApp(App):
             if value:
                 self.rpc_async("save_channel_editor", ["add", "", value])
 
-        row.add_widget(FarmButton("Добавить", color=PURPLE, icon="plus", on_release=lambda *_: add()))
+        row.add_widget(FarmButton("Отмена", color=SURFACE_ALT, icon="close", size_hint_y=1, on_release=lambda *_: popup.dismiss()))
+        row.add_widget(FarmButton("Добавить", color=PURPLE, icon="plus", size_hint_y=1, on_release=lambda *_: add()))
         content.add_widget(row)
         popup.open()
         field.focus = True
