@@ -293,7 +293,8 @@ class TutorialOverlay(FloatLayout):
         self.app = app
         self.target = None
         self.hole = None
-        self.card_height = dp(196)
+        self.card_height = dp(180)
+        self._target_update_callback = self._queue_spotlight_update
         self.card = Panel(
             color=(0.105, 0.095, 0.16, 1),
             radius=dp(17),
@@ -304,22 +305,17 @@ class TutorialOverlay(FloatLayout):
             size_hint=(0.94, None),
             height=self.card_height
         )
-        self.heading = AppText(text="TWITCH FARMING", size=8, color=(0.74, 0.60, 1, 1), bold=True, align="center", size_hint_y=None, height=dp(15))
+        self.heading = AppText(text="TWITCH FARMING", size=8, color=(0.74, 0.60, 1, 1), bold=True, align="center", size_hint_y=None, height=dp(14))
         self.progress_label = AppText(text="", size=9, color=MUTED, bold=True, align="center", size_hint_y=None, height=dp(15))
         self.progress_bar = TutorialProgress()
-        self.title_label = AppText(text="", size=14, bold=True, align="center", size_hint_y=None, height=dp(23))
-        self.description_label = AppText(text="", size=10, color=MUTED, align="center", size_hint_y=None, height=dp(52))
-        row = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(38))
-        self.skip_button = FarmButton("Пропустить", color=SURFACE_ALT, icon="close", size_hint_x=0.43, size_hint_y=1)
-        self.skip_button.bind(on_release=lambda *_: self.app.finish_tutorial())
-        self.next_button = FarmButton("Далее", color=PURPLE, icon="arrow_right", size_hint_x=0.57, size_hint_y=1)
+        self.title_label = AppText(text="", size=14, bold=True, align="center", size_hint_y=None, height=dp(22))
+        self.description_label = AppText(text="", size=10, color=MUTED, align="center", size_hint_y=None, height=dp(48))
+        self.next_button = FarmButton("Далее", color=PURPLE, icon="arrow_right", size_hint_x=1, size_hint_y=None, height=dp(40))
         self.next_button.bind(on_release=lambda *_: self.app.advance_tutorial())
-        row.add_widget(self.skip_button)
-        row.add_widget(self.next_button)
-        for widget in (self.heading, self.progress_label, self.progress_bar, self.title_label, self.description_label, row):
+        for widget in (self.heading, self.progress_label, self.progress_bar, self.title_label, self.description_label, self.next_button):
             self.card.add_widget(widget)
         self.add_widget(self.card)
-        self.bind(pos=self._update_spotlight, size=self._update_spotlight)
+        self.bind(pos=self._queue_spotlight_update, size=self._queue_spotlight_update)
         self._update_spotlight()
 
     def set_step(self, index, total, title, description, final=False):
@@ -330,28 +326,51 @@ class TutorialOverlay(FloatLayout):
         self.next_button.set_label("Начать работу" if final else "Далее")
         self.next_button.set_icon("check" if final else "arrow_right")
 
+    def set_busy(self, busy):
+        self.next_button.disabled = bool(busy)
+
     def set_target(self, target):
+        previous = self.target
+        if previous is not None and previous is not target:
+            for prop in ("pos", "size", "parent"):
+                previous.unbind(**{prop: self._target_update_callback})
         self.target = target
-        self._update_spotlight()
+        if target is not None and previous is not target:
+            for prop in ("pos", "size", "parent"):
+                target.bind(**{prop: self._target_update_callback})
+        self._queue_spotlight_update()
+
+    def _queue_spotlight_update(self, *_):
+        Clock.schedule_once(self._update_spotlight, 0)
+
+    def _target_bounds(self, target):
+        if target is None or target.parent is None or target.get_root_window() is None:
+            return None
+        first = target.to_window(0, 0)
+        second = target.to_window(target.width, target.height)
+        first_x, first_y = self.to_widget(*first)
+        second_x, second_y = self.to_widget(*second)
+        left = min(first_x, second_x)
+        bottom = min(first_y, second_y)
+        right = max(first_x, second_x)
+        top = max(first_y, second_y)
+        pad = dp(6)
+        left = max(0, left - pad)
+        bottom = max(0, bottom - pad)
+        right = min(self.width, right + pad)
+        top = min(self.height, top + pad)
+        if right <= left or top <= bottom:
+            return None
+        return left, bottom, right - left, top - bottom
 
     def _update_spotlight(self, *_):
         if self.width <= 0 or self.height <= 0:
             return
-        hole = None
-        target = self.target
-        if target is not None and target.parent is not None:
-            try:
-                window_x, window_y = target.to_window(0, 0)
-                x, y = self.to_widget(window_x, window_y)
-                pad = dp(6)
-                x = max(0, x - pad)
-                y = max(0, y - pad)
-                width = min(self.width - x, target.width + pad * 2)
-                height = min(self.height - y, target.height + pad * 2)
-                if width > 0 and height > 0:
-                    hole = (x, y, width, height)
-            except BaseException as error:
-                log_exception("TUTORIAL_SPOTLIGHT_TARGET_FAILED", error)
+        try:
+            hole = self._target_bounds(self.target)
+        except BaseException as error:
+            log_exception("TUTORIAL_SPOTLIGHT_TARGET_FAILED", error)
+            hole = None
         self.hole = hole
         self.canvas.before.clear()
         with self.canvas.before:
@@ -371,23 +390,43 @@ class TutorialOverlay(FloatLayout):
                         Rectangle(pos=(self.x + position[0], self.y + position[1]), size=size)
                 Color(0.67, 0.40, 1.0, 1)
                 Line(rounded_rectangle=(self.x + x, self.y + y, width, height, dp(13)), width=dp(2.2))
-                Color(0.82, 0.68, 1.0, 0.12)
+                Color(0.82, 0.68, 1.0, 0.035)
                 RoundedRectangle(pos=(self.x + x, self.y + y), size=(width, height), radius=[dp(13)])
-        card_width = self.width * 0.94
+        card_width = max(dp(180), self.width - dp(24))
         self.card.size = (card_width, self.card_height)
         card_x = (self.width - card_width) / 2
+        margin = dp(12)
+        gap = dp(14)
+        card_height = self.card_height
         if hole is None:
-            card_y = dp(12)
+            card_y = margin
         else:
             x, y, width, height = hole
-            below_space = y - dp(14)
-            above_space = self.height - y - height - dp(14)
-            if below_space >= self.card_height:
-                card_y = dp(12)
-            elif above_space >= self.card_height:
-                card_y = y + height + dp(12)
+            below_room = max(0, y - margin)
+            above_room = max(0, self.height - (y + height) - margin)
+            below_fits = below_room >= card_height + gap
+            above_fits = above_room >= card_height + gap
+            if below_fits and above_fits:
+                if below_room >= above_room:
+                    card_y = y - gap - card_height
+                else:
+                    card_y = y + height + gap
+            elif below_fits:
+                card_y = y - gap - card_height
+            elif above_fits:
+                card_y = y + height + gap
             else:
-                card_y = dp(12) if y > self.height * 0.52 else max(dp(12), self.height - self.card_height - dp(12))
+                available = max(below_room, above_room) - gap
+                card_height = min(card_height, max(dp(132), available))
+                self.card.height = card_height
+                self.description_label.height = max(dp(24), dp(48) - (self.card_height - card_height))
+                if below_room >= above_room:
+                    card_y = margin
+                else:
+                    card_y = self.height - margin - card_height
+        if hole is None:
+            self.card.height = self.card_height
+            self.description_label.height = dp(48)
         self.card.pos = (card_x, card_y)
 
     def on_touch_down(self, touch):
@@ -596,6 +635,10 @@ class TwitchMobileApp(App):
         self.tutorial_step = 0
         self.tutorial_shown = False
         self.tutorial_targets = {}
+        self.tutorial_generation = 0
+        self.tutorial_transitioning = False
+        self.tutorial_page = None
+        self.tutorial_target_key = None
         self.last_service_start_at = 0.0
         self.root_box = BoxLayout(orientation="vertical", spacing=0)
         self.header = self._build_header()
@@ -876,6 +919,19 @@ class TwitchMobileApp(App):
         renderers[name]()
         self.render_signatures[name] = signature
         self.screen_dirty[name] = False
+        if self.tutorial_popup is not None and not self.tutorial_transitioning and self.tutorial_page == name:
+            overlay = self.tutorial_popup
+            target_key = self.tutorial_target_key
+            generation = self.tutorial_generation
+
+            def refresh_tutorial_target(_dt):
+                if self.tutorial_popup is not overlay or self.tutorial_generation != generation or self.tutorial_transitioning:
+                    return
+                target = self.tutorial_targets.get(target_key)
+                if isinstance(target, Widget) and target.parent is not None and target.get_root_window() is not None:
+                    overlay.set_target(target)
+
+            Clock.schedule_once(refresh_tutorial_target, 0.12)
 
     def refresh_screen_content(self, force=False):
         self._render_screen(self.screen_manager.current, force=force)
@@ -904,19 +960,15 @@ class TwitchMobileApp(App):
                 log_event("AUTH_GATE_TUTORIAL_SCHEDULED", "Twitch authentication confirmed; starting mobile tutorial")
                 Clock.schedule_once(lambda _dt: self.show_tutorial(), 0.25)
             return
+        if self.tutorial_shown or self.tutorial_popup is not None:
+            log_event("AUTH_GATE_TUTORIAL_PRESERVED", "temporary unauthenticated snapshot ignored while tutorial is pending or active")
+            return
         if not self.startup.get("ready"):
             return
         worker_state = str(self.auth.get("worker_state") or "").lower()
         waiting = bool(self.auth.get("worker_alive") or self.auth.get("restore_pending") or worker_state in ("restoring", "running"))
         if waiting:
             return
-        if self.tutorial_popup is not None:
-            overlay = self.tutorial_popup
-            self.tutorial_popup = None
-            try:
-                self.root_layer.remove_widget(overlay)
-            except BaseException as error:
-                log_exception("AUTH_GATE_TUTORIAL_REMOVE_FAILED", error)
         if not self.login_prompt_shown:
             self.login_prompt_shown = True
             username = self.state.get("username") or self.auth.get("username") or ""
@@ -1154,16 +1206,8 @@ class TwitchMobileApp(App):
         content.add_widget(row)
         popup.open()
 
-    def show_tutorial(self):
-        if self.tutorial_popup is not None or self.state.get("tutorial_done") or not self.auth.get("authenticated"):
-            return
-        self.tutorial_step = 0
-        self.tutorial_popup = TutorialOverlay(self)
-        self.root_layer.add_widget(self.tutorial_popup)
-        self._show_tutorial_step()
-
-    def _show_tutorial_step(self):
-        steps = (
+    def _tutorial_steps(self):
+        return (
             ("channels", "add_channel", "Добавление каналов", "Добавь стримера кнопкой «Добавить канал». Можно также импортировать каналы из Фолловеров."),
             ("channels", "slots", "Два активных слота и ротация", "Одновременно просматриваются два канала. Слоты автоматически ротируются между доступными эфирами."),
             ("drops", "drop_farm", "Целевой фарм Drops", "Выбери активную кампанию и нажми «Фармить кампанию», чтобы направить сбор на нужный Drops."),
@@ -1171,44 +1215,138 @@ class TwitchMobileApp(App):
             ("predictions", "prediction_strategy", "Автоставки на прогнозах", "Выбери стратегию ставок и настрой фильтр участников, лимит и процент баланса."),
             ("channels", "start_farm", "Готово к запуску", "После настройки нажми «Запустить фарм» — сервис продолжит работу в фоне.")
         )
-        page, target_key, title, description = steps[self.tutorial_step]
-        self.navigate(page)
-        final = self.tutorial_step == len(steps) - 1
+
+    def show_tutorial(self):
+        if self.tutorial_popup is not None or self.state.get("tutorial_done"):
+            return
+        self.tutorial_shown = True
+        self.tutorial_step = 0
+        self.tutorial_popup = TutorialOverlay(self)
+        self.root_layer.add_widget(self.tutorial_popup)
+        log_event("TUTORIAL_STARTED", "six-step mobile tutorial")
+        self._show_tutorial_step()
+
+    def _show_tutorial_step(self):
+        steps = self._tutorial_steps()
         if self.tutorial_popup is None:
             return
-        self.tutorial_popup.set_step(self.tutorial_step, len(steps), title, description, final)
+        if not isinstance(self.tutorial_step, int) or self.tutorial_step < 0 or self.tutorial_step >= len(steps):
+            log_event("TUTORIAL_INVALID_STEP", "step=" + str(self.tutorial_step))
+            self.tutorial_step = min(max(int(self.tutorial_step or 0), 0), len(steps) - 1)
+        page, target_key, title, description = steps[self.tutorial_step]
+        overlay = self.tutorial_popup
+        self.tutorial_generation += 1
+        generation = self.tutorial_generation
+        self.tutorial_transitioning = True
+        self.tutorial_page = page
+        self.tutorial_target_key = target_key
+        overlay.set_busy(True)
+        overlay.set_step(self.tutorial_step, len(steps), title, description, self.tutorial_step == len(steps) - 1)
+        log_event("TUTORIAL_STEP_BEGIN", "step=" + str(self.tutorial_step + 1) + " page=" + page + " target=" + target_key)
 
-        def position_target(_dt):
-            current_target = self.tutorial_targets.get(target_key)
-            screen = self.screens[page]
-            if current_target is not None and current_target.parent is not None:
+        try:
+            self.navigate(page)
+        except BaseException as error:
+            log_exception("TUTORIAL_NAVIGATE_FAILED step=" + str(self.tutorial_step + 1), error)
+
+        screen = self.screens.get(page)
+        if screen is None:
+            log_event("TUTORIAL_SCREEN_MISSING", "step=" + str(self.tutorial_step + 1) + " page=" + page)
+            overlay.set_target(None)
+            overlay.set_busy(False)
+            self.tutorial_transitioning = False
+            return
+
+        def layout_screen():
+            for widget in (screen.items, screen.scroll, screen.body, screen):
                 try:
-                    screen.scroll.scroll_to(current_target, padding=dp(14), animate=False)
+                    layout = getattr(widget, "do_layout", None)
+                    if callable(layout):
+                        layout()
+                except BaseException as error:
+                    log_exception("TUTORIAL_LAYOUT_FAILED step=" + str(self.tutorial_step + 1), error)
+
+        def resolve_target():
+            target = self.tutorial_targets.get(target_key)
+            valid = isinstance(target, Widget) and target.parent is not None
+            if valid:
+                try:
+                    valid = target.get_root_window() is not None
+                except BaseException:
+                    valid = False
+            if not valid:
+                children = list(screen.items.children)
+                fallback = children[-1] if children else None
+                if isinstance(fallback, Widget) and fallback.parent is not None:
+                    log_event("TUTORIAL_TARGET_FALLBACK", "step=" + str(self.tutorial_step + 1) + " target=" + target_key)
+                    target = fallback
+                else:
+                    target = None
+                    log_event("TUTORIAL_TARGET_MISSING", "step=" + str(self.tutorial_step + 1) + " target=" + target_key)
+            return target
+
+        def finish_positioning(_dt):
+            if self.tutorial_popup is not overlay or self.tutorial_generation != generation:
+                return
+            layout_screen()
+            target = resolve_target()
+            if target is not None:
+                try:
+                    screen.scroll.scroll_to(target, padding=dp(16), animate=False)
                 except BaseException as error:
                     log_exception("TUTORIAL_SCROLL_FAILED step=" + str(self.tutorial_step + 1), error)
-            def apply_target(_next_dt):
-                if self.tutorial_popup is not None:
-                    self.tutorial_popup.set_target(current_target)
-            Clock.schedule_once(apply_target, 0.18)
+            layout_screen()
 
-        Clock.schedule_once(position_target, 0.12)
+            def after_draw(_next_dt):
+                if self.tutorial_popup is not overlay or self.tutorial_generation != generation:
+                    return
+                layout_screen()
+                fresh_target = resolve_target()
+                overlay.set_target(fresh_target)
+                log_event("TUTORIAL_STEP_READY", "step=" + str(self.tutorial_step + 1) + " target=" + target_key + " found=" + str(fresh_target is not None))
+                overlay.set_busy(False)
+                self.tutorial_transitioning = False
+
+            Clock.schedule_once(after_draw, 0.18)
+
+        Clock.schedule_once(finish_positioning, 0)
 
     def advance_tutorial(self):
-        if self.tutorial_step >= 5:
+        if self.tutorial_popup is None or self.tutorial_transitioning:
+            return
+        steps = self._tutorial_steps()
+        if self.tutorial_step >= len(steps) - 1:
             self.finish_tutorial()
             return
         self.tutorial_step += 1
-        self._show_tutorial_step()
+        log_event("TUTORIAL_ADVANCE", "step=" + str(self.tutorial_step + 1))
+        try:
+            self._show_tutorial_step()
+        except BaseException as error:
+            log_exception("TUTORIAL_ADVANCE_FAILED step=" + str(self.tutorial_step + 1), error)
+            self.tutorial_transitioning = False
+            if self.tutorial_popup is not None:
+                self.tutorial_popup.set_target(None)
+                self.tutorial_popup.set_busy(False)
 
     def finish_tutorial(self):
+        steps = self._tutorial_steps()
+        if self.tutorial_step < len(steps) - 1:
+            log_event("TUTORIAL_PREMATURE_FINISH_BLOCKED", "step=" + str(self.tutorial_step + 1))
+            return
         if self.tutorial_popup is not None:
             overlay = self.tutorial_popup
             self.tutorial_popup = None
+            self.tutorial_generation += 1
+            self.tutorial_transitioning = False
+            self.tutorial_page = None
+            self.tutorial_target_key = None
             try:
                 self.root_layer.remove_widget(overlay)
             except BaseException as error:
                 log_exception("TUTORIAL_OVERLAY_REMOVE_FAILED", error)
         self.tutorial_shown = True
+        log_event("TUTORIAL_FINISHED", "all six steps completed")
         self.rpc_async("finish_tutorial")
 
     def _hex_color(self, value):
