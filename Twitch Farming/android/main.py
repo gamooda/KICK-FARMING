@@ -78,7 +78,7 @@ class Panel(BoxLayout):
         rounded(self, color, radius, border)
 
 
-class ActionButton(Button):
+class FarmButton(Button):
     def __init__(self, text="", color=PURPLE, text_color=TEXT, radius=dp(12), **kwargs):
         super().__init__(text=text, **kwargs)
         self.background_normal = ""
@@ -298,7 +298,7 @@ class TwitchMobileApp(App):
             ("events", "События"),
             ("settings", "Ещё"),
         ):
-            button = ActionButton(title, color=PURPLE_SOFT if key == "channels" else SURFACE, radius=dp(10), font_size=sp(10))
+            button = FarmButton(title, color=PURPLE_SOFT if key == "channels" else SURFACE, radius=dp(10), font_size=sp(10))
             button.bind(on_release=lambda _button, target=key: self.navigate(target))
             nav.add_widget(button)
             self.nav_buttons[key] = button
@@ -461,13 +461,13 @@ class TwitchMobileApp(App):
         slots_card = self._card(screen, "АКТИВНЫЙ ФАРМ СЕЙЧАС", slot_text)
         summary = AppText(text=f"{len(state.get('channels') or [])} каналов    ·    +{int(state.get('gained_total') or 0):,} баллов".replace(",", " "), size=11, color=GREEN if active else MUTED, size_hint_y=None, height=dp(22))
         slots_card.add_widget(summary)
-        start = ActionButton("■  ОСТАНОВИТЬ ФАРМ" if active else "▶  ЗАПУСТИТЬ ФАРМ", color=RED if active else PURPLE, size_hint_y=None, height=dp(48))
+        start = FarmButton("■  ОСТАНОВИТЬ ФАРМ" if active else "▶  ЗАПУСТИТЬ ФАРМ", color=RED if active else PURPLE, size_hint_y=None, height=dp(48))
         start.bind(on_release=lambda *_: self._toggle_farm())
         slots_card.add_widget(start)
         buttons = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(42))
-        add = ActionButton("+ Добавить канал", color=SURFACE_ALT)
+        add = FarmButton("+ Добавить канал", color=SURFACE_ALT)
         add.bind(on_release=lambda *_: self.open_add_channel())
-        refresh = ActionButton("Обновить", color=SURFACE_ALT)
+        refresh = FarmButton("Обновить", color=SURFACE_ALT)
         refresh.bind(on_release=lambda *_: self.rpc_async("refresh_channel_profiles"))
         buttons.add_widget(add)
         buttons.add_widget(refresh)
@@ -480,7 +480,7 @@ class TwitchMobileApp(App):
         channels = state.get("channels") or []
         if not channels:
             empty = self._card(screen, "Список каналов пуст", "Добавь стримеров, чтобы начать собирать баллы.")
-            empty.add_widget(ActionButton("Добавить канал", color=PURPLE, size_hint_y=None, height=dp(44), on_release=lambda *_: self.open_add_channel()))
+            empty.add_widget(FarmButton("Добавить канал", color=PURPLE, size_hint_y=None, height=dp(44), on_release=lambda *_: self.open_add_channel()))
         for login in channels:
             profile = channel_profiles.get(login, {})
             balance = balances.get(login, {})
@@ -508,12 +508,12 @@ class TwitchMobileApp(App):
         screen.clear()
         focus = self.drops.get("focus") or {}
         screen.title("Инвентарь Drops", "Только начатые кампании из инвентаря Twitch")
-        refresh = ActionButton("Обновить инвентарь", color=SURFACE_ALT, size_hint_y=None, height=dp(42))
+        refresh = FarmButton("Обновить инвентарь", color=SURFACE_ALT, size_hint_y=None, height=dp(42))
         refresh.bind(on_release=lambda *_: self.rpc_async("refresh_drops_inventory", kwargs={"force": True}))
         screen.items.add_widget(refresh)
         if focus:
             card = self._card(screen, "ЦЕЛЕВОЙ ФАРМ", str(focus.get("campaign_name") or "") + " · " + str(focus.get("status") or ""))
-            card.add_widget(ActionButton("Снять фокус", color=RED, size_hint_y=None, height=dp(38), on_release=lambda *_: self.rpc_async("clear_drops_campaign_focus")))
+            card.add_widget(FarmButton("Снять фокус", color=RED, size_hint_y=None, height=dp(38), on_release=lambda *_: self.rpc_async("clear_drops_campaign_focus")))
         if self.drops.get("loading"):
             screen.items.add_widget(AppText(text="Синхронизация Twitch Drops…", size=12, color=MUTED, size_hint_y=None, height=dp(38)))
         campaigns = self.drops.get("campaigns") or []
@@ -538,7 +538,7 @@ class TwitchMobileApp(App):
             campaign_id = str(campaign.get("id") or "")
             button_text = "Снять фокус" if focus.get("campaign_id") == campaign_id else "Фармить кампанию"
             color = GREEN if focus.get("campaign_id") == campaign_id else PURPLE
-            button = ActionButton(button_text, color=color, size_hint_y=None, height=dp(42))
+            button = FarmButton(button_text, color=color, size_hint_y=None, height=dp(42))
             button.bind(on_release=lambda _b, cid=campaign_id: self.rpc_async("set_drops_campaign_focus", [cid]))
             card.add_widget(button)
 
@@ -546,7 +546,7 @@ class TwitchMobileApp(App):
         screen = self.screens["followers"]
         screen.clear()
         screen.title("Фолловеры", "Онлайн-стримеры выделены отдельно")
-        refresh = ActionButton("Обновить фолловеров", color=SURFACE_ALT, size_hint_y=None, height=dp(42))
+        refresh = FarmButton("Обновить фолловеров", color=SURFACE_ALT, size_hint_y=None, height=dp(42))
         refresh.bind(on_release=lambda *_: self.rpc_async("refresh_followed_channels", kwargs={"force": True}))
         screen.items.add_widget(refresh)
         if self.followers.get("loading"):
@@ -558,7 +558,7 @@ class TwitchMobileApp(App):
             card = self._card(screen, str(item.get("display_name") or login), ("● В ЭФИРЕ" if live else "ОФЛАЙН") + "   ·   " + login)
             if live:
                 card.add_widget(AppText(text=f"{int(item.get('viewer_count') or 0):,} зрителей".replace(",", " "), size=11, color=GREEN, size_hint_y=None, height=dp(20)))
-            button = ActionButton("Добавлен" if login in added else "+ Добавить", color=SURFACE_ALT if login in added else PURPLE, size_hint_y=None, height=dp(38))
+            button = FarmButton("Добавлен" if login in added else "+ Добавить", color=SURFACE_ALT if login in added else PURPLE, size_hint_y=None, height=dp(38))
             button.disabled = login in added or bool(self.state.get("session_running"))
             button.bind(on_release=lambda _b, name=login: self.rpc_async("add_followed_channel", [name]))
             card.add_widget(button)
@@ -579,7 +579,7 @@ class TwitchMobileApp(App):
         card.add_widget(minimum)
         delay = Field(hint="Задержка", text=str(settings.get("delay", 6)), input_filter="int")
         card.add_widget(delay)
-        filter_enabled = ActionButton("Фильтр участников: " + ("ВКЛ" if settings.get("filter_enabled") else "ВЫКЛ"), color=GREEN if settings.get("filter_enabled") else SURFACE_ALT, size_hint_y=None, height=dp(42))
+        filter_enabled = FarmButton("Фильтр участников: " + ("ВКЛ" if settings.get("filter_enabled") else "ВЫКЛ"), color=GREEN if settings.get("filter_enabled") else SURFACE_ALT, size_hint_y=None, height=dp(42))
         card.add_widget(filter_enabled)
         filter_enabled.bind(on_release=lambda *_: setattr(filter_enabled, "text", "Фильтр участников: " + ("ВЫКЛ" if filter_enabled.text.endswith("ВКЛ") else "ВКЛ")))
 
@@ -595,13 +595,13 @@ class TwitchMobileApp(App):
             })
             self.rpc_async("apply_bet_settings", [values, self.state.get("selected_preset") or "Оптимальный"])
 
-        card.add_widget(ActionButton("Применить параметры", color=PURPLE, size_hint_y=None, height=dp(46), on_release=lambda *_: save()))
+        card.add_widget(FarmButton("Применить параметры", color=PURPLE, size_hint_y=None, height=dp(46), on_release=lambda *_: save()))
 
     def _render_events(self):
         screen = self.screens["events"]
         screen.clear()
         screen.title("События", "Последние события Twitch Farming")
-        clear = ActionButton("Очистить журнал", color=SURFACE_ALT, size_hint_y=None, height=dp(40))
+        clear = FarmButton("Очистить журнал", color=SURFACE_ALT, size_hint_y=None, height=dp(40))
         clear.bind(on_release=lambda *_: self.rpc_async("clear_logs"))
         screen.items.add_widget(clear)
         events = list(self.state.get("events") or [])
@@ -627,14 +627,14 @@ class TwitchMobileApp(App):
         ]
         for key, title in names:
             enabled = bool(options.get(key, True))
-            button = ActionButton(title + ("  ✓" if enabled else "  —"), color=PURPLE_SOFT if enabled else SURFACE_ALT, size_hint_y=None, height=dp(40))
+            button = FarmButton(title + ("  ✓" if enabled else "  —"), color=PURPLE_SOFT if enabled else SURFACE_ALT, size_hint_y=None, height=dp(40))
             button.bind(on_release=lambda _b, k=key: self._toggle_local_option(k))
             card.add_widget(button)
         app_card = self._card(screen, "Приложение", "Фоновый сервис держит фарм активным при сворачивании.")
         app_card.add_widget(AppText(text="Для MIUI включи автозапуск и режим батареи «Без ограничений».", size=11, color=MUTED, size_hint_y=None, height=dp(44)))
-        app_card.add_widget(ActionButton("Язык: " + ("Русский" if self.language == "ru" else "English"), color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.toggle_language()))
-        app_card.add_widget(ActionButton("Открыть GitHub Releases", color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_external(GITHUB_RELEASES)))
-        app_card.add_widget(ActionButton("Настройки батареи MIUI", color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_battery_settings()))
+        app_card.add_widget(FarmButton("Язык: " + ("Русский" if self.language == "ru" else "English"), color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.toggle_language()))
+        app_card.add_widget(FarmButton("Открыть GitHub Releases", color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_external(GITHUB_RELEASES)))
+        app_card.add_widget(FarmButton("Настройки батареи MIUI", color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_battery_settings()))
 
     def toggle_language(self):
         self.language = "en" if self.language == "ru" else "ru"
@@ -662,7 +662,7 @@ class TwitchMobileApp(App):
         content.add_widget(field)
         row = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(46))
         popup = Popup(title="Добавить каналы", content=content, size_hint=(0.92, None), height=dp(220), background_color=SURFACE)
-        row.add_widget(ActionButton("Отмена", color=SURFACE_ALT, on_release=lambda *_: popup.dismiss()))
+        row.add_widget(FarmButton("Отмена", color=SURFACE_ALT, on_release=lambda *_: popup.dismiss()))
 
         def add():
             value = field.text.strip()
@@ -670,7 +670,7 @@ class TwitchMobileApp(App):
             if value:
                 self.rpc_async("save_channel_editor", ["add", "", value])
 
-        row.add_widget(ActionButton("Добавить", color=PURPLE, on_release=lambda *_: add()))
+        row.add_widget(FarmButton("Добавить", color=PURPLE, on_release=lambda *_: add()))
         content.add_widget(row)
         popup.open()
         field.focus = True
@@ -683,8 +683,8 @@ class TwitchMobileApp(App):
         content.add_widget(field)
         popup = Popup(title="Twitch Farming", content=content, size_hint=(0.9, None), height=dp(265), background_color=SURFACE)
         row = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(46))
-        row.add_widget(ActionButton("Позже", color=SURFACE_ALT, on_release=lambda *_: popup.dismiss()))
-        row.add_widget(ActionButton("Подключить", color=PURPLE, on_release=lambda *_: (popup.dismiss(), self.rpc_async("login", [field.text.strip()]))))
+        row.add_widget(FarmButton("Позже", color=SURFACE_ALT, on_release=lambda *_: popup.dismiss()))
+        row.add_widget(FarmButton("Подключить", color=PURPLE, on_release=lambda *_: (popup.dismiss(), self.rpc_async("login", [field.text.strip()]))))
         content.add_widget(row)
         popup.open()
         field.focus = True
