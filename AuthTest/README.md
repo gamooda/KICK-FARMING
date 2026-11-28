@@ -2,13 +2,19 @@
 
 Independent Android utility for diagnosing Twitch Device Authorization on the phone. It is not connected to the Twitch Farming application and does not import or modify its backend.
 
+## Download
+
+The latest successful APK is published as a separate prerelease in the repository's [Releases](https://github.com/gamooda/KICK-FARMING/releases). Find the newest release named `Twitch Auth Test build N` and download `Twitch-Auth-Test-Android-armeabi-v7a.apk`.
+
+[Open Twitch Auth Test releases](https://github.com/gamooda/KICK-FARMING/releases?q=authtest)
+
 ## Build
 
-GitHub Actions workflow: Build Twitch Auth Test APK.
+GitHub Actions workflow: [Build Twitch Auth Test APK](https://github.com/gamooda/KICK-FARMING/actions/workflows/build-authtest-android.yml).
 
 It can be started manually from Actions or automatically by changes under AuthTest/ and .github/workflows/build-authtest-android.yml.
 
-The workflow builds an ARMv7 APK for Android 5.0+ devices and uploads it as the Twitch-Auth-Test-Android-armeabi-v7a artifact.
+The workflow builds an ARMv7 APK for Android 5.0+ devices, uploads it as an Actions artifact, and publishes it as a separate GitHub prerelease.
 
 ## Test sequence
 
