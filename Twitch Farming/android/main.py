@@ -826,7 +826,7 @@ class TwitchMobileApp(App):
             if activity is None:
                 raise RuntimeError("Android activity is unavailable")
             package = "tv.twitch.android.app"
-            for route in ("twitch://login", "twitch://following"):
+            for route in ("twitch://following", "twitch://login"):
                 intent = Intent(Intent.ACTION_VIEW)
                 intent.setData(Uri.parse(route))
                 intent.setPackage(package)
