@@ -10,7 +10,7 @@ on:
       - ".github/workflows/build-authtest-android.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: authtest-android-${{ github.ref }}
@@ -43,9 +43,9 @@ jobs:
             ~/.gradle/caches
             ~/.gradle/wrapper
             ~/.cache/pip
-          key: authtest-buildozer-\${{ runner.os }}-py311-\${{ hashFiles('AuthTest/buildozer.spec') }}
+          key: authtest-buildozer-${{ runner.os }}-py311-${{ hashFiles('AuthTest/buildozer.spec') }}
           restore-keys: |
-            authtest-buildozer-\${{ runner.os }}-py311-
+            authtest-buildozer-${{ runner.os }}-py311-
 
       - name: Install Android build dependencies
         run: |
@@ -105,3 +105,21 @@ jobs:
             artifacts/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish APK as a separate GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: authtest-build-${{ github.run_number }}
+          name: Twitch Auth Test build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          prerelease: true
+          draft: false
+          files: |
+            artifacts/Twitch-Auth-Test-Android-armeabi-v7a.apk
+            artifacts/SHA256SUMS.txt
+          body: |
+            Standalone Twitch Device Authorization diagnostic app.
+            This APK is separate from the main Twitch Farming application.
+            Target architecture: ARMv7 (`armeabi-v7a`).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
