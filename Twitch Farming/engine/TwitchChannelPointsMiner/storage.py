@@ -3,6 +3,7 @@ import json
 import os
 import struct
 import threading
+import uuid
 from pathlib import Path
 
 
@@ -194,3 +195,94 @@ def save_secure_json(path, value):
 def load_secure_json(path):
     payload = _crypt(Path(path).read_bytes(), decrypt=True)
     return json.loads(payload.decode("utf-8"))
+
+
+
+def save_secure_json_with_timeout(path, value, timeout=8):
+    if not _is_android():
+        return save_secure_json(path, value)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(path.name + ".keystore-" + uuid.uuid4().hex)
+    finished = threading.Event()
+    timed_out = threading.Event()
+    outcome = {}
+
+    def write_session():
+        try:
+            save_secure_json(staged, value)
+        except BaseException as error:
+            outcome["error"] = error
+        finally:
+            finished.set()
+            if timed_out.is_set():
+                try:
+                    staged.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    worker = threading.Thread(target=write_session, name="AndroidKeystoreSessionSave", daemon=True)
+    worker.start()
+    wait_timeout = max(0.1, float(timeout))
+    if not finished.wait(wait_timeout):
+        timed_out.set()
+        if finished.is_set():
+            try:
+                staged.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise TimeoutError("Android Keystore Twitch session save exceeded %.1f seconds." % wait_timeout)
+    if "error" in outcome:
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise outcome["error"]
+    try:
+        os.replace(str(staged), str(path))
+    except BaseException:
+        try:
+            staged.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def save_fallback_json(path, value):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(value, ensure_ascii=False).encode("utf-8")
+    temporary = path.with_name(path.name + ".fallback.tmp")
+    try:
+        descriptor = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(payload)
+            output.flush()
+            os.fsync(output.fileno())
+        try:
+            os.chmod(temporary, 0o600)
+        except OSError:
+            pass
+        os.replace(str(temporary), str(path))
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        try:
+            directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+            directory_fd = os.open(str(path.parent), directory_flags)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            pass
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def load_fallback_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
