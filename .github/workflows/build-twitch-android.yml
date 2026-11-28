@@ -64,10 +64,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            Twitch Farming/android/.buildozer
+            ~/.buildozer
             ~/.gradle/caches
             ~/.gradle/wrapper
             ~/.cache/pip
+            ${{ runner.temp }}/twitch-farming-android/.buildozer
           key: buildozer-${{ runner.os }}-py311-${{ hashFiles('Twitch Farming/android/buildozer.spec') }}
           restore-keys: |
             buildozer-${{ runner.os }}-py311-
@@ -144,14 +145,19 @@ jobs:
           if-no-files-found: error
 
       - name: Build ARMv7 APK
-        working-directory: Twitch Farming/android
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
-        run: buildozer -v android debug
+        run: |
+          BUILD_DIR="$RUNNER_TEMP/twitch-farming-android"
+          mkdir -p "$BUILD_DIR"
+          cp -a "Twitch Farming/android/." "$BUILD_DIR/"
+          cd "$BUILD_DIR"
+          buildozer -v android debug
 
       - name: Verify APK ABI and manifest
         run: |
-          APK=$(find "Twitch Farming/android/bin" -maxdepth 1 -name '*.apk' -print -quit)
+          BUILD_DIR="$RUNNER_TEMP/twitch-farming-android"
+          APK=$(find "$BUILD_DIR/bin" -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$APK"
           mkdir -p "$GITHUB_WORKSPACE/artifacts"
           cp "$APK" "$GITHUB_WORKSPACE/artifacts/Twitch-Farming-Android-armeabi-v7a.apk"
