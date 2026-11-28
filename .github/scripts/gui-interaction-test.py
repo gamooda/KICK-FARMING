@@ -11,6 +11,7 @@ OUTPUT.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(APP))
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QPushButton, QTextEdit
 
@@ -138,8 +139,14 @@ def main():
             {"login": "offline_follower", "display_name": "Offline follower", "is_live": False, "viewer_count": 0}
         ]
     }
+    available_fonts = set(QFontDatabase.families())
+    font_family = "Segoe UI" if "Segoe UI" in available_fonts else ("Arial" if "Arial" in available_fonts else app.font().family())
+    window.setStyleSheet(window.styleSheet() + " QWidget { font-family: \"" + font_family + "\"; }")
     window.show()
     process(app)
+    window.initialization_overlay.hide()
+    window.welcome_overlay.hide()
+    window.tutorial_overlay.hide()
     window._render_channels()
     window._render_logs()
     screenshot(window, "01-channels.png")
