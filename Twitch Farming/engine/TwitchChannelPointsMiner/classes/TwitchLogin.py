@@ -17,7 +17,7 @@ from TwitchChannelPointsMiner.classes.Exceptions import (
     WrongCookiesException,
 )
 from TwitchChannelPointsMiner.constants import CLIENT_ID, GQLOperations, USER_AGENTS
-from TwitchChannelPointsMiner.storage import load_secure_json, save_secure_json
+from TwitchChannelPointsMiner.storage import _is_android, load_fallback_json, load_secure_json, save_fallback_json, save_secure_json, save_secure_json_with_timeout
 
 from datetime import datetime, timedelta, timezone
 from time import sleep
@@ -395,7 +395,7 @@ class TwitchLogin(object):
     def check_login(self):
         return self.validate_token()
 
-    def save_cookies(self, cookies_file):
+    def _build_cookies_payload(self):
         cookies_dict = self.session.cookies.get_dict()
         cookies_dict["auth-token"] = self.token
         if self.refresh_token:
@@ -406,7 +406,19 @@ class TwitchLogin(object):
             {"name": cookie_name, "value": value}
             for cookie_name, value in cookies_dict.items()
         ]
-        save_secure_json(cookies_file, self.cookies)
+        return self.cookies
+
+    def save_cookies(self, cookies_file, secure_timeout=None):
+        self._build_cookies_payload()
+        if secure_timeout is None:
+            save_secure_json(cookies_file, self.cookies)
+        else:
+            save_secure_json_with_timeout(cookies_file, self.cookies, timeout=secure_timeout)
+
+    def save_cookies_fallback(self, cookies_file):
+        if not self.cookies:
+            self._build_cookies_payload()
+        save_fallback_json(cookies_file, self.cookies)
 
     def get_cookie_value(self, key):
         for cookie in self.cookies:
@@ -416,13 +428,27 @@ class TwitchLogin(object):
         return None
 
     def load_cookies(self, cookies_file):
-        if os.path.isfile(cookies_file):
-            self.cookies = load_secure_json(cookies_file)
-            if not isinstance(self.cookies, list):
-                raise WrongCookiesException("The saved Twitch session is invalid.")
-            self.refresh_token = self.get_cookie_value("refresh-token")
-        else:
+        if not os.path.isfile(cookies_file):
             raise WrongCookiesException("There must be a cookies file!")
+        try:
+            self.cookies = load_secure_json(cookies_file)
+            if not isinstance(self.cookies, list) or not self.cookies:
+                raise WrongCookiesException("The saved Twitch session is empty or invalid.")
+        except Exception as secure_error:
+            if not _is_android():
+                raise
+            logger.warning("Android Keystore session read failed; trying app-private file fallback: %s", secure_error)
+            try:
+                self.cookies = load_fallback_json(cookies_file)
+                if not isinstance(self.cookies, list) or not self.cookies:
+                    raise WrongCookiesException("The app-private Twitch session fallback is empty or invalid.")
+                logger.warning("Loaded Twitch session from app-private plaintext fallback after Android Keystore read failure.")
+            except Exception as fallback_error:
+                logger.warning("Android app-private Twitch session fallback could not be read: %s", fallback_error)
+                raise WrongCookiesException(
+                    "Saved Twitch session could not be read from Android Keystore or app storage fallback: %s" % fallback_error
+                ) from fallback_error
+        self.refresh_token = self.get_cookie_value("refresh-token")
 
     def get_user_id(self):
         persistent = self.get_cookie_value("persistent")
