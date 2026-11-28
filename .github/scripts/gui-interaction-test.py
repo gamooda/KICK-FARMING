@@ -185,14 +185,24 @@ def main():
     check(window.toast.isVisible() and window.toast.text() == expected, "The update result notification was not shown in full.")
     check(window.toast.textFormat() == Qt.TextFormat.PlainText, "Notifications must be rendered as plain text.")
     save_settings_button = next((button for button in window.stack.widget(3).findChildren(QPushButton) if button.text() == "Сохранить настройки"), None)
+    window.settings_scroll.ensureWidgetVisible(save_settings_button)
+    process(app)
+    window.toast_timer.stop()
+    window.toast.hide()
+    window._toast_queue.clear()
+    window._toast_current_text = ""
     click(save_settings_button)
     check("save_settings" in window.api.calls and window.toast.text() == "Тестовые настройки сохранены.", "The settings save button did not complete and show its notification.")
 
+    window.toast_timer.stop()
+    window.toast.hide()
+    window._toast_queue.clear()
+    window._toast_current_text = ""
     first = "Первое уведомление должно остаться полностью видимым."
     second = "Второе уведомление содержит символы <tag> & кавычки и не должно обрезаться."
     window._notify(first)
     window._notify(second)
-    check(window.toast.text() == expected and len(window._toast_queue) >= 2, "Concurrent notices were overwritten instead of queued.")
+    check(window.toast.text() == first and len(window._toast_queue) == 1, "Concurrent notices were overwritten instead of queued.")
     window.toast_timer.stop()
     window._show_next_toast()
     check(window.toast.text() == first, "The notification queue did not preserve FIFO order.")
