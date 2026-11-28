@@ -895,7 +895,15 @@ class TwitchMobileApp(App):
         incoming_startup = self.snapshot.get("startup") or {}
         now = time.monotonic()
         preserve_auth = False
-        if previous_auth.get("authenticated") and not incoming_auth.get("authenticated") and not self.auth_logout_requested:
+        if self.auth_logout_requested:
+            if incoming_auth.get("authenticated"):
+                preserve_auth = bool(previous_auth.get("authenticated"))
+                log_event("AUTH_SNAPSHOT_STALE_IGNORED", "older authenticated snapshot ignored during explicit logout")
+            else:
+                self.auth_logout_requested = False
+                self.auth_confirmed_at = 0.0
+                self.auth_false_snapshot_since = 0.0
+        elif previous_auth.get("authenticated") and not incoming_auth.get("authenticated"):
             worker_state = str(incoming_auth.get("worker_state") or "").lower()
             transitional = (
                 not incoming_startup.get("ready")
@@ -912,11 +920,6 @@ class TwitchMobileApp(App):
                 preserve_auth = now - self.auth_false_snapshot_since < 8.0
         elif incoming_auth.get("authenticated"):
             self.auth_confirmed_at = now
-            self.auth_false_snapshot_since = 0.0
-            self.auth_logout_requested = False
-        elif self.auth_logout_requested:
-            self.auth_logout_requested = False
-            self.auth_confirmed_at = 0.0
             self.auth_false_snapshot_since = 0.0
         elif not previous_auth.get("authenticated"):
             self.auth_false_snapshot_since = 0.0
