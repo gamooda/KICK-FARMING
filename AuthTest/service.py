@@ -306,7 +306,7 @@ def run_device_authorization():
         "Client-Id": CLIENT_ID,
         "Origin": "https://android.tv.twitch.tv",
         "Referer": "https://android.tv.twitch.tv/",
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; Android TV) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Linux; Android 7.1; Smart Box C1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
         "X-Device-Id": uuid.uuid4().hex
     })
     log("STEP 1 BEGIN: POST " + DEVICE_URL)
