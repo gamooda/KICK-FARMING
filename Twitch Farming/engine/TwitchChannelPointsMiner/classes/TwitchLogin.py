@@ -54,7 +54,9 @@ class TwitchLogin(object):
         "email",
         "cookies",
         "shared_cookies",
-        "cancelled"
+        "cancelled",
+        "last_error",
+        "pending_checks"
     ]
 
     def __init__(self, client_id, device_id, username, user_agent, password=None):
@@ -78,8 +80,12 @@ class TwitchLogin(object):
         self.cookies = []
         self.shared_cookies = []
         self.cancelled = False
+        self.last_error = ""
+        self.pending_checks = 0
 
     def login_flow(self):
+        self.last_error = ""
+        self.pending_checks = 0
         logger.info("You'll have to login to Twitch!")
         scopes = "channel_read chat:read user_blocks_edit user_blocks_read user_follows_edit user_read user:read:follows"
         post_data = {
@@ -91,80 +97,104 @@ class TwitchLogin(object):
             try:
                 response = self.send_oauth_request("https://id.twitch.tv/oauth2/device", post_data)
             except requests.RequestException as error:
-                logger.error(f"Twitch device authorization request failed: {error}")
+                self.last_error = "Не удалось связаться с Twitch: " + str(error)[:300]
+                logger.error("Twitch device authorization request failed: %s", error)
                 return False
             if response.status_code != 200:
                 try:
                     detail = response.json().get("message", response.text[:200])
                 except ValueError:
                     detail = response.text[:200]
-                logger.error(f"Twitch device authorization failed: HTTP {response.status_code} · {detail}")
+                self.last_error = "Twitch отклонил запрос кода: HTTP %s · %s" % (response.status_code, detail)
+                logger.error(self.last_error)
                 return False
             try:
                 payload = response.json()
             except ValueError:
-                logger.error("Twitch returned an invalid device authorization response.")
+                self.last_error = "Twitch вернул некорректный ответ при создании кода."
+                logger.error(self.last_error)
                 return False
             if not payload.get("user_code") or not payload.get("device_code"):
-                logger.error("Twitch did not return a device authorization code.")
+                self.last_error = "Twitch не вернул код подтверждения."
+                logger.error(self.last_error)
                 return False
             user_code = payload["user_code"]
             device_code = payload["device_code"]
-            interval = int(payload.get("interval", 5))
+            interval = max(1, int(payload.get("interval", 5)))
             expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(payload.get("expires_in", 1800)))
             verification_uri = payload.get("verification_uri", "https://www.twitch.tv/activate")
-            logger.info(f"DEVICE_AUTH_URL: {verification_uri}")
-            logger.info(f"and enter this code: {user_code}")
-            logger.info(f"Hurry up! It will expire in {int(payload.get('expires_in', 1800) / 60)} minutes!")
+            logger.info("DEVICE_AUTH_URL: %s", verification_uri)
+            logger.info("and enter this code: %s", user_code)
+            logger.info("Hurry up! It will expire in %s minutes!", int(payload.get("expires_in", 1800) / 60))
+            logger.info("DEVICE_AUTH_PENDING: Ожидаю подтверждения этого кода в Twitch.")
             token_data = {
                 "client_id": self.client_id,
                 "scopes": scopes,
                 "device_code": device_code,
                 "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
             }
+            self.pending_checks = 0
             while not self.cancelled:
                 sleep(interval)
                 if self.cancelled:
                     return False
                 if datetime.now(timezone.utc) >= expires_at:
-                    logger.error("Twitch authorization code expired. Requesting a new code.")
+                    self.last_error = "Срок действия кода Twitch истёк. Запрашиваю новый код."
+                    logger.error(self.last_error)
                     break
                 try:
                     token_response = self.send_oauth_request("https://id.twitch.tv/oauth2/token", token_data)
                 except requests.RequestException as error:
-                    logger.warning(f"Twitch token check failed: {error}")
+                    self.pending_checks += 1
+                    self.last_error = "Ошибка связи при проверке кода: " + str(error)[:250]
+                    logger.warning("DEVICE_AUTH_NETWORK_RETRY: %s", self.last_error)
                     continue
                 if token_response.status_code != 200:
                     try:
                         error_payload = token_response.json()
-                        error_message = error_payload.get("message", "")
+                        error_message = str(error_payload.get("message", ""))
                     except ValueError:
                         error_message = token_response.text[:200]
                     if error_message == "authorization_pending":
+                        self.pending_checks += 1
+                        if self.pending_checks == 1 or self.pending_checks % 6 == 0:
+                            logger.info("DEVICE_AUTH_PENDING: Twitch пока не вернул подтверждение. Проверка продолжается.")
                         continue
                     if error_message == "slow_down":
                         interval += 5
+                        logger.warning("DEVICE_AUTH_SLOW_DOWN: увеличен интервал проверки до %s сек.", interval)
                         continue
                     if error_message in ("expired_token", "invalid device code"):
-                        logger.error("Twitch authorization code expired. Requesting a new code.")
+                        self.last_error = "Код подтверждения уже истёк или был использован. Запрашиваю новый код."
+                        logger.error(self.last_error)
                         break
                     if error_message == "access_denied":
-                        logger.error("Twitch authorization was denied.")
+                        self.last_error = "Вход был отклонён в Twitch."
+                        logger.error(self.last_error)
                         return False
-                    logger.error(f"Twitch token request failed: HTTP {token_response.status_code} · {error_message or 'unknown error'}")
+                    self.last_error = "Ошибка проверки кода Twitch: HTTP %s · %s" % (token_response.status_code, error_message or "неизвестная ошибка")
+                    logger.error(self.last_error)
                     return False
                 try:
                     token_payload = token_response.json()
                 except ValueError:
-                    logger.error("Twitch returned an invalid token response.")
+                    self.last_error = "Twitch вернул некорректный ответ с токеном."
+                    logger.error(self.last_error)
                     return False
                 if token_payload.get("access_token"):
                     self.refresh_token = token_payload.get("refresh_token")
                     self.set_token(token_payload["access_token"])
+                    logger.info("DEVICE_AUTH_APPROVED: Twitch подтвердил код. Проверяю аккаунт.")
                     if self.check_login():
+                        logger.info("DEVICE_AUTH_VALIDATED: Аккаунт Twitch подтверждён.")
+                        self.last_error = ""
                         return True
-                    logger.error("Twitch issued a token, but account verification failed.")
+                    self.last_error = self.last_error or "Twitch выдал токен, но проверка аккаунта не прошла."
+                    logger.error("Twitch issued a token, but account verification failed: %s", self.last_error)
                     return False
+                self.last_error = "Twitch ответил без токена доступа."
+                logger.error(self.last_error)
+                return False
             if self.cancelled:
                 return False
         return False
@@ -319,37 +349,47 @@ class TwitchLogin(object):
 
     def validate_token(self):
         if not self.token:
+            self.last_error = "Отсутствует токен Twitch."
             return False
         try:
             response = self.session.get(
                 "https://id.twitch.tv/oauth2/validate",
                 headers={"Authorization": f"OAuth {self.token}"},
-                timeout=10,
+                timeout=15,
             )
         except requests.RequestException as error:
-            logger.warning(f"Twitch token validation failed: {error}")
+            self.last_error = "Не удалось проверить токен Twitch: " + str(error)[:300]
+            logger.warning(self.last_error)
             return False
         if response.status_code != 200:
+            self.last_error = "Twitch не подтвердил токен: HTTP %s." % response.status_code
+            logger.warning(self.last_error)
             return False
         try:
             payload = response.json()
         except ValueError:
+            self.last_error = "Twitch вернул некорректный ответ проверки токена."
+            logger.warning(self.last_error)
             return False
         if payload.get("client_id") != self.client_id:
+            self.last_error = "Выданный токен относится к другому Twitch Client ID."
+            logger.error(self.last_error)
             return False
         self.scopes = tuple(str(scope) for scope in payload.get("scopes", []) if scope)
-        actual_login = str(payload.get("login") or "").lower()
-        if self.username and actual_login and actual_login != self.username.lower():
-            logger.error(f"The authorized Twitch account is {actual_login}, but the configured account is {self.username}.")
-            return False
+        actual_login = str(payload.get("login") or "").strip().lower()
         if actual_login:
+            if self.username and actual_login != self.username.lower():
+                logger.info("DEVICE_AUTH_ACCOUNT_SELECTED: вместо введённого логина авторизован аккаунт @%s.", actual_login)
             self.username = actual_login
         user_id = payload.get("user_id")
         if not user_id:
+            self.last_error = "В ответе Twitch отсутствует ID авторизованного аккаунта."
+            logger.warning(self.last_error)
             return False
         self.user_id = str(user_id)
         self.expires_in = int(payload.get("expires_in") or 0)
         self.login_check_result = True
+        self.last_error = ""
         return True
 
     def check_login(self):
