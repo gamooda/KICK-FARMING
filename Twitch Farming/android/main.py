@@ -22,6 +22,7 @@ from kivy.properties import StringProperty
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.behaviors import ButtonBehavior
+from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.image import Image as KivyImage
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
@@ -29,7 +30,7 @@ from kivy.uix.screenmanager import FadeTransition, NoTransition, Screen, ScreenM
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, RoundedRectangle, Line
+from kivy.graphics import Color, RoundedRectangle, Rectangle, Line
 from kivy.utils import platform
 
 if platform == "android":
@@ -265,6 +266,161 @@ class AppText(Label):
         self.bind(width=lambda *_: setattr(self, "text_size", (self.width, None)))
 
 
+
+class TutorialProgress(Widget):
+    def __init__(self, **kwargs):
+        super().__init__(size_hint_y=None, height=dp(4), **kwargs)
+        self.value = 0.0
+        self.bind(pos=self._draw, size=self._draw)
+        self._draw()
+
+    def set_value(self, value):
+        self.value = min(1.0, max(0.0, float(value)))
+        self._draw()
+
+    def _draw(self, *_):
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(0.20, 0.18, 0.27, 1)
+            RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(3)])
+            Color(0.57, 0.34, 1.0, 1)
+            RoundedRectangle(pos=self.pos, size=(self.width * self.value, self.height), radius=[dp(3)])
+
+
+class TutorialOverlay(FloatLayout):
+    def __init__(self, app, **kwargs):
+        super().__init__(**kwargs)
+        self.app = app
+        self.target = None
+        self.hole = None
+        self.card_height = dp(196)
+        self.card = Panel(
+            color=(0.105, 0.095, 0.16, 1),
+            radius=dp(17),
+            border=(0.43, 0.29, 0.74, 1),
+            orientation="vertical",
+            padding=[dp(12), dp(8)],
+            spacing=dp(4),
+            size_hint=(0.94, None),
+            height=self.card_height
+        )
+        self.heading = AppText(text="TWITCH FARMING", size=8, color=(0.74, 0.60, 1, 1), bold=True, align="center", size_hint_y=None, height=dp(15))
+        self.progress_label = AppText(text="", size=9, color=MUTED, bold=True, align="center", size_hint_y=None, height=dp(15))
+        self.progress_bar = TutorialProgress()
+        self.title_label = AppText(text="", size=14, bold=True, align="center", size_hint_y=None, height=dp(23))
+        self.description_label = AppText(text="", size=10, color=MUTED, align="center", size_hint_y=None, height=dp(52))
+        row = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(38))
+        self.skip_button = FarmButton("Пропустить", color=SURFACE_ALT, icon="close", size_hint_x=0.43, size_hint_y=1)
+        self.skip_button.bind(on_release=lambda *_: self.app.finish_tutorial())
+        self.next_button = FarmButton("Далее", color=PURPLE, icon="arrow_right", size_hint_x=0.57, size_hint_y=1)
+        self.next_button.bind(on_release=lambda *_: self.app.advance_tutorial())
+        row.add_widget(self.skip_button)
+        row.add_widget(self.next_button)
+        for widget in (self.heading, self.progress_label, self.progress_bar, self.title_label, self.description_label, row):
+            self.card.add_widget(widget)
+        self.add_widget(self.card)
+        self.bind(pos=self._update_spotlight, size=self._update_spotlight)
+        self._update_spotlight()
+
+    def set_step(self, index, total, title, description, final=False):
+        self.progress_label.text = f"Шаг {index + 1} из {total}"
+        self.progress_bar.set_value((index + 1) / max(1, total))
+        self.title_label.text = title
+        self.description_label.text = description
+        self.next_button.set_label("Начать работу" if final else "Далее")
+        self.next_button.set_icon("check" if final else "arrow_right")
+
+    def set_target(self, target):
+        self.target = target
+        self._update_spotlight()
+
+    def _update_spotlight(self, *_):
+        if self.width <= 0 or self.height <= 0:
+            return
+        hole = None
+        target = self.target
+        if target is not None and target.parent is not None:
+            try:
+                window_x, window_y = target.to_window(0, 0)
+                x, y = self.to_widget(window_x, window_y)
+                pad = dp(6)
+                x = max(0, x - pad)
+                y = max(0, y - pad)
+                width = min(self.width - x, target.width + pad * 2)
+                height = min(self.height - y, target.height + pad * 2)
+                if width > 0 and height > 0:
+                    hole = (x, y, width, height)
+            except BaseException as error:
+                log_exception("TUTORIAL_SPOTLIGHT_TARGET_FAILED", error)
+        self.hole = hole
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(0.015, 0.012, 0.035, 0.76)
+            if hole is None:
+                Rectangle(pos=self.pos, size=self.size)
+            else:
+                x, y, width, height = hole
+                pieces = (
+                    ((0, 0), (x, self.height)),
+                    ((x + width, 0), (max(0, self.width - x - width), self.height)),
+                    ((x, 0), (width, y)),
+                    ((x, y + height), (width, max(0, self.height - y - height)))
+                )
+                for position, size in pieces:
+                    if size[0] > 0 and size[1] > 0:
+                        Rectangle(pos=(self.x + position[0], self.y + position[1]), size=size)
+                Color(0.67, 0.40, 1.0, 1)
+                Line(rounded_rectangle=(self.x + x, self.y + y, width, height, dp(13)), width=dp(2.2))
+                Color(0.82, 0.68, 1.0, 0.12)
+                RoundedRectangle(pos=(self.x + x, self.y + y), size=(width, height), radius=[dp(13)])
+        card_width = self.width * 0.94
+        self.card.size = (card_width, self.card_height)
+        card_x = (self.width - card_width) / 2
+        if hole is None:
+            card_y = dp(12)
+        else:
+            x, y, width, height = hole
+            below_space = y - dp(14)
+            above_space = self.height - y - height - dp(14)
+            if below_space >= self.card_height:
+                card_y = dp(12)
+            elif above_space >= self.card_height:
+                card_y = y + height + dp(12)
+            else:
+                card_y = dp(12) if y > self.height * 0.52 else max(dp(12), self.height - self.card_height - dp(12))
+        self.card.pos = (card_x, card_y)
+
+    def on_touch_down(self, touch):
+        if super().on_touch_down(touch):
+            return True
+        x, y = self.to_widget(*touch.pos)
+        if self.hole is not None:
+            hx, hy, hw, hh = self.hole
+            if hx <= x <= hx + hw and hy <= y <= hy + hh:
+                return False
+        return True
+
+    def on_touch_move(self, touch):
+        if super().on_touch_move(touch):
+            return True
+        x, y = self.to_widget(*touch.pos)
+        if self.hole is not None:
+            hx, hy, hw, hh = self.hole
+            if hx <= x <= hx + hw and hy <= y <= hy + hh:
+                return False
+        return True
+
+    def on_touch_up(self, touch):
+        if super().on_touch_up(touch):
+            return True
+        x, y = self.to_widget(*touch.pos)
+        if self.hole is not None:
+            hx, hy, hw, hh = self.hole
+            if hx <= x <= hx + hw and hy <= y <= hy + hh:
+                return False
+        return True
+
+
 class Field(TextInput):
     def __init__(self, hint="", text="", password=False, **kwargs):
         super().__init__(**kwargs)
@@ -291,25 +447,37 @@ class RPCClient:
             "args": list(args or []),
             "kwargs": dict(kwargs or {})
         }, ensure_ascii=False).encode("utf-8")
-        with socket.create_connection((RPC_HOST, RPC_PORT), timeout=timeout) as connection:
-            connection.settimeout(timeout)
-            connection.sendall(payload + b"\n")
-            chunks = []
-            while True:
-                block = connection.recv(65536)
-                if not block:
-                    break
-                chunks.append(block)
-                if b"\n" in block:
-                    break
-        raw = b"".join(chunks).split(b"\n", 1)[0]
-        if not raw:
-            raise RuntimeError("Фоновый сервис ещё запускается.")
-        envelope = json.loads(raw.decode("utf-8"))
-        if not envelope.get("ok"):
-            raise RuntimeError(envelope.get("error") or "Ошибка фонового сервиса.")
-        return envelope.get("result")
-
+        deadline = time.monotonic() + min(max(float(timeout), 1.0), 15.0)
+        last_error = None
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("Фоновый сервис не отвечает. Повторный запуск уже запрошен.") from last_error
+            try:
+                with socket.create_connection((RPC_HOST, RPC_PORT), timeout=min(2.0, remaining)) as connection:
+                    connection.settimeout(timeout)
+                    connection.sendall(payload + b"\n")
+                    chunks = []
+                    while True:
+                        block = connection.recv(65536)
+                        if not block:
+                            break
+                        chunks.append(block)
+                        if b"\n" in block:
+                            break
+                raw = b"".join(chunks).split(b"\n", 1)[0]
+                if not raw:
+                    raise RuntimeError("Фоновый сервис вернул пустой ответ.")
+                envelope = json.loads(raw.decode("utf-8"))
+                if not envelope.get("ok"):
+                    raise RuntimeError(envelope.get("error") or "Ошибка фонового сервиса.")
+                return envelope.get("result")
+            except ConnectionRefusedError as error:
+                last_error = error
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("Фоновый сервис не отвечает. Повторный запуск уже запрошен.") from error
+                time.sleep(min(0.3, remaining))
 
 class ChannelCard(Panel):
     def __init__(self, login, profile, points, slot, queued=False, **kwargs):
