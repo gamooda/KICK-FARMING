@@ -234,7 +234,7 @@ class TwitchMobileApp(App):
         Window.clearcolor = BG
         Window.softinput_mode = "below_target"
         if "--preview" in sys.argv:
-            Window.size = (420, 900)
+            Window.size = (360, 800)
         self.language = get_language()
         self.rpc = RPCClient()
         self.snapshot = {}
@@ -293,9 +293,9 @@ class TwitchMobileApp(App):
         for key, title in (
             ("channels", "Каналы"),
             ("drops", "Drops"),
-            ("followers", "Фолловеры"),
+            ("followers", "Фолл."),
             ("predictions", "Ставки"),
-            ("events", "События"),
+            ("events", "Событ."),
             ("settings", "Ещё"),
         ):
             button = FarmButton(title, color=PURPLE_SOFT if key == "channels" else SURFACE, radius=dp(10), font_size=sp(10))
@@ -437,7 +437,7 @@ class TwitchMobileApp(App):
     def _render_channels(self):
         screen = self.screens["channels"]
         screen.clear()
-        screen.title("Каналы", "Channel Points · Twitch Drops · автоматическая ротация")
+        screen.title("Каналы", "Баллы · Drops · ротация двух слотов")
         state = self.state
         slots = state.get("watch_slots") or []
         if isinstance(slots, dict):
