@@ -191,7 +191,8 @@ def main():
     window.toast.hide()
     window._toast_queue.clear()
     window._toast_current_text = ""
-    click(save_settings_button)
+    save_settings_button.click()
+    process(app)
     check("save_settings" in window.api.calls and window.toast.text() == "Тестовые настройки сохранены.", "The settings save button did not complete and show its notification.")
 
     window.toast_timer.stop()
