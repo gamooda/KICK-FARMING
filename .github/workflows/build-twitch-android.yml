@@ -79,28 +79,33 @@ jobs:
           if-no-files-found: error
 
       - name: Build ARMv7 APK
-        working-directory: Twitch Farming/android
         env:
           BUILDOZER_WARN_ON_ROOT: "0"
-        run: buildozer -v android debug
+        run: |
+          BUILD_DIR="$RUNNER_TEMP/twitch-farming-android"
+          rm -rf "$BUILD_DIR"
+          mkdir -p "$BUILD_DIR"
+          cp -a "Twitch Farming/android/." "$BUILD_DIR/"
+          cd "$BUILD_DIR"
+          buildozer -v android debug
 
       - name: Verify APK ABI and manifest
-        working-directory: Twitch Farming/android
         run: |
-          APK=$(find bin -maxdepth 1 -name '*.apk' -print -quit)
+          BUILD_DIR="$RUNNER_TEMP/twitch-farming-android"
+          APK=$(find "$BUILD_DIR/bin" -maxdepth 1 -name '*.apk' -print -quit)
           test -n "$APK"
-          mkdir -p ../../artifacts
-          cp "$APK" ../../artifacts/Twitch-Farming-Android-armeabi-v7a.apk
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          cp "$APK" "$GITHUB_WORKSPACE/artifacts/Twitch-Farming-Android-armeabi-v7a.apk"
           AAPT=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
           test -x "$AAPT"
-          "$AAPT" dump badging "$APK" | tee ../../artifacts/apk-badging.txt
-          grep -q "sdkVersion:'29'" ../../artifacts/apk-badging.txt
+          "$AAPT" dump badging "$APK" | tee "$GITHUB_WORKSPACE/artifacts/apk-badging.txt"
+          grep -q "sdkVersion:'29'" "$GITHUB_WORKSPACE/artifacts/apk-badging.txt"
           unzip -Z1 "$APK" | grep -q 'lib/armeabi-v7a/'
           if unzip -Z1 "$APK" | grep -q 'lib/arm64-v8a/'; then
             echo "Unexpected 64-bit native libraries in the Redmi 7A APK."
             exit 1
           fi
-          sha256sum ../../artifacts/Twitch-Farming-Android-armeabi-v7a.apk > ../../artifacts/SHA256SUMS.txt
+          sha256sum "$GITHUB_WORKSPACE/artifacts/Twitch-Farming-Android-armeabi-v7a.apk" > "$GITHUB_WORKSPACE/artifacts/SHA256SUMS.txt"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

@@ -335,7 +335,7 @@ class TwitchMobileApp(App):
             from jnius import autoclass
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
             service_class = autoclass(PACKAGE_NAME + ".ServiceFarm")
-            service_class.start(activity, "icon", APP_NAME, "Фоновый сервис готов", "")
+            service_class.start(activity, "ic_launcher", APP_NAME, "Фоновый сервис готов", "")
         except Exception as error:
             self.show_toast("Не удалось запустить фоновый сервис: " + str(error)[:100])
 
