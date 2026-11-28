@@ -911,8 +911,12 @@ class TwitchMobileApp(App):
         if waiting:
             return
         if self.tutorial_popup is not None:
-            self.tutorial_popup.dismiss()
+            overlay = self.tutorial_popup
             self.tutorial_popup = None
+            try:
+                self.root_layer.remove_widget(overlay)
+            except BaseException as error:
+                log_exception("AUTH_GATE_TUTORIAL_REMOVE_FAILED", error)
         if not self.login_prompt_shown:
             self.login_prompt_shown = True
             username = self.state.get("username") or self.auth.get("username") or ""
