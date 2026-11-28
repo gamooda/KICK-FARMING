@@ -144,8 +144,19 @@ class Twitch(object):
         )
         if android_runtime:
             started = time.monotonic()
-            self.twitch_login.save_cookies(self.cookies_file)
-            logger.info("Android Twitch session saved securely and flushed to disk in %.2f sec.", time.monotonic() - started)
+            try:
+                self.twitch_login.save_cookies(self.cookies_file, secure_timeout=8.0)
+                logger.info("Android Twitch session saved securely and flushed to disk in %.2f sec.", time.monotonic() - started)
+            except Exception as error:
+                if not self.twitch_login.login_check_result:
+                    raise
+                logger.exception("Android Keystore session save failed after Twitch account validation; trying app-private file fallback: %s", error)
+                try:
+                    self.twitch_login.save_cookies_fallback(self.cookies_file)
+                    logger.warning("Android Twitch session saved in app-private plaintext fallback. Keystore error: %s", error)
+                except Exception as fallback_error:
+                    logger.exception("Android Twitch session fallback save failed after Twitch account validation: %s", fallback_error)
+                    logger.error("DEVICE_AUTH_PERSISTENCE_FAILED: Twitch account was validated; keeping the active session in memory. Keystore error: %s; fallback error: %s", error, fallback_error)
         else:
             self.twitch_login.save_cookies(self.cookies_file)
             logger.info("Twitch session saved securely.")
