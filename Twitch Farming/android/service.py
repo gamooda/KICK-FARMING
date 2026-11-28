@@ -11,7 +11,7 @@ PORT = 43771
 APP = None
 APP_LOCK = threading.RLock()
 ALLOWED_METHODS = {
-    "login", "start_farm", "stop_farm", "save_settings", "save_channel_editor",
+    "login", "logout", "start_farm", "stop_farm", "save_settings", "save_channel_editor",
     "remove_channel", "reorder_channels", "refresh_channel_profiles",
     "refresh_followed_channels", "add_followed_channel", "refresh_drops_inventory",
     "set_drops_campaign_focus", "clear_drops_campaign_focus",
@@ -43,6 +43,8 @@ def service_api():
         if APP is not None:
             return APP
         initialize_storage()
+        import backend
+        backend.webbrowser.open = lambda *_args, **_kwargs: False
         from backend import TwitchFarmingApi
         APP = TwitchFarmingApi()
         threading.Thread(target=APP._startup_tasks, name="AndroidStartup", daemon=True).start()
@@ -56,16 +58,25 @@ def service_api():
         return APP
 
 
-def build_snapshot(api, after_log_id):
-    return {
+def build_snapshot(api, after_log_id, active_screen="channels"):
+    result = {
         "ok": True,
         "state": api.get_state(after_log_id),
         "auth": api.get_auth_state(),
-        "followers": api.get_followed_channels_state(),
-        "drops": api.get_drops_inventory_state(),
         "startup": api.get_startup_status(),
         "update": api.get_update_state(),
     }
+    with api.lock:
+        result["auth_flow"] = {
+            "code": str(api.auth_code or ""),
+            "url": str(api.auth_url or "https://www.twitch.tv/activate"),
+            "status": str(api.auth_status or ""),
+        }
+    if active_screen == "followers":
+        result["followers"] = api.get_followed_channels_state()
+    elif active_screen == "drops":
+        result["drops"] = api.get_drops_inventory_state()
+    return result
 
 
 class RequestHandler(socketserver.StreamRequestHandler):
@@ -81,7 +92,7 @@ class RequestHandler(socketserver.StreamRequestHandler):
             kwargs = payload.get("kwargs") if isinstance(payload.get("kwargs"), dict) else {}
             api = service_api()
             if method == "snapshot":
-                result = build_snapshot(api, kwargs.get("after_log_id", 0))
+                result = build_snapshot(api, kwargs.get("after_log_id", 0), str(kwargs.get("screen") or "channels"))
             elif method in ALLOWED_METHODS:
                 result = getattr(api, method)(*args, **kwargs)
                 if result is None:
@@ -132,9 +143,22 @@ def set_android_notification():
         else:
             body = "Фоновый сервис готов · фарм остановлен"
         package = service.getPackageName()
-        icon_id = service.getResources().getIdentifier("ic_launcher", "mipmap", package)
+        resources = service.getResources()
+        icon_id = 0
+        for resource_type, resource_name in (
+            ("mipmap", "ic_launcher"),
+            ("drawable", "ic_launcher"),
+            ("mipmap", "icon"),
+            ("drawable", "icon"),
+        ):
+            icon_id = resources.getIdentifier(resource_name, resource_type, package)
+            if icon_id:
+                break
         if icon_id == 0:
-            icon_id = service.getResources().getIdentifier("icon", "drawable", package)
+            try:
+                icon_id = service.getPackageManager().getApplicationInfo(package, 0).icon
+            except Exception:
+                icon_id = 0
         if icon_id == 0:
             return
         Intent = autoclass("android.content.Intent")
