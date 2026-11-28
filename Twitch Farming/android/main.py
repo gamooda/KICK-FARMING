@@ -1524,8 +1524,9 @@ class TwitchMobileApp(App):
         screen.title("Настройки прогнозов", "Стратегия автоставок Twitch")
         settings = self.state.get("bet_settings") or {}
         card = self._card(screen, "Стратегия и лимиты", "Параметры будут применены при следующем запуске.")
-        self.tutorial_targets["prediction_strategy"] = card
+        self.tutorial_targets["prediction_strategy"] = None
         strategy = Field(hint="Стратегия (SMART, MOST_VOTED…)", text=str(settings.get("strategy") or "SMART"))
+        self.tutorial_targets["prediction_strategy"] = strategy
         card.add_widget(strategy)
         percentage = Field(hint="Процент от баланса", text=str(settings.get("percentage", 5)), input_filter="int")
         card.add_widget(percentage)
@@ -1588,7 +1589,7 @@ class TwitchMobileApp(App):
         account.add_widget(FarmButton("Выйти из аккаунта" if authenticated else "Войти через Twitch", color=RED if authenticated else PURPLE, icon="logout" if authenticated else "login", size_hint_y=None, height=dp(44), on_release=lambda *_: self.confirm_logout() if authenticated else self.open_login_popup(self.state.get("username") or "")))
         options = self.state.get("options") or {}
         card = self._card(screen, "Действия фарма", "Включённые возможности будут обрабатываться движком.")
-        self.tutorial_targets["settings_options"] = card
+        self.tutorial_targets["settings_options"] = None
         names = [
             ("claim_drops", "Twitch Drops"),
             ("watch_streak", "Серии просмотров"),
@@ -1602,6 +1603,8 @@ class TwitchMobileApp(App):
             button = FarmButton(title + ("  ВКЛ" if enabled else "  ВЫКЛ"), color=PURPLE_SOFT if enabled else SURFACE_ALT, icon="check" if enabled else "power", size_hint_y=None, height=dp(40))
             button.bind(on_release=lambda _b, k=key: self._toggle_local_option(k))
             card.add_widget(button)
+            if key == "claim_drops":
+                self.tutorial_targets["settings_options"] = button
         app_card = self._card(screen, "Приложение", "Фоновый сервис держит фарм активным при сворачивании.")
         app_card.add_widget(AppText(text="Для MIUI включи автозапуск и режим батареи «Без ограничений».", size=11, color=MUTED, size_hint_y=None, height=dp(44)))
         app_settings = self.state.get("app_settings") or {}
