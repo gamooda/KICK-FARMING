@@ -57,6 +57,8 @@ class FakeApi:
 
 
 def run_task_sync(window, key, function, args=(), callback=None):
+    if key == "startup":
+        return
     try:
         result = function(*args)
         error = None
