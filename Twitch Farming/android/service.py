@@ -26,7 +26,8 @@ ALLOWED_METHODS = {
 
 
 def initialize_storage():
-    log_event("SERVICE_STORAGE_BEGIN", "resolving app storage directory")
+    os.environ["TWITCH_FARMING_ANDROID"] = "1"
+    log_event("SERVICE_STORAGE_BEGIN", "Android Keystore session encryption enabled")
     try:
         from jnius import autoclass
         service = autoclass("org.kivy.android.PythonService").mService
