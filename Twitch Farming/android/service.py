@@ -156,31 +156,25 @@ def set_android_notification():
         manager = service.getSystemService(Context.NOTIFICATION_SERVICE)
         state = APP.get_state() if APP is not None else {}
         running = bool(state.get("session_running"))
-        if not running:
-            try:
-                service.stopForeground(True)
-            except Exception:
-                pass
-            try:
-                manager.cancel(1)
-            except Exception:
-                pass
-            if FOREGROUND_NOTIFICATION_ACTIVE:
-                log_event("ANDROID_NOTIFICATION_HIDDEN", "farm stopped; foreground notification removed")
-            FOREGROUND_NOTIFICATION_ACTIVE = False
-            return
-        channel_id = "twitch_farming_service"
+        channel_id = "twitch_farming_service_active" if running else "twitch_farming_service_idle"
         if BuildVersion.SDK_INT >= 26:
-            channel = NotificationChannel(channel_id, "Twitch Farming", 2)
-            channel.setDescription("Состояние активного фарма Twitch")
+            importance = 2 if running else 1
+            channel_name = "Twitch Farming" if running else "Twitch Farming · Фоновый сервис"
+            channel = NotificationChannel(channel_id, channel_name, importance)
+            channel.setDescription("Состояние фонового сервиса Twitch Farming")
+            channel.setShowBadge(False)
             manager.createNotificationChannel(channel)
             builder = NotificationBuilder(service, channel_id)
         else:
             builder = NotificationBuilder(service)
         channels = state.get("online_channels") or []
-        status = str(state.get("status_text") or "ЗАПУЩЕН")
-        title = "Twitch Farming · ФАРМ РАБОТАЕТ"
-        body = "Сбор запущен · " + str(len(channels)) + " онлайн-каналов · " + status.replace("●", "").strip()
+        status = str(state.get("status_text") or "ГОТОВ К РАБОТЕ")
+        if running:
+            title = "Twitch Farming · ФАРМ РАБОТАЕТ"
+            body = "Сбор запущен · " + str(len(channels)) + " онлайн-каналов · " + status.replace("●", "").strip()
+        else:
+            title = "Twitch Farming · СЕРВИС АКТИВЕН"
+            body = "Готов к работе · фарм не запущен"
         package = service.getPackageName()
         resources = service.getResources()
         icon_id = 0
@@ -218,9 +212,13 @@ def set_android_notification():
         )
         service.startForeground(1, notification)
         manager.notify(1, notification)
-        if not FOREGROUND_NOTIFICATION_ACTIVE:
-            log_event("ANDROID_NOTIFICATION_SHOWN", "farm running; branded notification enabled")
-        FOREGROUND_NOTIFICATION_ACTIVE = True
+        if running and not FOREGROUND_NOTIFICATION_ACTIVE:
+            log_event("ANDROID_NOTIFICATION_SHOWN", "farm running; active foreground notification enabled")
+        elif not running and FOREGROUND_NOTIFICATION_ACTIVE:
+            log_event("ANDROID_NOTIFICATION_HIDDEN", "farm stopped; foreground service remains active with minimum-importance notification")
+        elif not running:
+            log_event("ANDROID_SERVICE_IDLE_FOREGROUND", "RPC service kept alive with minimum-importance notification")
+        FOREGROUND_NOTIFICATION_ACTIVE = running
     except BaseException as error:
         log_exception("ANDROID_NOTIFICATION_FAILED", error)
 
