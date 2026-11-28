@@ -595,6 +595,8 @@ class TwitchMobileApp(App):
         self.tutorial_next_button = None
         self.tutorial_step = 0
         self.tutorial_shown = False
+        self.tutorial_targets = {}
+        self.last_service_start_at = 0.0
         self.root_box = BoxLayout(orientation="vertical", spacing=0)
         self.header = self._build_header()
         self.root_box.add_widget(self.header)
@@ -610,9 +612,11 @@ class TwitchMobileApp(App):
         self.toast = AppText(text="", size=12, color=TEXT, align="center", size_hint_y=None, height=dp(42))
         self.toast.opacity = 0
         self.root_box.add_widget(self.toast)
+        self.root_layer = FloatLayout()
+        self.root_layer.add_widget(self.root_box)
         self.refresh_screen_content(force=True)
         log_event("APP_BUILD_OK", "root widget constructed")
-        return self.root_box
+        return self.root_layer
 
     def _build_header(self):
         header = Panel(color=(0.075, 0.075, 0.115, 1), radius=0, orientation="horizontal", size_hint_y=None, height=dp(62), padding=[dp(12), dp(7)], spacing=dp(8))
@@ -638,7 +642,7 @@ class TwitchMobileApp(App):
             ("followers", "Фолл.", "followers"),
             ("predictions", "Ставки", "bets"),
             ("events", "Событ.", "events"),
-            ("settings", "Ещё", "settings"),
+            ("settings", "Настройки", "settings"),
         ):
             button = NavButton(key, title, icon, active=key == "channels")
             button.bind(on_release=lambda _button, target=key: self.navigate(target))
@@ -665,10 +669,10 @@ class TwitchMobileApp(App):
         if not self.preview:
             Clock.schedule_once(lambda _dt: self.open_login_popup(), 0)
             try:
-                self.start_android_service()
+                self.start_android_service(force=True)
             except BaseException as error:
                 log_exception("ANDROID_SERVICE_START_CALL_FAILED", error)
-            Clock.schedule_once(lambda _dt: self.poll_state(), 0.8)
+            Clock.schedule_once(lambda _dt: self.poll_state(), 1.0)
             Clock.schedule_interval(lambda _dt: self.poll_state(), 3.0)
         else:
             self.apply_snapshot(self.preview_snapshot())
@@ -682,34 +686,42 @@ class TwitchMobileApp(App):
         log_event("APP_ON_RESUME", "foreground lifecycle callback")
         initialize_android_logging("ui-on-resume")
         if not self.preview:
-            Clock.schedule_once(lambda _dt: self.poll_state(), 0.25)
+            Clock.schedule_once(lambda _dt: self.start_android_service(force=True), 0.2)
+            Clock.schedule_once(lambda _dt: self.poll_state(), 1.0)
         return True
 
     def on_stop(self):
         log_event("APP_ON_STOP", "Kivy application stopped")
 
-    def start_android_service(self):
-        if platform != "android":
-            log_event("ANDROID_SERVICE_SKIPPED", "not running on Android")
+    def start_android_service(self, force=False):
+        if platform != "android" or self.preview:
             return
-        log_event("ANDROID_SERVICE_START_BEGIN", "service_class=" + PACKAGE_NAME + ".ServiceFarm")
+        now = time.monotonic()
+        cooldown = 1.5 if force else 4.5
+        if now - self.last_service_start_at < cooldown:
+            return
+        self.last_service_start_at = now
+        log_event("ANDROID_SERVICE_START_BEGIN", "service_class=" + PACKAGE_NAME + ".ServiceFarm force=" + str(bool(force)))
         try:
             from jnius import autoclass
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
             if activity is None:
                 raise RuntimeError("PythonActivity.mActivity is None")
             service_class = autoclass(PACKAGE_NAME + ".ServiceFarm")
-            log_event("ANDROID_SERVICE_CLASS_READY", str(service_class))
             service_class.start(activity, "notification", APP_NAME, "", "")
             log_event("ANDROID_SERVICE_START_REQUESTED", "ServiceFarm.start returned")
         except BaseException as error:
             log_exception("ANDROID_SERVICE_START_FAILED", error)
             self.show_toast("Не удалось запустить фоновый сервис: " + str(error)[:100])
 
+
+
     def rpc_async(self, method, args=None, kwargs=None, callback=None, timeout=12):
         if self.busy and method != "snapshot":
             self.show_toast("Предыдущее действие ещё выполняется.")
             return
+        if not self.preview:
+            self.start_android_service(force=True)
         if method != "snapshot":
             self.busy = True
 
@@ -753,6 +765,7 @@ class TwitchMobileApp(App):
     def poll_state(self):
         if self.preview or self.polling:
             return
+        self.start_android_service()
         self.polling = True
 
         def worker():
@@ -812,8 +825,11 @@ class TwitchMobileApp(App):
         self.header_status.text = status.replace("●  ", "● ")
         self.header_status.color = self._hex_color(self.state.get("status_color", "#A9B2C3"))
         authenticated = bool(self.auth.get("authenticated"))
-        self.header_auth_button.set_label("Выйти" if authenticated else "Войти")
-        self.header_auth_button.set_icon("logout" if authenticated else "login")
+        self.header_auth_button.set_label("Войти")
+        self.header_auth_button.set_icon("login")
+        self.header_auth_button.disabled = authenticated
+        self.header_auth_button.opacity = 0 if authenticated else 1
+        self.header_auth_button.size = (0, 0) if authenticated else (dp(82), dp(36))
         self._render_screen(self.screen_manager.current)
         self._update_login_popup()
         self._update_auth_gate()
@@ -1546,7 +1562,8 @@ class TwitchMobileApp(App):
                 intent.setType("text/plain")
                 intent.putExtra(Intent.EXTRA_SUBJECT, "Twitch Farming Android log")
                 intent.putExtra(Intent.EXTRA_TEXT, text)
-                activity.startActivity(Intent.createChooser(intent, "Отправить журнал"))
+                JavaString = autoclass("java.lang.String")
+                activity.startActivity(Intent.createChooser(intent, JavaString("Отправить журнал")))
                 return
             Clipboard.copy(text)
             self.show_toast("Журнал скопирован.")
