@@ -606,8 +606,14 @@ class TwitchMobileApp(App):
         screen.items.add_widget(clear)
         events = list(self.state.get("events") or [])
         logs = list(self.state.get("logs") or [])
-        rows = [str(item.get("message") or "") for item in events[-30:] if isinstance(item, dict)]
-        rows.extend(str(item.get("line") or "") for item in logs[-70:] if isinstance(item, dict))
+        rows = [
+            str(item.get("message") or "") if isinstance(item, dict) else str(item)
+            for item in events[-30:]
+        ]
+        rows.extend(
+            str(item.get("line") or item.get("message") or "") if isinstance(item, dict) else str(item)
+            for item in logs[-70:]
+        )
         for text_value in reversed(rows[-90:]):
             self._card(screen, text_value[:400])
 
@@ -632,6 +638,9 @@ class TwitchMobileApp(App):
             card.add_widget(button)
         app_card = self._card(screen, "Приложение", "Фоновый сервис держит фарм активным при сворачивании.")
         app_card.add_widget(AppText(text="Для MIUI включи автозапуск и режим батареи «Без ограничений».", size=11, color=MUTED, size_hint_y=None, height=dp(44)))
+        app_settings = self.state.get("app_settings") or {}
+        auto_start = bool(app_settings.get("auto_start_farm", False))
+        app_card.add_widget(FarmButton("Автозапуск фарма: " + ("ВКЛ" if auto_start else "ВЫКЛ"), color=GREEN if auto_start else SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self._toggle_app_option("auto_start_farm")))
         app_card.add_widget(FarmButton("Язык: " + ("Русский" if self.language == "ru" else "English"), color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.toggle_language()))
         app_card.add_widget(FarmButton("Открыть GitHub Releases", color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_external(GITHUB_RELEASES)))
         app_card.add_widget(FarmButton("Настройки батареи MIUI", color=SURFACE_ALT, size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_battery_settings()))
@@ -642,19 +651,27 @@ class TwitchMobileApp(App):
         self.refresh_screen_content()
         self.show_toast("Language: English" if self.language == "en" else "Язык: Русский")
 
-    def _toggle_local_option(self, key):
-        options = dict(self.state.get("options") or {})
-        options[key] = not bool(options.get(key, True))
+    def _save_full_settings(self, options=None, app_settings=None):
         payload = {
             "username": self.state.get("username") or "",
             "channels": self.state.get("channels") or [],
-            "settings": options,
-            "app_settings": self.state.get("app_settings") or {},
+            "settings": options if options is not None else (self.state.get("options") or {}),
+            "app_settings": app_settings if app_settings is not None else (self.state.get("app_settings") or {}),
             "bet_settings": self.state.get("bet_settings") or {},
             "custom_presets": self.state.get("custom_presets") or {},
             "selected_preset": self.state.get("selected_preset") or "Оптимальный"
         }
         self.rpc_async("save_settings", [payload])
+
+    def _toggle_local_option(self, key):
+        options = dict(self.state.get("options") or {})
+        options[key] = not bool(options.get(key, True))
+        self._save_full_settings(options=options)
+
+    def _toggle_app_option(self, key):
+        settings = dict(self.state.get("app_settings") or {})
+        settings[key] = not bool(settings.get(key, False))
+        self._save_full_settings(app_settings=settings)
 
     def open_add_channel(self):
         content = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
