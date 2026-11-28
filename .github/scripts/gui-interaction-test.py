@@ -201,15 +201,17 @@ def main():
     window._toast_current_text = ""
     first = "Первое уведомление должно остаться полностью видимым."
     second = "Второе уведомление содержит символы <tag> & кавычки и не должно обрезаться."
+    third = "Третье уведомление должно появиться после второго."
     window._notify(first)
     window._notify(second)
-    check(window.toast.text() == first and len(window._toast_queue) == 1, "Concurrent notices were overwritten instead of queued.")
+    window._notify(third)
+    check(window.toast.text() == first and window._toast_queue == [second, third], "Concurrent notices were overwritten instead of queued.")
     window.toast_timer.stop()
     window._show_next_toast()
-    check(window.toast.text() == first, "The notification queue did not preserve FIFO order.")
+    check(window.toast.text() == second, "The notification queue did not preserve FIFO order.")
     window.toast_timer.stop()
     window._show_next_toast()
-    check(window.toast.text() == second, "The second queued notification was not displayed in full.")
+    check(window.toast.text() == third, "The third queued notification was not displayed after the second.")
     window.toast_timer.stop()
     window._toast_queue.clear()
     window.toast.hide()
