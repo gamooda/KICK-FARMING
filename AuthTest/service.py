@@ -260,6 +260,11 @@ def run_storage_test(access_token, refresh_token, username, user_id, scopes):
         "login": username,
         "user_id": user_id,
         "scopes": scopes,
+        "cookies": [
+            {"name": "auth-token", "value": access_token},
+            {"name": "refresh-token", "value": refresh_token},
+            {"name": "persistent", "value": user_id}
+        ],
         "saved_at": datetime.now().astimezone().isoformat(),
         "source": "AuthTest device authorization"
     }
