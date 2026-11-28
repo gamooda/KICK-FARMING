@@ -83,24 +83,24 @@ def service_api():
 
 
 def build_snapshot(api, after_log_id, active_screen="channels"):
-    result = {
-        "ok": True,
-        "state": api.get_state(after_log_id),
-        "auth": api.get_auth_state(),
-        "startup": api.get_startup_status(),
-        "update": api.get_update_state(),
-    }
     with api.lock:
-        result["auth_flow"] = {
-            "code": str(api.auth_code or ""),
-            "url": str(api.auth_url or "https://www.twitch.tv/activate"),
-            "status": str(api.auth_status or ""),
+        result = {
+            "ok": True,
+            "state": api.get_state(after_log_id),
+            "auth": api.get_auth_state(),
+            "startup": api.get_startup_status(),
+            "update": api.get_update_state(),
+            "auth_flow": {
+                "code": str(api.auth_code or ""),
+                "url": str(api.auth_url or "https://www.twitch.tv/activate"),
+                "status": str(api.auth_status or ""),
+            },
         }
-    if active_screen == "followers":
-        result["followers"] = api.get_followed_channels_state()
-    elif active_screen == "drops":
-        result["drops"] = api.get_drops_inventory_state()
-    return result
+        if active_screen == "followers":
+            result["followers"] = api.get_followed_channels_state()
+        elif active_screen == "drops":
+            result["drops"] = api.get_drops_inventory_state()
+        return result
 
 
 class RequestHandler(socketserver.StreamRequestHandler):
