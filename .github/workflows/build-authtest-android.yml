@@ -12,6 +12,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: authtest-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-authtest-android:
     runs-on: ubuntu-22.04
