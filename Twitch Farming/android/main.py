@@ -424,14 +424,6 @@ class TwitchMobileApp(App):
             self._render_predictions()
         self._render_events()
         self._render_settings()
-        if not self.state.get("authenticated") and self.screen_manager.current == "channels" and self.state:
-            self._ensure_login_prompt()
-
-    def _ensure_login_prompt(self):
-        if getattr(self, "_login_prompt_open", False):
-            return
-        self._login_prompt_open = True
-        Clock.schedule_once(lambda _dt: self.open_login_popup(), 0.1)
 
     def _card(self, screen, title, subtitle=None, color=SURFACE):
         card = Panel(color=color, radius=dp(16), orientation="vertical", padding=[dp(14), dp(12)], spacing=dp(8), size_hint_y=None)
