@@ -740,7 +740,7 @@ class TwitchMobileApp(App):
             if self.login_copy_button is not None:
                 self.login_copy_button.disabled = False
             if self.login_status_label is not None:
-                self.login_status_label.text = "Код готов. Нажми «Открыть страницу Twitch», чтобы перейти к подтверждению."
+                self.login_status_label.text = "Код готов. Нажми «Открыть подтверждение в браузере», чтобы завершить подключение."
         elif self.login_status_label is not None:
             if auth_error:
                 self.login_status_label.text = auth_error
