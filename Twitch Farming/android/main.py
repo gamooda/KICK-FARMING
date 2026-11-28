@@ -461,7 +461,7 @@ class TwitchMobileApp(App):
         slots_card = self._card(screen, "АКТИВНЫЙ ФАРМ СЕЙЧАС", slot_text)
         summary = AppText(text=f"{len(state.get('channels') or [])} каналов    ·    +{int(state.get('gained_total') or 0):,} баллов".replace(",", " "), size=11, color=GREEN if active else MUTED, size_hint_y=None, height=dp(22))
         slots_card.add_widget(summary)
-        start = FarmButton("■  ОСТАНОВИТЬ ФАРМ" if active else "▶  ЗАПУСТИТЬ ФАРМ", color=RED if active else PURPLE, size_hint_y=None, height=dp(48))
+        start = FarmButton("ОСТАНОВИТЬ ФАРМ" if active else "ЗАПУСТИТЬ ФАРМ", color=RED if active else PURPLE, size_hint_y=None, height=dp(48))
         start.bind(on_release=lambda *_: self._toggle_farm())
         slots_card.add_widget(start)
         buttons = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(42))
@@ -633,7 +633,7 @@ class TwitchMobileApp(App):
         ]
         for key, title in names:
             enabled = bool(options.get(key, True))
-            button = FarmButton(title + ("  ✓" if enabled else "  —"), color=PURPLE_SOFT if enabled else SURFACE_ALT, size_hint_y=None, height=dp(40))
+            button = FarmButton(title + ("  ВКЛ" if enabled else "  ВЫКЛ"), color=PURPLE_SOFT if enabled else SURFACE_ALT, size_hint_y=None, height=dp(40))
             button.bind(on_release=lambda _b, k=key: self._toggle_local_option(k))
             card.add_widget(button)
         app_card = self._card(screen, "Приложение", "Фоновый сервис держит фарм активным при сворачивании.")

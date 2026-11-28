@@ -68,7 +68,7 @@ jobs:
         run: |
           mkdir -p ../../artifacts
           xvfb-run -a python main.py --preview
-          python -c "from pathlib import Path; files=list(Path('screenshots').glob('*.png')); assert len(files)==6, f'Expected 6 screen captures, got {len(files)}'; print('\n'.join(str(p) for p in files))"
+          python -c "from pathlib import Path; from PIL import Image, ImageChops; files=list(Path('screenshots').glob('*.png')); assert len(files)==6, f'Expected 6 screen captures, got {len(files)}'; names={p.name.split('0')[0] for p in files}; assert len(names)>=6, f'Some mobile sections were not captured: {names}'; a=Image.open(next(p for p in files if p.name.startswith('channels'))).convert('RGB'); b=Image.open(next(p for p in files if p.name.startswith('drops'))).convert('RGB'); assert ImageChops.difference(a,b).getbbox(), 'Drops screenshot is a duplicate of Channels'; print('\n'.join(str(p) for p in files))"
           python -c "import zipfile; from pathlib import Path; z=zipfile.ZipFile('../../artifacts/Twitch-Farming-Android-Screenshots.zip','w',zipfile.ZIP_DEFLATED); [z.write(p,p.name) for p in Path('screenshots').glob('*.png')]; z.close()"
 
       - name: Upload phone UI screenshots
