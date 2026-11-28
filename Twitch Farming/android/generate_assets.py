@@ -143,8 +143,27 @@ def draw_icon(name, color):
     return image
 
 
+def make_notification_icon(size=96):
+    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    scale = size / 48
+    points = [
+        (6, 4), (44, 4), (44, 32), (30, 46),
+        (21, 46), (21, 38), (10, 38), (6, 34)
+    ]
+    draw = ImageDraw.Draw(image)
+    draw.polygon([(int(x * scale), int(y * scale)) for x, y in points], fill=(255, 255, 255, 255))
+    eye_w = max(2, int(size * 5 / 48))
+    eye_h = max(3, int(size * 13 / 48))
+    for center_x in (19.5, 30.5):
+        x = int(center_x * scale - eye_w / 2)
+        y = int(28.5 * scale - eye_h / 2)
+        draw.rounded_rectangle((x, y, x + eye_w, y + eye_h), radius=max(1, size // 48), fill=(0, 0, 0, 0))
+    return image
+
+
 app_icon = make_logo(512, include_eyes=True, background=True)
 app_icon.save(ROOT / "icon.png")
+make_notification_icon().save(ROOT / "notification.png")
 make_logo(256, include_eyes=False).save(ICON_ROOT / "logo_bg.png")
 
 presplash = Image.new("RGB", (480, 800), DARK)
