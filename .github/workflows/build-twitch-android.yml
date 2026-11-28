@@ -12,6 +12,7 @@ on:
       - "Twitch Farming/i18n.py"
       - "Twitch Farming/locales/**"
       - ".github/workflows/build-twitch-android.yml"
+      - ".github/workflows/build-twitch-exe.yml"
 
 permissions:
   actions: read
