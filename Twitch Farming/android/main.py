@@ -1672,7 +1672,7 @@ class TwitchMobileApp(App):
         def visible_log(item):
             message = str(item.get("line") or item.get("message") or "") if isinstance(item, dict) else str(item)
             level = str(item.get("level") or "").upper() if isinstance(item, dict) else ""
-            return level != "DEBUG" and not message.lstrip().startswith("[DEBUG]")
+            return level != "DEBUG" and "[DEBUG]" not in message.upper()
 
         visible_events = [item for item in events if visible_log(item)]
         visible_logs = [item for item in logs if visible_log(item)]
