@@ -825,18 +825,32 @@ class TwitchMobileApp(App):
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
             if activity is None:
                 raise RuntimeError("Android activity is unavailable")
-            intent = Intent(Intent.ACTION_VIEW, Uri.parse("twitch://login"))
-            activity.startActivity(intent)
-            log_event("TWITCH_APP_LOGIN_OPENED", "target=twitch://login")
+            package = "tv.twitch.android.app"
+            for route in ("twitch://login", "twitch://following"):
+                intent = Intent(Intent.ACTION_VIEW)
+                intent.setData(Uri.parse(route))
+                intent.setPackage(package)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                try:
+                    activity.startActivity(intent)
+                    log_event("TWITCH_APP_LOGIN_OPENED", "package=" + package + " route=" + route)
+                    return
+                except BaseException as route_error:
+                    log_event("TWITCH_APP_DEEP_LINK_FAILED", route + " · " + str(route_error))
+            launch = activity.getPackageManager().getLaunchIntentForPackage(package)
+            if launch is None:
+                raise RuntimeError("Приложение Twitch не найдено.")
+            activity.startActivity(launch)
+            log_event("TWITCH_APP_LOGIN_OPENED", "target=launcher_fallback")
+            self.show_toast("Twitch открыт. На экране профиля выбери «Войти».")
         except BaseException as error:
             log_exception("TWITCH_APP_LOGIN_FAILED", error)
-            self.open_external("https://www.twitch.tv/login")
+            self._open_twitch_web_url("https://www.twitch.tv/login")
 
-    def open_twitch_activation(self):
-        url = self._auth_activation_url()
+    def _open_twitch_web_url(self, url):
         if platform != "android":
-            self.open_external(url)
-            return
+            self.show_toast(url)
+            return False
         try:
             from jnius import autoclass
             Intent = autoclass("android.content.Intent")
@@ -844,14 +858,59 @@ class TwitchMobileApp(App):
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
             if activity is None:
                 raise RuntimeError("Android activity is unavailable")
-            intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-            intent.addCategory(Intent.CATEGORY_BROWSABLE)
-            chooser = Intent.createChooser(intent, "Открыть подтверждение Twitch")
-            activity.startActivity(chooser)
-            log_event("TWITCH_ACTIVATION_OPENED", "target=android_app_chooser")
+            uri = Uri.parse(str(url))
+            packages = (
+                "com.android.chrome",
+                "com.mi.globalbrowser",
+                "com.android.browser",
+                "org.mozilla.firefox",
+                "com.opera.browser",
+            )
+            for package in packages:
+                intent = Intent(Intent.ACTION_VIEW)
+                intent.setData(uri)
+                intent.setPackage(package)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                try:
+                    activity.startActivity(intent)
+                    log_event("TWITCH_WEB_URL_OPENED", "package=" + package)
+                    return True
+                except BaseException as package_error:
+                    log_event("TWITCH_BROWSER_PACKAGE_FAILED", package + " · " + str(package_error))
+            intent = Intent(Intent.ACTION_VIEW)
+            intent.setData(uri)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            try:
+                activity.startActivity(intent)
+                log_event("TWITCH_WEB_URL_OPENED", "target=default_browser")
+                return True
+            except BaseException as browser_error:
+                log_exception("TWITCH_DEFAULT_BROWSER_FAILED", browser_error)
+                Clipboard.copy(str(url))
+                self.show_toast("Браузер не открылся. Ссылка скопирована — вставь её в браузер.")
+                return False
         except BaseException as error:
-            log_exception("TWITCH_ACTIVATION_OPEN_FAILED", error)
-            self.show_toast("Не удалось открыть подтверждение Twitch: " + str(error)[:100])
+            log_exception("TWITCH_WEB_URL_OPEN_FAILED", error)
+            try:
+                Clipboard.copy(str(url))
+                self.show_toast("Не удалось открыть браузер. Ссылка скопирована.")
+            except Exception:
+                self.show_toast("Не удалось открыть браузер: " + str(error)[:100])
+            return False
+
+    def open_twitch_activation(self):
+        url = self._auth_activation_url()
+        if not url.startswith("https://www.twitch.tv/activate"):
+            log_event("TWITCH_ACTIVATION_URL_INVALID", "Unexpected activation URL host/path")
+            url = "https://www.twitch.tv/activate"
+            code = str(self.auth_flow.get("code") or self.auth.get("auth_code") or "").strip()
+            if code and code.lower() not in ("подтверждён", "сессия восстановлена"):
+                url += "?public=true&device-code=" + quote(code)
+        if platform != "android":
+            self.open_external(url)
+            return
+        if not self._open_twitch_web_url(url):
+            log_event("TWITCH_ACTIVATION_OPEN_FAILED", "URL copied to clipboard")
 
     def copy_login_code(self):
         code = str(self.auth_flow.get("code") or self.auth.get("auth_code") or "").strip()
@@ -1248,16 +1307,9 @@ class TwitchMobileApp(App):
 
     def open_external(self, url):
         if platform == "android":
-            try:
-                from jnius import autoclass
-                Intent = autoclass("android.content.Intent")
-                Uri = autoclass("android.net.Uri")
-                activity = autoclass("org.kivy.android.PythonActivity").mActivity
-                activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                return
-            except Exception:
-                pass
-        self.show_toast(url)
+            self._open_twitch_web_url(str(url))
+            return
+        self.show_toast(str(url))
 
     def open_battery_settings(self):
         if platform == "android":
