@@ -229,19 +229,22 @@ class AuthWorker(threading.Thread):
                 self.app.startup_note("INFO", "Проверка сессии завершена за %.2f сек. Результат: %s." % (time.monotonic() - restore_started, "успех" if success else "неудача"))
             else:
                 success = bool(self.client.login(force_reauth=self.force_reauth))
+            actual_username = str(getattr(self.client.twitch_login, "username", "") or self.username)
+            auth_error = "" if success else str(getattr(self.client.twitch_login, "last_error", "") or "Twitch не подтвердил авторизацию.")
             self.app.auth_result(
-                self.username,
+                actual_username,
                 self.client if success else None,
                 success,
                 self.restoring,
-                "" if success else "Twitch не подтвердил авторизацию.",
+                auth_error,
             )
         except BaseException as error:
             if self.restoring:
                 self.app.startup_note("ERROR", "Ошибка проверки сохранённой сессии: " + str(error) + "\n" + traceback.format_exc())
             logging.getLogger("twitch_farming.auth").exception("Authentication worker failed")
             try:
-                self.app.auth_result(self.username, None, False, self.restoring, str(error))
+                actual_username = str(getattr(getattr(self.client, "twitch_login", None), "username", "") or self.username)
+                self.app.auth_result(actual_username, None, False, self.restoring, str(error))
             except BaseException:
                 logging.getLogger("twitch_farming.auth").exception("Authentication failure callback failed")
             if self.client is not None:
@@ -2810,6 +2813,29 @@ class TwitchFarmingApi:
         if message.startswith("DEVICE_AUTH_URL:"):
             with self.lock:
                 self.auth_url = message.split(":", 1)[1].strip()
+            return
+        if message.startswith("DEVICE_AUTH_PENDING:"):
+            with self.lock:
+                self.auth_status = message.split(":", 1)[1].strip() or "Ожидаю подтверждения в Twitch…"
+                self.auth_error = ""
+            return
+        if message.startswith("DEVICE_AUTH_APPROVED:"):
+            with self.lock:
+                self.auth_status = "Twitch подтвердил код. Проверяю авторизованный аккаунт…"
+                self.auth_error = ""
+            return
+        if message.startswith("DEVICE_AUTH_VALIDATED:"):
+            with self.lock:
+                self.auth_status = message.split(":", 1)[1].strip() or "Аккаунт Twitch подтверждён."
+                self.auth_error = ""
+            return
+        if message.startswith("DEVICE_AUTH_NETWORK_RETRY:"):
+            with self.lock:
+                self.auth_status = "Проблема связи с Twitch. Повторяю проверку кода…"
+            return
+        if message.startswith("DEVICE_AUTH_SLOW_DOWN:"):
+            with self.lock:
+                self.auth_status = message.split(":", 1)[1].strip() or "Twitch попросил увеличить интервал проверки."
             return
         if "and enter this code:" in message:
             code = message.split("and enter this code:", 1)[1].strip().split()[0]
