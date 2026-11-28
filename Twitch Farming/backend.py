@@ -1416,15 +1416,35 @@ class TwitchFarmingApi:
         }
 
     def _save_config(self, silent=False):
+        temporary = CONFIG_FILE.with_name(CONFIG_FILE.name + ".tmp")
         try:
             APP_DIR.mkdir(parents=True, exist_ok=True)
-            CONFIG_FILE.write_text(json.dumps(self._config_data(), ensure_ascii=False, indent=2), encoding="utf-8")
+            payload = json.dumps(self._config_data(), ensure_ascii=False, indent=2).encode("utf-8")
+            with temporary.open("wb") as output:
+                output.write(payload)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(str(temporary), str(CONFIG_FILE))
+            try:
+                directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+                directory_fd = os.open(str(APP_DIR), directory_flags)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                pass
             if not silent:
                 self._append_event("Настройки сохранены")
             return True
         except OSError as error:
             self._append_event("Не удалось сохранить настройки · " + str(error)[:180])
             return False
+        finally:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def normalize_channel(self, value):
         value = str(value or "").strip()
