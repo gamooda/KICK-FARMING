@@ -392,7 +392,9 @@ class TutorialOverlay(FloatLayout):
                 Line(rounded_rectangle=(self.x + x, self.y + y, width, height, dp(13)), width=dp(2.2))
                 Color(0.82, 0.68, 1.0, 0.035)
                 RoundedRectangle(pos=(self.x + x, self.y + y), size=(width, height), radius=[dp(13)])
-        card_width = max(dp(180), self.width - dp(24))
+        card_width = min(self.width - dp(24), max(dp(180), self.width * 0.94))
+        self.card.height = self.card_height
+        self.description_label.height = dp(48)
         self.card.size = (card_width, self.card_height)
         card_x = (self.width - card_width) / 2
         margin = dp(12)
@@ -1300,12 +1302,20 @@ class TwitchMobileApp(App):
             def after_draw(_next_dt):
                 if self.tutorial_popup is not overlay or self.tutorial_generation != generation:
                     return
-                layout_screen()
-                fresh_target = resolve_target()
-                overlay.set_target(fresh_target)
-                log_event("TUTORIAL_STEP_READY", "step=" + str(self.tutorial_step + 1) + " target=" + target_key + " found=" + str(fresh_target is not None))
-                overlay.set_busy(False)
-                self.tutorial_transitioning = False
+                try:
+                    layout_screen()
+                    fresh_target = resolve_target()
+                    overlay.set_target(fresh_target)
+                    log_event("TUTORIAL_STEP_READY", "step=" + str(self.tutorial_step + 1) + " target=" + target_key + " found=" + str(fresh_target is not None))
+                except BaseException as error:
+                    log_exception("TUTORIAL_STEP_LAYOUT_FAILED step=" + str(self.tutorial_step + 1), error)
+                    try:
+                        overlay.set_target(None)
+                    except BaseException as overlay_error:
+                        log_exception("TUTORIAL_STEP_RECOVERY_FAILED", overlay_error)
+                finally:
+                    overlay.set_busy(False)
+                    self.tutorial_transitioning = False
 
             Clock.schedule_once(after_draw, 0.18)
 
