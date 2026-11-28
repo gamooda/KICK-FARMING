@@ -118,7 +118,7 @@ class AuthTestApp(App):
             cursor_color=(0.75, 0.58, 1, 1),
             selection_color=(0.45, 0.28, 0.7, 0.65)
         )
-        self.log_text.bind(texture_size=self.resize_log_text)
+        self.log_text.bind(text=self.resize_log_text)
         self.log_scroll.add_widget(self.log_text)
         self.log_panel.add_widget(self.log_scroll)
         self.root_layout.add_widget(self.log_panel)
@@ -142,7 +142,12 @@ class AuthTestApp(App):
         )
 
     def resize_log_text(self, *_):
-        target = max(self.log_scroll.height, self.log_text.texture_size[1] + dp(20))
+        width = max(dp(120), self.log_text.width - dp(22))
+        columns = max(18, int(width / max(dp(5), self.log_text.font_size * 0.58)))
+        rows = 0
+        for line in self.log_text.text.splitlines() or [""]:
+            rows += max(1, (len(line) + columns - 1) // columns)
+        target = max(self.log_scroll.height, dp(18) * rows + dp(20))
         self.log_text.height = target
         Clock.schedule_once(lambda _dt: setattr(self.log_scroll, "scroll_y", 0), 0)
 
