@@ -13,14 +13,18 @@ Android client for the existing Twitch Farming engine.
 
 ## Build
 
-Run on Linux (or use the GitHub Actions workflow):
+Run on Linux (or use the GitHub Actions workflow). Buildozer requires a project path without spaces, so prepare the shared engine in the repository and then copy the Android project to a simple temporary path:
 
     cd "Twitch Farming/android"
     bash prepare.sh
-    python -m pip install --upgrade buildozer
+    python generate_assets.py
+    python -m pip install --upgrade buildozer cython==0.29.36
+    mkdir -p /tmp/twitch-farming-android
+    cp -a . /tmp/twitch-farming-android/
+    cd /tmp/twitch-farming-android
     buildozer android debug
 
-The APK is written to bin/. The build intentionally targets only armeabi-v7a because the official Redmi 7A Android 10 firmware is 32-bit. The chipset's 64-bit CPU capability does not make a 64-bit APK compatible with a 32-bit Android userspace.
+The APK is written to /tmp/twitch-farming-android/bin/. The build intentionally targets only armeabi-v7a because the official Redmi 7A Android 10 firmware is 32-bit. The chipset's 64-bit CPU capability does not make a 64-bit APK compatible with a 32-bit Android userspace.
 
 ## Background behavior
 
