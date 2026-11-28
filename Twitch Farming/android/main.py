@@ -15,7 +15,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
-from kivy.uix.screenmanager import FadeTransition, Screen, ScreenManager
+from kivy.uix.screenmanager import FadeTransition, NoTransition, Screen, ScreenManager
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.graphics import Color, RoundedRectangle, Line
@@ -786,14 +786,18 @@ class TwitchMobileApp(App):
         output = Path(os.environ.get("TWITCH_MOBILE_SCREENSHOT_DIR", "screenshots"))
         output.mkdir(parents=True, exist_ok=True)
         names = ("channels", "drops", "followers", "predictions", "events", "settings")
+        self.screen_manager.transition = NoTransition()
 
         def capture(name):
             self.navigate(name)
-            Clock.schedule_once(lambda _event: Window.screenshot(name=str(output / (name + ".png"))), 0.28)
+            self.refresh_screen_content()
+            if self.screen_manager.current != name:
+                raise RuntimeError("The preview could not navigate to " + name)
+            Clock.schedule_once(lambda _event: Window.screenshot(name=str(output / (name + ".png"))), 0.45)
 
         for index, name in enumerate(names):
-            Clock.schedule_once(lambda _event, screen=name: capture(screen), 0.25 + index * 0.85)
-        Clock.schedule_once(lambda _event: self.stop(), 0.25 + len(names) * 0.85 + 0.75)
+            Clock.schedule_once(lambda _event, screen=name: capture(screen), 0.25 + index * 1.0)
+        Clock.schedule_once(lambda _event: self.stop(), 0.25 + len(names) * 1.0 + 0.9)
 
 
 if __name__ == "__main__":
