@@ -703,19 +703,28 @@ class TwitchMobileApp(App):
             self.open_login_popup(self.state.get("username") or "")
 
     def _update_auth_gate(self):
-        if self.preview or not self.startup.get("ready"):
+        if self.preview:
+            return
+        authenticated = bool(self.auth.get("authenticated"))
+        if authenticated:
+            self.login_prompt_shown = True
+            if self.login_popup is not None:
+                popup = self.login_popup
+                self.login_popup = None
+                try:
+                    popup.dismiss()
+                except BaseException as error:
+                    log_exception("AUTH_GATE_LOGIN_POPUP_CLOSE_FAILED", error)
+            if not self.state.get("tutorial_done") and not self.tutorial_shown and self.tutorial_popup is None:
+                self.tutorial_shown = True
+                log_event("AUTH_GATE_TUTORIAL_SCHEDULED", "Twitch authentication confirmed; starting mobile tutorial")
+                Clock.schedule_once(lambda _dt: self.show_tutorial(), 0.25)
+            return
+        if not self.startup.get("ready"):
             return
         worker_state = str(self.auth.get("worker_state") or "").lower()
         waiting = bool(self.auth.get("worker_alive") or self.auth.get("restore_pending") or worker_state in ("restoring", "running"))
         if waiting:
-            return
-        if self.auth.get("authenticated"):
-            if self.login_popup is not None:
-                self.login_popup.dismiss()
-                self.login_popup = None
-            if not self.state.get("tutorial_done") and not self.tutorial_shown and self.tutorial_popup is None:
-                self.tutorial_shown = True
-                Clock.schedule_once(lambda _dt: self.show_tutorial(), 0.25)
             return
         if self.tutorial_popup is not None:
             self.tutorial_popup.dismiss()
@@ -729,6 +738,13 @@ class TwitchMobileApp(App):
         if self.login_popup is None:
             return
         if self.auth.get("authenticated"):
+            popup = self.login_popup
+            self.login_popup = None
+            try:
+                popup.dismiss()
+                log_event("LOGIN_POPUP_CLOSED", "Twitch authentication confirmed")
+            except BaseException as error:
+                log_exception("LOGIN_POPUP_CLOSE_FAILED", error)
             return
         auth_error = str(self.auth.get("auth_error") or "")
         auth_status = str(self.auth.get("auth_status") or "Подготовка входа в Twitch…")
