@@ -419,6 +419,7 @@ class TwitchMobileApp(App):
         self.login_open_button = None
         self.login_app_button = None
         self.login_copy_button = None
+        self.login_submit_button = None
         self.tutorial_popup = None
         self.tutorial_title_label = None
         self.tutorial_description_label = None
@@ -731,23 +732,35 @@ class TwitchMobileApp(App):
             return
         auth_error = str(self.auth.get("auth_error") or "")
         auth_status = str(self.auth.get("auth_status") or "Подготовка входа в Twitch…")
+        worker_alive = bool(self.auth.get("worker_alive"))
         code = str(self.auth_flow.get("code") or self.auth.get("auth_code") or "").strip()
-        if code and code.lower() not in ("подтверждён", "сессия восстановлена"):
+        code_ready = bool(code and code.lower() not in ("подтверждён", "сессия восстановлена"))
+        if self.login_submit_button is not None:
+            self.login_submit_button.disabled = worker_alive
+            if worker_alive:
+                self.login_submit_button.set_label("Ожидание подтверждения…" if code_ready else "Подключение к Twitch…")
+            elif auth_error:
+                self.login_submit_button.set_label("Повторить вход")
+            else:
+                self.login_submit_button.set_label("Войти через Twitch")
+        if code_ready:
             if self.login_code_label is not None:
                 self.login_code_label.text = code
             if self.login_open_button is not None:
                 self.login_open_button.disabled = False
             if self.login_copy_button is not None:
                 self.login_copy_button.disabled = False
-            if self.login_status_label is not None:
-                self.login_status_label.text = "Код готов. Нажми «Открыть подтверждение в браузере», чтобы завершить подключение."
-        elif self.login_status_label is not None:
+        elif self.login_code_label is not None:
+            self.login_code_label.text = "Код ещё не получен" if worker_alive else "Новый код будет создан при повторном входе."
+        if self.login_status_label is not None:
             if auth_error:
                 self.login_status_label.text = auth_error
-            elif self.auth.get("worker_alive"):
+            elif worker_alive:
                 self.login_status_label.text = auth_status
+            elif code_ready:
+                self.login_status_label.text = "Подтверждение не завершено. Проверь код или запроси новый."
             else:
-                self.login_status_label.text = "Нажми «Войти через Twitch», чтобы получить код подтверждения."
+                self.login_status_label.text = "Укажи логин и нажми «Войти через Twitch»."
 
     def _auth_activation_url(self):
         code = str(self.auth_flow.get("code") or self.auth.get("auth_code") or "").strip()
@@ -787,6 +800,7 @@ class TwitchMobileApp(App):
         content.add_widget(self.login_open_button)
         content.add_widget(self.login_copy_button)
         submit = FarmButton("Войти через Twitch", color=PURPLE, icon="login", size_hint_y=None, height=dp(46))
+        self.login_submit_button = submit
         content.add_widget(submit)
         content.add_widget(Widget(size_hint_y=1))
         self.login_popup = Popup(title="", content=content, size_hint=(1, 1), auto_dismiss=False, background_color=BG, separator_color=BG)
@@ -798,14 +812,17 @@ class TwitchMobileApp(App):
                 field.focus = True
                 return
             submit.disabled = True
+            submit.set_label("Подключение к Twitch…")
             self.login_status_label.text = "Создаём запрос авторизации Twitch…"
 
             def completed(result):
                 if not isinstance(result, dict) or not result.get("ok"):
                     submit.disabled = False
+                    submit.set_label("Повторить вход")
                     self.login_status_label.text = str((result or {}).get("message") or "Не удалось начать вход.")
                 else:
-                    self.login_status_label.text = "Запрос отправлен. Ожидаем код подтверждения…"
+                    self.login_status_label.text = str(result.get("message") or "Запрос отправлен. Ожидаем код подтверждения…")
+                    self._update_login_popup()
 
             self.rpc_async("login", [username], callback=completed, timeout=15)
 
