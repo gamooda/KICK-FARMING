@@ -56,6 +56,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Drops watch-selection tests failed." }
           python -c "import importlib.util; assert importlib.util.find_spec('PySide6') is not None, 'PySide6 is not importable'; assert all(importlib.util.find_spec(name) is None for name in ('webview','clr','pystray')), 'A legacy GUI package is importable'"
 
+      - name: Run GUI interaction and screenshot tests
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python ".github/scripts/gui-interaction-test.py"
+          if ($LASTEXITCODE -ne 0) { throw "GUI interaction tests failed." }
+
+      - name: Upload GUI screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: Twitch-Farming-GUI-Screenshots
+          path: "artifacts/gui-smoke/*.png"
+          if-no-files-found: error
+
       - name: Build native Qt executable
         shell: pwsh
         run: |

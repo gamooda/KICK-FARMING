@@ -1965,6 +1965,8 @@ class MainWindow(QMainWindow):
         self._rotation_deadline = 0.0
         self._rotation_mode = "waiting"
         self._modal_overlay = None
+        self._toast_queue = []
+        self._toast_current_text = ""
         self._startup_restore_requested = False
         self._account_profile_request_user = ""
         self._tutorial_active = False
@@ -2239,12 +2241,17 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(shell)
         self.toast = QLabel(shell)
         self.toast.setObjectName("toast")
+        self.toast.setTextFormat(Qt.TextFormat.PlainText)
         self.toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.toast.setWordWrap(True)
+        self.toast.setMinimumWidth(240)
+        self.toast.setMaximumWidth(620)
+        self.toast.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+        self.toast.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.toast.hide()
         self.toast_timer = QTimer(self)
         self.toast_timer.setSingleShot(True)
-        self.toast_timer.timeout.connect(self.toast.hide)
+        self.toast_timer.timeout.connect(self._show_next_toast)
         outer = QVBoxLayout(shell)
         outer.setContentsMargins(1, 1, 1, 1)
         outer.setSpacing(0)
@@ -2589,6 +2596,9 @@ class MainWindow(QMainWindow):
         QToolTip.hideText()
         if hasattr(self, "toast_timer"):
             self.toast_timer.stop()
+        if hasattr(self, "_toast_queue"):
+            self._toast_queue.clear()
+            self._toast_current_text = ""
         if hasattr(self, "toast"):
             self.toast.hide()
         page, title, description = steps[self._tutorial_step]
@@ -3644,10 +3654,12 @@ class MainWindow(QMainWindow):
     def _call(self, method, *args, message=""):
         function = getattr(self.api, method)
         def completed(result, error):
-            if not error and message:
-                self._notify(message)
-            if not error and isinstance(result, dict) and result.get("message"):
-                self._notify(str(result["message"]))
+            if error:
+                return
+            result_message = str(result.get("message") or "").strip() if isinstance(result, dict) else ""
+            notification = result_message or str(message or "").strip()
+            if notification:
+                self._notify(notification)
         self._run_task(method, function, args, completed)
 
 
@@ -4912,24 +4924,54 @@ class MainWindow(QMainWindow):
             overlay.setFocus()
 
     def _position_toast(self):
-        if not hasattr(self, "toast") or self.toast is None or not self.toast.isVisible():
+        if not hasattr(self, "toast") or self.toast is None:
+            return
+        text_value = self._toast_current_text or self.toast.text()
+        if not text_value:
             return
         parent = self.centralWidget()
-        width = min(max(self.toast.sizeHint().width() + 30, 240), max(240, parent.width() - 40), 560)
+        if parent is None:
+            return
+        available_width = max(240, min(620, parent.width() - 32))
+        metrics = self.toast.fontMetrics()
+        longest_line = max((metrics.horizontalAdvance(line) for line in text_value.splitlines()), default=0)
+        width = min(max(240, longest_line + 34), available_width)
         self.toast.setFixedWidth(width)
         self.toast.adjustSize()
-        self.toast.move((parent.width() - self.toast.width()) // 2, max(12, parent.height() - self.toast.height() - 20))
+        x = max(12, (parent.width() - self.toast.width()) // 2)
+        y = max(12, parent.height() - self.toast.height() - 20)
+        self.toast.move(x, y)
+        if self.toast.isVisible():
+            self.toast.raise_()
+
+    def _show_next_toast(self):
+        if not hasattr(self, "toast") or self.toast is None:
+            return
+        self.toast_timer.stop()
+        if not self._toast_queue:
+            self.toast.hide()
+            self._toast_current_text = ""
+            return
+        self._toast_current_text = self._toast_queue.pop(0)
+        self.toast.setTextFormat(Qt.TextFormat.PlainText)
+        self.toast.setText(self._toast_current_text)
+        self.toast.show()
+        self._position_toast()
         self.toast.raise_()
+        duration = min(10000, max(4000, 3000 + len(self._toast_current_text) * 18))
+        self.toast_timer.start(duration)
 
     def _notify(self, message):
         if not hasattr(self, "toast"):
             return
-        text_value = str(message)
-        self.toast.setText(text_value)
-        self._position_toast()
-        self.toast.show()
-        self.toast.raise_()
-        self.toast_timer.start(3500)
+        text_value = str(message or "").strip()
+        if not text_value:
+            return
+        if text_value == self._toast_current_text or text_value in self._toast_queue:
+            return
+        self._toast_queue.append(text_value)
+        if not self.toast_timer.isActive():
+            self._show_next_toast()
 
     def _install_ready(self):
         QTimer.singleShot(400, self._quit_for_update)
