@@ -143,19 +143,9 @@ class Twitch(object):
             or "ANDROID_PRIVATE" in os.environ
         )
         if android_runtime:
-            def persist_session():
-                started = time.monotonic()
-                try:
-                    self.twitch_login.save_cookies(self.cookies_file)
-                    logger.info("Android Twitch session saved securely in %.2f sec.", time.monotonic() - started)
-                except BaseException:
-                    logger.exception("Could not save Android Twitch session securely")
-            threading.Thread(
-                target=persist_session,
-                name="TwitchSessionStorage",
-                daemon=True,
-            ).start()
-            logger.info("Twitch account validated; secure Android session storage is running separately.")
+            started = time.monotonic()
+            self.twitch_login.save_cookies(self.cookies_file)
+            logger.info("Android Twitch session saved securely and flushed to disk in %.2f sec.", time.monotonic() - started)
         else:
             self.twitch_login.save_cookies(self.cookies_file)
             logger.info("Twitch session saved securely.")
