@@ -8,6 +8,7 @@ on:
     paths:
       - "Twitch Farming/**"
       - ".github/workflows/build-twitch-exe.yml"
+      - ".github/workflows/build-twitch-android.yml"
       - ".github/scripts/qt-smoke-test.py"
       - ".github/scripts/drops-watch-selection-test.py"
       - ".github/scripts/gui-interaction-test.py"
