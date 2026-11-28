@@ -140,7 +140,7 @@ def set_android_notification():
         Intent = autoclass("android.content.Intent")
         PendingIntent = autoclass("android.app.PendingIntent")
         launch = service.getPackageManager().getLaunchIntentForPackage(package)
-        pending = PendingIntent.getActivity(service, 0, launch, 0x08000000)
+        pending = PendingIntent.getActivity(service, 0, launch, 0x0C000000)
         notification = (
             builder.setSmallIcon(icon_id)
             .setContentTitle(title)
@@ -185,6 +185,14 @@ def manage_wakelock():
 
 
 def main():
+    service = None
+    try:
+        from jnius import autoclass
+        service = autoclass("org.kivy.android.PythonService").mService
+        if service is not None:
+            service.setAutoRestartService(True)
+    except Exception:
+        pass
     service_api()
     threading.Thread(target=manage_wakelock, name="AndroidNotification", daemon=True).start()
     while True:
