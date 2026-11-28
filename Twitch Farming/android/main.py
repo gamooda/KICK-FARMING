@@ -1017,12 +1017,6 @@ class TwitchMobileApp(App):
     def refresh_screen_content(self, force=False):
         self._render_screen(self.screen_manager.current, force=force)
 
-    def _header_auth_action(self):
-        if self.auth.get("authenticated"):
-            self.confirm_logout()
-        else:
-            self.open_login_popup(self.state.get("username") or "")
-
     def _update_auth_gate(self):
         if self.preview:
             return
@@ -1460,7 +1454,7 @@ class TwitchMobileApp(App):
 
     def _logout_completed(self, result):
         ok = isinstance(result, dict) and bool(result.get("ok"))
-        self.auth_logout_requested = False
+        self.auth_logout_requested = ok
         if ok:
             self.auth_confirmed_at = 0.0
             self.auth_false_snapshot_since = 0.0
@@ -1801,8 +1795,9 @@ class TwitchMobileApp(App):
         content.add_widget(AppText(text="Добавить каналы", size=17, bold=True, align="center", size_hint_y=None, height=dp(28)))
         content.add_widget(AppText(text="Введи логины или ссылки Twitch. Несколько каналов можно разделить запятыми.", size=11, color=MUTED, align="center", size_hint_y=None, height=dp(42)))
         field = Field(hint="Логины или ссылки Twitch (через запятую)")
-        field.background_color = (0.12, 0.12, 0.17, 1)
+        field.background_color = (0, 0, 0, 0)
         field.hint_text_color = (0.62, 0.62, 0.70, 1)
+        rounded(field, (0.12, 0.12, 0.17, 1), radius=dp(10), border=(0.15, 0.15, 0.21, 1))
         content.add_widget(field)
         row = BoxLayout(orientation="horizontal", spacing=dp(10), size_hint_y=None, height=dp(44))
         popup = Popup(
@@ -1810,7 +1805,7 @@ class TwitchMobileApp(App):
             content=content,
             size_hint=(0.92, None),
             height=dp(270),
-            background="",
+            background="atlas://data/images/defaulttheme/modalview-background",
             background_color=(0, 0, 0, 0),
             separator_height=0
         )
