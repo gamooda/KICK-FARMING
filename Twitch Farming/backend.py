@@ -3321,8 +3321,11 @@ class TwitchFarmingApi:
 
     def _check_updates_worker(self):
         try:
+            import ssl
             import urllib.request
+            import certifi
 
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
             request = urllib.request.Request(
                 "https://api.github.com/repos/gamooda/KICK-FARMING/releases/latest",
                 headers={
@@ -3330,7 +3333,7 @@ class TwitchFarmingApi:
                     "User-Agent": "Twitch-Farming-Updater/" + APP_VERSION,
                 },
             )
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with urllib.request.urlopen(request, timeout=20, context=ssl_context) as response:
                 release = json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
             if not isinstance(release, dict):
                 raise RuntimeError("GitHub вернул неожиданный ответ Releases API.")
