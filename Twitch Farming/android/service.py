@@ -6,6 +6,10 @@ import time
 import traceback
 from pathlib import Path
 
+from android_diagnostics import get_log_path, initialize_android_logging, log_event, log_exception
+
+initialize_android_logging("service-module-import")
+
 HOST = "127.0.0.1"
 PORT = 43771
 APP = None
@@ -21,6 +25,7 @@ ALLOWED_METHODS = {
 
 
 def initialize_storage():
+    log_event("SERVICE_STORAGE_BEGIN", "resolving app storage directory")
     try:
         from jnius import autoclass
         service = autoclass("org.kivy.android.PythonService").mService
@@ -29,12 +34,15 @@ def initialize_storage():
             root = Path(base) / "twitch_farming"
             root.mkdir(parents=True, exist_ok=True)
             os.environ["APPDATA"] = str(root)
+            log_event("SERVICE_STORAGE_READY", "APPDATA=" + str(root) + " log=" + get_log_path())
             return
-    except Exception:
-        pass
+        log_event("SERVICE_STORAGE_CONTEXT_EMPTY", "PythonService.mService is None")
+    except BaseException as error:
+        log_exception("SERVICE_STORAGE_JNI_FAILED", error)
     root = Path.home() / ".twitch_farming_android"
     root.mkdir(parents=True, exist_ok=True)
     os.environ["APPDATA"] = str(root)
+    log_event("SERVICE_STORAGE_FALLBACK", "APPDATA=" + str(root) + " log=" + get_log_path())
 
 
 def service_api():
@@ -42,20 +50,34 @@ def service_api():
     with APP_LOCK:
         if APP is not None:
             return APP
-        initialize_storage()
-        import backend
-        backend.webbrowser.open = lambda *_args, **_kwargs: False
-        from backend import TwitchFarmingApi
-        APP = TwitchFarmingApi()
-        threading.Thread(target=APP._startup_tasks, name="AndroidStartup", daemon=True).start()
+        log_event("SERVICE_API_INIT_BEGIN", "creating shared TwitchFarmingApi")
+        try:
+            initialize_storage()
+            import backend
+            backend.webbrowser.open = lambda *_args, **_kwargs: False
+            log_event("SERVICE_BACKEND_IMPORT_OK", "backend module imported")
+            from backend import TwitchFarmingApi
+            APP = TwitchFarmingApi()
+            log_event("SERVICE_API_CREATED", "TwitchFarmingApi instance ready")
+            threading.Thread(target=APP._startup_tasks, name="AndroidStartup", daemon=True).start()
+            log_event("SERVICE_STARTUP_THREAD_STARTED", "AndroidStartup")
 
-        def restore():
-            while not APP.get_startup_status().get("ready"):
-                time.sleep(0.25)
-            APP.begin_session_restore()
+            def restore():
+                try:
+                    log_event("SERVICE_RESTORE_WAIT", "waiting for backend startup")
+                    while not APP.get_startup_status().get("ready"):
+                        time.sleep(0.25)
+                    log_event("SERVICE_RESTORE_BEGIN", "backend startup ready")
+                    APP.begin_session_restore()
+                    log_event("SERVICE_RESTORE_REQUESTED", "session restore requested")
+                except BaseException as error:
+                    log_exception("SERVICE_RESTORE_THREAD_FAILED", error)
 
-        threading.Thread(target=restore, name="AndroidSessionRestore", daemon=True).start()
-        return APP
+            threading.Thread(target=restore, name="AndroidSessionRestore", daemon=True).start()
+            return APP
+        except BaseException as error:
+            log_exception("SERVICE_API_INIT_FAILED", error)
+            raise
 
 
 def build_snapshot(api, after_log_id, active_screen="channels"):
@@ -88,6 +110,7 @@ class RequestHandler(socketserver.StreamRequestHandler):
         try:
             payload = json.loads(line.decode("utf-8"))
             method = str(payload.get("method") or "")
+            log_event("RPC_REQUEST", "method=" + method)
             args = payload.get("args") if isinstance(payload.get("args"), list) else []
             kwargs = payload.get("kwargs") if isinstance(payload.get("kwargs"), dict) else {}
             api = service_api()
@@ -100,7 +123,8 @@ class RequestHandler(socketserver.StreamRequestHandler):
             else:
                 result = {"ok": False, "message": "Недоступная операция: " + method}
             response = {"ok": True, "result": result}
-        except Exception as error:
+        except BaseException as error:
+            log_exception("RPC_REQUEST_FAILED", error)
             response = {"ok": False, "error": str(error) or error.__class__.__name__, "traceback": traceback.format_exc()[-4000:]}
         try:
             self.wfile.write(json.dumps(response, ensure_ascii=False, default=str).encode("utf-8") + b"\n")
@@ -177,8 +201,8 @@ def set_android_notification():
         )
         service.startForeground(1, notification)
         manager.notify(1, notification)
-    except Exception:
-        pass
+    except BaseException as error:
+        log_exception("ANDROID_NOTIFICATION_FAILED", error)
 
 
 def manage_wakelock():
@@ -203,28 +227,43 @@ def manage_wakelock():
                 elif not running and lock.isHeld():
                     lock.release()
             set_android_notification()
-        except Exception:
-            pass
+        except BaseException as error:
+            log_exception("ANDROID_WAKELOCK_LOOP_FAILED", error)
         time.sleep(8)
 
 
 def main():
-    service = None
+    initialize_android_logging("service-main")
+    log_event("SERVICE_MAIN_BEGIN", "foreground service process entered")
     try:
-        from jnius import autoclass
-        service = autoclass("org.kivy.android.PythonService").mService
-        if service is not None:
-            service.setAutoRestartService(True)
-    except Exception:
-        pass
-    service_api()
-    threading.Thread(target=manage_wakelock, name="AndroidNotification", daemon=True).start()
-    while True:
+        service = None
         try:
-            with Server((HOST, PORT), RequestHandler) as server:
-                server.serve_forever(poll_interval=0.5)
-        except OSError:
-            time.sleep(2)
+            from jnius import autoclass
+            service = autoclass("org.kivy.android.PythonService").mService
+            if service is not None:
+                service.setAutoRestartService(True)
+                log_event("SERVICE_AUTORESTART_ENABLED", "setAutoRestartService(True)")
+            else:
+                log_event("SERVICE_CONTEXT_EMPTY", "PythonService.mService is None")
+        except BaseException as error:
+            log_exception("SERVICE_JAVA_INIT_FAILED", error)
+        service_api()
+        log_event("SERVICE_API_READY", "API ready; starting wakelock thread")
+        threading.Thread(target=manage_wakelock, name="AndroidNotification", daemon=True).start()
+        log_event("SERVICE_WATCHDOG_STARTED", "notification and wakelock loop started")
+        while True:
+            try:
+                log_event("RPC_SERVER_BIND", HOST + ":" + str(PORT))
+                with Server((HOST, PORT), RequestHandler) as server:
+                    log_event("RPC_SERVER_READY", HOST + ":" + str(PORT))
+                    server.serve_forever(poll_interval=0.5)
+            except BaseException as error:
+                log_exception("RPC_SERVER_RESTART", error)
+                time.sleep(2)
+    except BaseException as error:
+        log_exception("SERVICE_MAIN_CRASH", error)
+        raise
+
 
 
 if __name__ == "__main__":

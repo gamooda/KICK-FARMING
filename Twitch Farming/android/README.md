@@ -35,6 +35,10 @@ The first run displays the Twitch sign-in dialog. The app shows and copies the T
 
 The farm runs in a separate Android foreground service. The ongoing notification reports whether the service is ready or farming is active. The service holds a partial wake lock only while the farm is running. Android notification and battery controls remain available to the user.
 
+## Startup diagnostics
+
+The app and the foreground service write to the same persistent file: `Android/data/org.gamooda.twitchfarming/files/logs/twitch-farming-android.log`. The Diagnostics panel in Settings can copy or share the log as text. The log includes startup milestones, uncaught Python exceptions, thread failures, service initialization, RPC connection errors and Python fatal-signal traces. Authentication codes and tokens are redacted.
+
 MIUI may still restrict background processes. On Redmi 7A, enable Autostart for Twitch Farming and set Battery saver to No restrictions. Do not force-stop the app while farming.
 
 ## Important limits

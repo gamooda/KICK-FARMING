@@ -8,6 +8,10 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
+from android_diagnostics import get_log_path, get_log_text, initialize_android_logging, log_event, log_exception
+
+initialize_android_logging("ui-module-import")
+
 from kivy.app import App
 from kivy.animation import Animation
 from kivy.clock import Clock
@@ -32,8 +36,9 @@ if platform == "android":
     try:
         from android.storage import app_storage_path
         os.environ.setdefault("APPDATA", app_storage_path())
-    except Exception:
-        pass
+        log_event("APP_STORAGE_READY", "APPDATA=" + str(os.environ.get("APPDATA") or ""))
+    except Exception as error:
+        log_exception("APP_STORAGE_PATH_FAILED", error)
 
 try:
     from i18n import get_language, set_language, translate_text
@@ -375,6 +380,13 @@ class MobileScreen(Screen):
 
 class TwitchMobileApp(App):
     def build(self):
+        initialize_android_logging("ui-build")
+        log_event("APP_BUILD_BEGIN", "python=" + sys.version + " platform=" + str(platform) + " app_file=" + str(__file__))
+        try:
+            icon_files = sorted(path.name for path in ICON_DIR.glob("*.png"))
+            log_event("APP_ASSETS", "icons=" + str(len(icon_files)) + " icon_dir=" + str(ICON_DIR))
+        except Exception as error:
+            log_exception("APP_ASSET_CHECK_FAILED", error)
         Window.clearcolor = BG
         Window.softinput_mode = "below_target"
         if "--preview" in sys.argv:
@@ -428,6 +440,7 @@ class TwitchMobileApp(App):
         self.toast.opacity = 0
         self.root_box.add_widget(self.toast)
         self.refresh_screen_content(force=True)
+        log_event("APP_BUILD_OK", "root widget constructed")
         return self.root_box
 
     def _build_header(self):
@@ -476,8 +489,13 @@ class TwitchMobileApp(App):
         self.poll_state()
 
     def on_start(self):
+        initialize_android_logging("ui-on-start")
+        log_event("APP_ON_START", "preview=" + str(self.preview))
         if not self.preview:
-            self.start_android_service()
+            try:
+                self.start_android_service()
+            except BaseException as error:
+                log_exception("ANDROID_SERVICE_START_CALL_FAILED", error)
             Clock.schedule_once(lambda _dt: self.poll_state(), 0.8)
             Clock.schedule_interval(lambda _dt: self.poll_state(), 3.0)
         else:
@@ -485,22 +503,35 @@ class TwitchMobileApp(App):
             Clock.schedule_once(self.capture_preview, 1.0)
 
     def on_pause(self):
+        log_event("APP_ON_PAUSE", "background lifecycle callback")
         return True
 
     def on_resume(self):
+        log_event("APP_ON_RESUME", "foreground lifecycle callback")
+        initialize_android_logging("ui-on-resume")
         if not self.preview:
             Clock.schedule_once(lambda _dt: self.poll_state(), 0.25)
         return True
 
+    def on_stop(self):
+        log_event("APP_ON_STOP", "Kivy application stopped")
+
     def start_android_service(self):
         if platform != "android":
+            log_event("ANDROID_SERVICE_SKIPPED", "not running on Android")
             return
+        log_event("ANDROID_SERVICE_START_BEGIN", "service_class=" + PACKAGE_NAME + ".ServiceFarm")
         try:
             from jnius import autoclass
             activity = autoclass("org.kivy.android.PythonActivity").mActivity
+            if activity is None:
+                raise RuntimeError("PythonActivity.mActivity is None")
             service_class = autoclass(PACKAGE_NAME + ".ServiceFarm")
+            log_event("ANDROID_SERVICE_CLASS_READY", str(service_class))
             service_class.start(activity, "ic_launcher", APP_NAME, "Фоновый сервис готов", "")
-        except Exception as error:
+            log_event("ANDROID_SERVICE_START_REQUESTED", "ServiceFarm.start returned")
+        except BaseException as error:
+            log_exception("ANDROID_SERVICE_START_FAILED", error)
             self.show_toast("Не удалось запустить фоновый сервис: " + str(error)[:100])
 
     def rpc_async(self, method, args=None, kwargs=None, callback=None, timeout=12):
@@ -511,12 +542,16 @@ class TwitchMobileApp(App):
             self.busy = True
 
         def worker():
+            started = time.monotonic()
+            log_event("RPC_BEGIN", "method=" + str(method))
             try:
                 result = self.rpc.call(method, args, kwargs, timeout=timeout)
                 error = ""
-            except Exception as exc:
+                log_event("RPC_OK", "method=" + str(method) + " elapsed=" + str(round(time.monotonic() - started, 3)))
+            except BaseException as exc:
                 result = None
                 error = str(exc)
+                log_exception("RPC_FAILED method=" + str(method), exc)
 
             def complete(_dt):
                 if method != "snapshot":
@@ -533,7 +568,13 @@ class TwitchMobileApp(App):
                         self.show_toast(result["message"])
                 if method != "snapshot":
                     self.poll_state()
-            Clock.schedule_once(complete, 0)
+            def safe_complete(_dt):
+                try:
+                    complete(_dt)
+                except BaseException as exc:
+                    log_exception("RPC_UI_CALLBACK_FAILED method=" + str(method), exc)
+                    self.busy = False
+            Clock.schedule_once(safe_complete, 0)
 
         threading.Thread(target=worker, name="MobileRPC-" + method, daemon=True).start()
 
@@ -543,12 +584,15 @@ class TwitchMobileApp(App):
         self.polling = True
 
         def worker():
+            started = time.monotonic()
             try:
                 result = self.rpc.call("snapshot", kwargs={"after_log_id": self.last_log_id, "screen": self.screen_manager.current}, timeout=7)
                 error = ""
-            except Exception as exc:
+                log_event("STATE_POLL_OK", "elapsed=" + str(round(time.monotonic() - started, 3)) + " screen=" + str(self.screen_manager.current))
+            except BaseException as exc:
                 result = None
                 error = str(exc)
+                log_exception("STATE_POLL_FAILED", exc)
 
             def complete(_dt):
                 self.polling = False
@@ -556,7 +600,13 @@ class TwitchMobileApp(App):
                     self.apply_snapshot(result)
                 elif error and not self.state:
                     self.header_status.text = "● ПОДКЛЮЧЕНИЕ..."
-            Clock.schedule_once(complete, 0)
+            def safe_complete(_dt):
+                try:
+                    complete(_dt)
+                except BaseException as exc:
+                    log_exception("STATE_POLL_UI_CALLBACK_FAILED", exc)
+                    self.polling = False
+            Clock.schedule_once(safe_complete, 0)
 
         threading.Thread(target=worker, name="MobileStatePoll", daemon=True).start()
 
@@ -1079,6 +1129,10 @@ class TwitchMobileApp(App):
         app_card.add_widget(FarmButton("Язык: " + ("Русский" if self.language == "ru" else "English"), color=SURFACE_ALT, icon="settings", size_hint_y=None, height=dp(42), on_release=lambda *_: self.toggle_language()))
         app_card.add_widget(FarmButton("Открыть GitHub Releases", color=SURFACE_ALT, icon="github", size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_external(GITHUB_RELEASES)))
         app_card.add_widget(FarmButton("Настройки батареи MIUI", color=SURFACE_ALT, icon="settings", size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_battery_settings()))
+        diagnostics = self._card(screen, "Диагностика", "Журнал сохраняется отдельно для интерфейса и фонового сервиса.")
+        diagnostics.add_widget(AppText(text="Файл: " + get_log_path(), size=9, color=MUTED, size_hint_y=None, height=dp(48)))
+        diagnostics.add_widget(FarmButton("Скопировать журнал", color=SURFACE_ALT, icon="copy", size_hint_y=None, height=dp(42), on_release=lambda *_: self.copy_diagnostics()))
+        diagnostics.add_widget(FarmButton("Поделиться журналом", color=PURPLE, icon="external", size_hint_y=None, height=dp(42), on_release=lambda *_: self.share_diagnostics()))
 
     def toggle_language(self):
         self.language = "en" if self.language == "ru" else "ru"
@@ -1168,6 +1222,38 @@ class TwitchMobileApp(App):
             except Exception as error:
                 self.show_toast(str(error)[:140])
 
+    def copy_diagnostics(self):
+        try:
+            text = get_log_text()
+            Clipboard.copy(text)
+            self.show_toast("Журнал скопирован. Вставь его в сообщение.")
+        except BaseException as error:
+            log_exception("COPY_DIAGNOSTICS_FAILED", error)
+            self.show_toast("Не удалось скопировать журнал.")
+
+    def share_diagnostics(self):
+        try:
+            text = get_log_text()
+            if platform == "android":
+                from jnius import autoclass
+                Intent = autoclass("android.content.Intent")
+                activity = autoclass("org.kivy.android.PythonActivity").mActivity
+                intent = Intent(Intent.ACTION_SEND)
+                intent.setType("text/plain")
+                intent.putExtra(Intent.EXTRA_SUBJECT, "Twitch Farming Android log")
+                intent.putExtra(Intent.EXTRA_TEXT, text)
+                activity.startActivity(Intent.createChooser(intent, "Отправить журнал"))
+                return
+            Clipboard.copy(text)
+            self.show_toast("Журнал скопирован.")
+        except BaseException as error:
+            log_exception("SHARE_DIAGNOSTICS_FAILED", error)
+            try:
+                Clipboard.copy(get_log_text())
+                self.show_toast("Не удалось открыть отправку. Журнал скопирован.")
+            except Exception:
+                self.show_toast("Не удалось подготовить журнал.")
+
     def show_toast(self, message):
         self.toast.text = str(message or "")
         self.toast.opacity = 1
@@ -1236,4 +1322,11 @@ class TwitchMobileApp(App):
 
 
 if __name__ == "__main__":
-    TwitchMobileApp().run()
+    log_event("UI_ENTRYPOINT", "TwitchMobileApp.run starting")
+    try:
+        TwitchMobileApp().run()
+    except BaseException as error:
+        log_exception("UI_ENTRYPOINT_CRASH", error)
+        raise
+    finally:
+        log_event("UI_ENTRYPOINT_FINISHED", "TwitchMobileApp.run returned")
