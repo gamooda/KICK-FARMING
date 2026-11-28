@@ -409,6 +409,7 @@ class TwitchMobileApp(App):
         self.screen_dirty = {}
         self.startup = {}
         self.auth_flow = {}
+        self.update_state = {}
         self.followers_limit = 40
         self.login_popup = None
         self.login_prompt_shown = False
@@ -626,6 +627,7 @@ class TwitchMobileApp(App):
         self.auth = self.snapshot.get("auth") or {}
         self.startup = self.snapshot.get("startup") or {}
         self.auth_flow = self.snapshot.get("auth_flow") or {}
+        self.update_state = self.snapshot.get("update") or {}
         if isinstance(self.snapshot.get("followers"), dict):
             self.followers = self.snapshot.get("followers") or {}
         if isinstance(self.snapshot.get("drops"), dict):
@@ -667,7 +669,7 @@ class TwitchMobileApp(App):
         elif name == "events":
             data = {"events": (state.get("events") or [])[-20:], "logs": self.log_cache[-25:]}
         else:
-            data = {"options": state.get("options"), "app_settings": state.get("app_settings"), "auth": self.auth, "language": self.language}
+            data = {"options": state.get("options"), "app_settings": state.get("app_settings"), "auth": self.auth, "update": self.update_state, "language": self.language}
         return json.dumps(data, sort_keys=True, ensure_ascii=False, default=str)
 
     def _render_screen(self, name, force=False):
@@ -737,11 +739,8 @@ class TwitchMobileApp(App):
                 self.login_open_button.disabled = False
             if self.login_copy_button is not None:
                 self.login_copy_button.disabled = False
-            if code != self.last_auth_code_opened:
-                self.last_auth_code_opened = code
-                Clock.schedule_once(lambda _dt: self.open_external(self._auth_activation_url()), 0.35)
             if self.login_status_label is not None:
-                self.login_status_label.text = "Введи код на странице Twitch. После подтверждения вернись в приложение."
+                self.login_status_label.text = "Код готов. Нажми «Открыть страницу Twitch», чтобы перейти к подтверждению."
         elif self.login_status_label is not None:
             if auth_error:
                 self.login_status_label.text = auth_error
@@ -777,19 +776,15 @@ class TwitchMobileApp(App):
         content.add_widget(code_panel)
         self.login_open_button = FarmButton("Открыть страницу Twitch", color=SURFACE_ALT, icon="external", size_hint_y=None, height=dp(42))
         self.login_open_button.disabled = True
-        self.login_open_button.bind(on_release=lambda *_: self.open_external(self._auth_activation_url()))
+        self.login_open_button.bind(on_release=lambda *_: self.open_twitch_activation())
         self.login_copy_button = FarmButton("Скопировать код", color=SURFACE_ALT, icon="copy", size_hint_y=None, height=dp(38))
         self.login_copy_button.disabled = True
         self.login_copy_button.bind(on_release=lambda *_: self.copy_login_code())
         content.add_widget(self.login_open_button)
         content.add_widget(self.login_copy_button)
-        row = BoxLayout(orientation="horizontal", spacing=dp(8), size_hint_y=None, height=dp(44))
-        submit = FarmButton("Войти через Twitch", color=PURPLE, icon="login")
-        later = FarmButton("Позже", color=SURFACE_ALT, icon="close")
-        row.add_widget(submit)
-        row.add_widget(later)
-        content.add_widget(row)
-        self.login_popup = Popup(title="Авторизация Twitch", content=content, size_hint=(0.94, None), height=dp(430), auto_dismiss=False, background_color=SURFACE)
+        submit = FarmButton("Войти через Twitch", color=PURPLE, icon="login", size_hint_y=None, height=dp(46))
+        content.add_widget(submit)
+        self.login_popup = Popup(title="", content=content, size_hint=(0.94, None), height=dp(390), auto_dismiss=False, background_color=SURFACE)
 
         def begin_login():
             username = field.text.strip()
@@ -810,10 +805,48 @@ class TwitchMobileApp(App):
             self.rpc_async("login", [username], callback=completed, timeout=15)
 
         submit.bind(on_release=lambda *_: begin_login())
-        later.bind(on_release=lambda *_: self.login_popup.dismiss())
         self.login_popup.open()
         if self.auth_flow.get("code"):
             self._update_login_popup()
+
+    def open_twitch_activation(self):
+        url = self._auth_activation_url()
+        if platform != "android":
+            self.open_external(url)
+            return
+        try:
+            from jnius import autoclass
+            Intent = autoclass("android.content.Intent")
+            Uri = autoclass("android.net.Uri")
+            activity = autoclass("org.kivy.android.PythonActivity").mActivity
+            if activity is None:
+                raise RuntimeError("Android activity is unavailable")
+            package_manager = activity.getPackageManager()
+            twitch_package = "tv.twitch.android.app"
+            chrome_package = "com.android.chrome"
+            try:
+                package_manager.getPackageInfo(twitch_package, 0)
+                twitch_intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                twitch_intent.setPackage(twitch_package)
+                activity.startActivity(twitch_intent)
+                log_event("TWITCH_ACTIVATION_OPENED", "target=installed_twitch_app")
+                return
+            except BaseException as twitch_error:
+                log_event("TWITCH_APP_NOT_OPENED", str(twitch_error))
+            try:
+                package_manager.getPackageInfo(chrome_package, 0)
+                browser_intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                browser_intent.setPackage(chrome_package)
+                activity.startActivity(browser_intent)
+                log_event("TWITCH_ACTIVATION_OPENED", "target=google_chrome")
+                return
+            except BaseException as chrome_error:
+                log_event("CHROME_NOT_OPENED", str(chrome_error))
+            activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            log_event("TWITCH_ACTIVATION_OPENED", "target=default_browser")
+        except BaseException as error:
+            log_exception("TWITCH_ACTIVATION_OPEN_FAILED", error)
+            self.show_toast("Не удалось открыть страницу Twitch: " + str(error)[:100])
 
     def copy_login_code(self):
         code = str(self.auth_flow.get("code") or self.auth.get("auth_code") or "").strip()
@@ -1129,10 +1162,37 @@ class TwitchMobileApp(App):
         app_card.add_widget(FarmButton("Язык: " + ("Русский" if self.language == "ru" else "English"), color=SURFACE_ALT, icon="settings", size_hint_y=None, height=dp(42), on_release=lambda *_: self.toggle_language()))
         app_card.add_widget(FarmButton("Открыть GitHub Releases", color=SURFACE_ALT, icon="github", size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_external(GITHUB_RELEASES)))
         app_card.add_widget(FarmButton("Настройки батареи MIUI", color=SURFACE_ALT, icon="settings", size_hint_y=None, height=dp(42), on_release=lambda *_: self.open_battery_settings()))
+        update_state = self.update_state if isinstance(self.update_state, dict) else {}
+        update_card = self._card(screen, "Обновления", "Проверка актуальной версии через GitHub Releases.")
+        current_version = str(update_state.get("current_version") or "—")
+        latest_version = str(update_state.get("latest_version") or "")
+        update_status = str(update_state.get("status") or "Проверка ещё не запускалась.")
+        if update_state.get("error"):
+            update_status += "\\n" + str(update_state.get("error"))
+        version_text = "Установлена версия: " + current_version
+        if latest_version:
+            version_text += "\\nПоследняя версия: " + latest_version
+        update_card.add_widget(AppText(text=version_text, size=10, color=MUTED, size_hint_y=None, height=dp(34)))
+        update_card.add_widget(AppText(text=update_status, size=10, color=GREEN if update_state.get("phase") == "up_to_date" else AMBER if update_state.get("phase") in ("checking", "available") else MUTED, size_hint_y=None, height=dp(42)))
+        checking = update_state.get("phase") == "checking"
+        check_button = FarmButton("Проверка..." if checking else "Проверить обновления", color=SURFACE_ALT if checking else PURPLE, icon="refresh", size_hint_y=None, height=dp(44))
+        check_button.disabled = bool(checking)
+        check_button.bind(on_release=lambda *_: self.check_for_updates())
+        update_card.add_widget(check_button)
+        if update_state.get("update_available"):
+            release_url = str(update_state.get("release_url") or GITHUB_RELEASES)
+            update_card.add_widget(FarmButton("Открыть релиз и скачать APK", color=GREEN, icon="external", size_hint_y=None, height=dp(44), on_release=lambda *_: self.open_external(release_url)))
         diagnostics = self._card(screen, "Диагностика", "Журнал сохраняется отдельно для интерфейса и фонового сервиса.")
         diagnostics.add_widget(AppText(text="Файл: " + get_log_path(), size=9, color=MUTED, size_hint_y=None, height=dp(48)))
         diagnostics.add_widget(FarmButton("Скопировать журнал", color=SURFACE_ALT, icon="copy", size_hint_y=None, height=dp(42), on_release=lambda *_: self.copy_diagnostics()))
         diagnostics.add_widget(FarmButton("Поделиться журналом", color=PURPLE, icon="external", size_hint_y=None, height=dp(42), on_release=lambda *_: self.share_diagnostics()))
+
+    def check_for_updates(self):
+        self.rpc_async(
+            "check_for_updates",
+            callback=lambda result: self.show_toast("Проверка GitHub Releases запущена." if isinstance(result, dict) and result.get("ok") else str((result or {}).get("message") or "Не удалось запустить проверку.")),
+            timeout=10
+        )
 
     def toggle_language(self):
         self.language = "en" if self.language == "ru" else "ru"

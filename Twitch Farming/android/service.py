@@ -15,7 +15,7 @@ PORT = 43771
 APP = None
 APP_LOCK = threading.RLock()
 ALLOWED_METHODS = {
-    "login", "logout", "start_farm", "stop_farm", "save_settings", "save_channel_editor",
+    "login", "logout", "check_for_updates", "start_farm", "stop_farm", "save_settings", "save_channel_editor",
     "remove_channel", "reorder_channels", "refresh_channel_profiles",
     "refresh_followed_channels", "add_followed_channel", "refresh_drops_inventory",
     "set_drops_campaign_focus", "clear_drops_campaign_focus",
