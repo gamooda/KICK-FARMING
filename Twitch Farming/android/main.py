@@ -531,7 +531,7 @@ class TwitchMobileApp(App):
                 raise RuntimeError("PythonActivity.mActivity is None")
             service_class = autoclass(PACKAGE_NAME + ".ServiceFarm")
             log_event("ANDROID_SERVICE_CLASS_READY", str(service_class))
-            service_class.start(activity, "icon", APP_NAME, "", "")
+            service_class.start(activity, "notification", APP_NAME, "", "")
             log_event("ANDROID_SERVICE_START_REQUESTED", "ServiceFarm.start returned")
         except BaseException as error:
             log_exception("ANDROID_SERVICE_START_FAILED", error)
